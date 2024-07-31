@@ -6,6 +6,8 @@ use core::arch::asm;
 use limine::request::FramebufferRequest;
 use limine::BaseRevision;
 
+pub mod base;
+
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
 // Be sure to mark all limine requests with #[used], otherwise they may be removed by the compiler.
