@@ -3,7 +3,6 @@
 
 use core::arch::asm;
 
-use limine::request::FramebufferRequest;
 use limine::BaseRevision;
 
 pub mod base;
