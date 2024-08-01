@@ -20,6 +20,8 @@ unsafe extern "C" fn _start() -> ! {
     // All limine requests must also be referenced in a called function, otherwise they may be
     // removed by the linker.
     assert!(BASE_REVISION.is_supported());
+    base::debug::terminal::init_debug_terminal();
+    base::debug::terminal::write_string("Hello World!");
 
     hcf();
 }

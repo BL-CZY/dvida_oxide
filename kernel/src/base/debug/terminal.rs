@@ -18,7 +18,7 @@ pub struct TerminalContext {
     cursor_row: u64,
     cursor_col: u64,
     color_buffer: [[u64; 160]; 50],
-    text_buffer: [[char; 160]; 50],
+    text_buffer: [[u8; 160]; 50],
 }
 
 // Debug Terminal Context
@@ -35,7 +35,7 @@ static mut DTC: TerminalContext = TerminalContext {
     cursor_row: 0,
     cursor_col: 0,
     color_buffer: [[0xFFFFFF00000000; 160]; 50],
-    text_buffer: [['\0'; 160]; 50],
+    text_buffer: [[b'\0'; 160]; 50],
 };
 
 pub enum TerminalErr {
@@ -71,9 +71,9 @@ fn clear_debug_terminal() {
     unsafe {
         for row in 0..DTC.terminal_height as usize {
             for col in 0..DTC.terminal_width as usize {
-                DTC.text_buffer[row][col] = '\0';
+                DTC.text_buffer[row][col] = b'\0';
                 DTC.color_buffer[row][col] = 0xFFFFFF00000000;
-                debug_render_char('\0', row as u64, col as u64);
+                debug_render_char(b'\0', row as u64, col as u64);
             }
         }
         DTC.current_row = 0;
@@ -120,7 +120,7 @@ fn update_debug_cursor(remove: bool) {
     }
 }
 
-fn debug_render_char(character: char, row: u64, col: u64) {
+fn debug_render_char(character: u8, row: u64, col: u64) {
     let font_offset: usize = character as usize * 16;
 
     for i in 0..16u64 {
@@ -160,7 +160,7 @@ unsafe fn debug_terminal_moveup() {
 
     for i in 0..DTC.terminal_width as usize {
         DTC.color_buffer[(DTC.terminal_height - 1) as usize][i] = 0xFFFFFF00000000;
-        DTC.text_buffer[(DTC.terminal_height - 1) as usize][i] = '\0';
+        DTC.text_buffer[(DTC.terminal_height - 1) as usize][i] = 0;
     }
 
     debug_render_buffer();
@@ -188,5 +188,49 @@ unsafe fn debug_terminal_back() {
         }
     } else {
         DTC.current_col -= 1;
+    }
+}
+
+unsafe fn debug_terminal_newline() {
+    DTC.current_col = 0;
+    DTC.current_row += 1;
+    if DTC.current_row == DTC.terminal_height {
+        DTC.current_row = DTC.terminal_height - 1;
+        debug_terminal_moveup();
+    }
+}
+
+unsafe fn debug_terminal_putbyte(byte: u8) {
+    let font_offset = byte as usize * 16;
+
+    for i in 0..16 {
+        for j in 0..8 {
+            let pixel_offset =
+                (DTC.current_row * 16 + i) * DTC.frame_buffer_width + DTC.current_col * 8 + j;
+
+            if ((BUILTIN_FONT[font_offset + i as usize] >> (7 - j)) & 0x1) == 0x1 {
+                *(DTC.frame_buffer_addr.add(pixel_offset as usize)) = DTC.cur_fg_color;
+            } else {
+                *(DTC.frame_buffer_addr.add(pixel_offset as usize)) = DTC.cur_bg_color;
+            }
+        }
+    }
+
+    DTC.color_buffer[DTC.current_row as usize][DTC.current_col as usize] =
+        (DTC.cur_fg_color as u64) << 32 | (DTC.cur_bg_color) as u64;
+
+    DTC.text_buffer[DTC.cursor_row as usize][DTC.current_col as usize] = byte;
+    debug_terminal_advance();
+}
+
+pub fn write_string(format: &str) {
+    for byte in format.bytes() {
+        match byte {
+            0x20..=0x7e => unsafe { debug_terminal_putbyte(byte) },
+            b'\n' => unsafe {
+                debug_terminal_newline();
+            },
+            _ => unsafe { debug_terminal_putbyte(0xFE) },
+        }
     }
 }
