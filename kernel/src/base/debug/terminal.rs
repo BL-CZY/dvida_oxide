@@ -49,19 +49,19 @@ static FRAMEBUFFER_REQUEST: FramebufferRequest = FramebufferRequest::new();
 pub fn init_debug_terminal() {
     if let Some(framebuffer_response) = FRAMEBUFFER_REQUEST.get_response() {
         if let Some(framebuffer) = framebuffer_response.framebuffers().next() {
-            configure_debug_terminal(&framebuffer, 100, 100);
+            configure_debug_terminal(&framebuffer, 860, 512);
         }
     }
 }
 
-fn configure_debug_terminal(buffer: &Framebuffer, width: u64, height: u64) {
+fn configure_debug_terminal(buffer: &Framebuffer, res_width: u64, res_height: u64) {
     // set default context
     unsafe {
         DTC.frame_buffer_width = buffer.width();
         DTC.frame_buffer_height = buffer.height();
         DTC.frame_buffer_addr = buffer.addr() as *mut u32;
-        DTC.terminal_width = width / 8;
-        DTC.terminal_height = height / 16;
+        DTC.terminal_width = res_width / 8;
+        DTC.terminal_height = res_height / 16;
     }
 
     clear_debug_terminal();
@@ -115,6 +115,13 @@ fn update_debug_cursor(remove: bool) {
             draw_debug_cursor(DTC.current_row.into(), DTC.current_col.into());
         }
 
+        // draw the character hidden by the cursor
+        debug_render_char(
+            DTC.text_buffer[DTC.cursor_row as usize][DTC.cursor_col as usize],
+            DTC.cursor_row,
+            DTC.cursor_col,
+        );
+
         DTC.cursor_row = DTC.current_row;
         DTC.cursor_col = DTC.current_col;
     }
@@ -142,6 +149,7 @@ unsafe fn debug_render_buffer() {
         for col in 0..DTC.terminal_width as usize {
             DTC.cur_bg_color = DTC.color_buffer[row][col] as u32;
             DTC.cur_fg_color = (DTC.color_buffer[row][col] >> 32) as u32;
+            debug_render_char(DTC.text_buffer[row][col], row as u64, col as u64);
         }
     }
 
@@ -233,4 +241,5 @@ pub fn write_string(format: &str) {
             _ => unsafe { debug_terminal_putbyte(0xFE) },
         }
     }
+    update_debug_cursor(false);
 }
