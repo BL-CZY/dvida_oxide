@@ -21,7 +21,11 @@ unsafe extern "C" fn _start() -> ! {
     // removed by the linker.
     assert!(BASE_REVISION.is_supported());
     base::debug::terminal::init_debug_terminal();
-    base::debug::terminal::write_string("Hello World!");
+    for _ in 0..45 {
+        base::debug::terminal::write_string("Hello Worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    }
+
+    base::debug::terminal::write_string("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 
     hcf();
 }
@@ -29,6 +33,9 @@ unsafe extern "C" fn _start() -> ! {
 #[cfg(not(test))]
 #[panic_handler]
 fn rust_panic(_info: &core::panic::PanicInfo) -> ! {
+    unsafe {
+        asm!("int 0");
+    }
     hcf();
 }
 
