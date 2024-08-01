@@ -7,6 +7,16 @@ use limine::BaseRevision;
 
 pub mod base;
 
+// this is the kernel entry point
+fn kernel_main() {
+    loop {
+        println!("nice: {}", 2);
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
 // Be sure to mark all limine requests with #[used], otherwise they may be removed by the compiler.
@@ -21,11 +31,8 @@ unsafe extern "C" fn _start() -> ! {
     // removed by the linker.
     assert!(BASE_REVISION.is_supported());
     base::debug::terminal::DEFAULT_WRITER.init_debug_terminal();
-    for _ in 0..45 {
-        base::debug::terminal::DEFAULT_WRITER.write_string("Hello Worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    }
 
-    base::debug::terminal::DEFAULT_WRITER.write_string("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    kernel_main();
 
     hcf();
 }
@@ -33,9 +40,6 @@ unsafe extern "C" fn _start() -> ! {
 #[cfg(not(test))]
 #[panic_handler]
 fn rust_panic(_info: &core::panic::PanicInfo) -> ! {
-    unsafe {
-        asm!("int 0");
-    }
     hcf();
 }
 
