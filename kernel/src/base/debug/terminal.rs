@@ -22,7 +22,7 @@ pub struct DebugWriter {
 }
 
 // Debug Terminal Context
-static mut DTC: DebugWriter = DebugWriter {
+pub static mut DEFAULT_WRITER: DebugWriter = DebugWriter {
     frame_buffer_width: 0,
     frame_buffer_height: 0,
     frame_buffer_addr: null_mut(),
@@ -71,17 +71,15 @@ impl DebugWriter {
     }
 
     fn clear_debug_terminal(&mut self) {
-        unsafe {
-            for row in 0..DTC.terminal_height as usize {
-                for col in 0..DTC.terminal_width as usize {
-                    DTC.text_buffer[row][col] = b'\0';
-                    DTC.color_buffer[row][col] = 0xFFFFFF00000000;
-                    self.debug_render_char(b'\0', row as u64, col as u64);
-                }
+        for row in 0..self.terminal_height as usize {
+            for col in 0..self.terminal_width as usize {
+                self.text_buffer[row][col] = b'\0';
+                self.color_buffer[row][col] = 0xFFFFFF00000000;
+                self.debug_render_char(b'\0', row as u64, col as u64);
             }
-            DTC.current_row = 0;
-            DTC.current_col = 0;
         }
+        self.current_row = 0;
+        self.current_col = 0;
 
         self.update_debug_cursor(false);
     }
@@ -90,9 +88,9 @@ impl DebugWriter {
         for i in 0..16u64 {
             for j in 0..8u64 {
                 unsafe {
-                    let pixel_offset: u64 = (row * 16 + i) * DTC.frame_buffer_width + col * 8 + j;
+                    let pixel_offset: u64 = (row * 16 + i) * self.frame_buffer_width + col * 8 + j;
 
-                    *(DTC.frame_buffer_addr.add(pixel_offset as usize)) = DTC.cur_bg_color;
+                    *(self.frame_buffer_addr.add(pixel_offset as usize)) = self.cur_bg_color;
                 }
             }
         }
@@ -102,149 +100,150 @@ impl DebugWriter {
         for i in 0..16u64 {
             for j in 0..8u64 {
                 unsafe {
-                    let pixel_offset: u64 = (row * 16 + i) * DTC.frame_buffer_width + col * 8 + j;
+                    let pixel_offset: u64 = (row * 16 + i) * self.frame_buffer_width + col * 8 + j;
 
-                    *(DTC.frame_buffer_addr.add(pixel_offset as usize)) = 0xFFFFFF;
+                    *(self.frame_buffer_addr.add(pixel_offset as usize)) = 0xFFFFFF;
                 }
             }
         }
     }
 
     fn update_debug_cursor(&mut self, remove: bool) {
-        unsafe {
-            remove_debug_cursor(DTC.cursor_row.into(), DTC.cursor_col.into());
+        self.remove_debug_cursor(self.cursor_row.into(), self.cursor_col.into());
 
-            // draw the character hidden by the cursor
-            debug_render_char(
-                DTC.text_buffer[DTC.cursor_row as usize][DTC.cursor_col as usize],
-                DTC.cursor_row,
-                DTC.cursor_col,
-            );
+        // draw the character hidden by the cursor
+        self.debug_render_char(
+            self.text_buffer[self.cursor_row as usize][self.cursor_col as usize],
+            self.cursor_row,
+            self.cursor_col,
+        );
 
-            if !remove {
-                draw_debug_cursor(DTC.current_row.into(), DTC.current_col.into());
-            }
-
-            DTC.cursor_row = DTC.current_row;
-            DTC.cursor_col = DTC.current_col;
+        if !remove {
+            self.draw_debug_cursor(self.current_row.into(), self.current_col.into());
         }
+
+        self.cursor_row = self.current_row;
+        self.cursor_col = self.current_col;
     }
 
-    fn debug_render_char(character: u8, row: u64, col: u64) {
+    fn debug_render_char(&mut self, character: u8, row: u64, col: u64) {
         let font_offset: usize = character as usize * 16;
 
         for i in 0..16u64 {
             for j in 0..8u64 {
                 unsafe {
-                    let pixel_offset = (row * 16 + i) * DTC.frame_buffer_width + col * 8 + j;
+                    let pixel_offset = (row * 16 + i) * self.frame_buffer_width + col * 8 + j;
                     if ((BUILTIN_FONT[font_offset + i as usize] >> (7 - j)) & 0x1) == 0x1 {
-                        *(DTC.frame_buffer_addr.add(pixel_offset as usize)) = DTC.cur_fg_color;
+                        *(self.frame_buffer_addr.add(pixel_offset as usize)) = self.cur_fg_color;
                     } else {
-                        *(DTC.frame_buffer_addr.add(pixel_offset as usize)) = DTC.cur_bg_color;
+                        *(self.frame_buffer_addr.add(pixel_offset as usize)) = self.cur_bg_color;
                     }
                 }
             }
         }
     }
 
-    unsafe fn debug_render_buffer() {
-        for row in 0..DTC.terminal_height as usize {
-            for col in 0..DTC.terminal_width as usize {
-                DTC.cur_bg_color = DTC.color_buffer[row][col] as u32;
-                DTC.cur_fg_color = (DTC.color_buffer[row][col] >> 32) as u32;
-                debug_render_char(DTC.text_buffer[row][col], row as u64, col as u64);
+    fn debug_render_buffer(&mut self) {
+        for row in 0..self.terminal_height as usize {
+            for col in 0..self.terminal_width as usize {
+                self.cur_bg_color = self.color_buffer[row][col] as u32;
+                self.cur_fg_color = (self.color_buffer[row][col] >> 32) as u32;
+                self.debug_render_char(self.text_buffer[row][col], row as u64, col as u64);
             }
         }
 
-        DTC.current_row = DTC.terminal_height - 1;
-        DTC.current_col = 0;
+        self.current_row = self.terminal_height - 1;
+        self.current_col = 0;
 
-        update_debug_cursor(false);
+        self.update_debug_cursor(false);
     }
 
-    unsafe fn debug_terminal_moveup() {
-        for i in 1..(DTC.terminal_height as usize) {
-            for j in 0..(DTC.terminal_width as usize) {
-                DTC.color_buffer[i - 1][j] = DTC.color_buffer[i][j];
-                DTC.text_buffer[i - 1][j] = DTC.text_buffer[i][j];
+    fn debug_terminal_moveup(&mut self) {
+        for i in 1..(self.terminal_height as usize) {
+            for j in 0..(self.terminal_width as usize) {
+                self.color_buffer[i - 1][j] = self.color_buffer[i][j];
+                self.text_buffer[i - 1][j] = self.text_buffer[i][j];
             }
         }
 
-        for i in 0..(DTC.terminal_width as usize) {
-            DTC.color_buffer[(DTC.terminal_height - 1) as usize][i] = 0xFFFFFF00000000;
-            DTC.text_buffer[(DTC.terminal_height - 1) as usize][i] = 0;
+        for i in 0..(self.terminal_width as usize) {
+            self.color_buffer[(self.terminal_height - 1) as usize][i] = 0xFFFFFF00000000;
+            self.text_buffer[(self.terminal_height - 1) as usize][i] = 0;
         }
 
-        debug_render_buffer();
+        self.debug_render_buffer();
     }
 
-    unsafe fn debug_terminal_advance() {
-        DTC.current_col += 1;
-        if DTC.current_col == DTC.terminal_width {
-            DTC.current_col = 0;
-            DTC.current_row += 1;
-            if DTC.current_row == DTC.terminal_height {
-                DTC.current_row = DTC.terminal_height - 1;
-                debug_terminal_moveup();
+    fn debug_terminal_advance(&mut self) {
+        self.current_col += 1;
+        if self.current_col == self.terminal_width {
+            self.current_col = 0;
+            self.current_row += 1;
+            if self.current_row == self.terminal_height {
+                self.current_row = self.terminal_height - 1;
+                self.debug_terminal_moveup();
             }
         }
     }
 
-    unsafe fn debug_terminal_back() {
-        if DTC.current_col == 0 {
-            DTC.current_col = DTC.terminal_width - 1;
-            if DTC.current_row == 0 {
-                DTC.current_row = 0;
+    fn debug_terminal_back(&mut self) {
+        if self.current_col == 0 {
+            self.current_col = self.terminal_width - 1;
+            if self.current_row == 0 {
+                self.current_row = 0;
             } else {
-                DTC.current_row -= 1;
+                self.current_row -= 1;
             }
         } else {
-            DTC.current_col -= 1;
+            self.current_col -= 1;
         }
     }
 
-    unsafe fn debug_terminal_newline() {
-        DTC.current_col = 0;
-        DTC.current_row += 1;
-        if DTC.current_row == DTC.terminal_height {
-            DTC.current_row = DTC.terminal_height - 1;
-            debug_terminal_moveup();
+    fn debug_terminal_newline(&mut self) {
+        self.current_col = 0;
+        self.current_row += 1;
+        if self.current_row == self.terminal_height {
+            self.current_row = self.terminal_height - 1;
+            self.debug_terminal_moveup();
         }
     }
 
-    unsafe fn debug_terminal_putbyte(byte: u8) {
+    fn debug_terminal_putbyte(&mut self, byte: u8) {
         let font_offset = byte as usize * 16;
 
         for i in 0..16 {
             for j in 0..8 {
-                let pixel_offset =
-                    (DTC.current_row * 16 + i) * DTC.frame_buffer_width + DTC.current_col * 8 + j;
+                let pixel_offset = (self.current_row * 16 + i) * self.frame_buffer_width
+                    + self.current_col * 8
+                    + j;
 
                 if ((BUILTIN_FONT[font_offset + i as usize] >> (7 - j)) & 0x1) == 0x1 {
-                    *(DTC.frame_buffer_addr.add(pixel_offset as usize)) = DTC.cur_fg_color;
+                    unsafe {
+                        *(self.frame_buffer_addr.add(pixel_offset as usize)) = self.cur_fg_color;
+                    }
                 } else {
-                    *(DTC.frame_buffer_addr.add(pixel_offset as usize)) = DTC.cur_bg_color;
+                    unsafe {
+                        *(self.frame_buffer_addr.add(pixel_offset as usize)) = self.cur_bg_color;
+                    }
                 }
             }
         }
 
-        DTC.color_buffer[DTC.current_row as usize][DTC.current_col as usize] =
-            (DTC.cur_fg_color as u64) << 32 | (DTC.cur_bg_color) as u64;
+        self.color_buffer[self.current_row as usize][self.current_col as usize] =
+            (self.cur_fg_color as u64) << 32 | (self.cur_bg_color) as u64;
 
-        DTC.text_buffer[DTC.current_row as usize][DTC.current_col as usize] = byte;
-        debug_terminal_advance();
+        self.text_buffer[self.current_row as usize][self.current_col as usize] = byte;
+        self.debug_terminal_advance();
     }
 
-    pub fn write_string(format: &str) {
+    pub fn write_string(&mut self, format: &str) {
         for byte in format.bytes() {
             match byte {
-                0x20..=0x7e => unsafe { debug_terminal_putbyte(byte) },
-                b'\n' => unsafe {
-                    debug_terminal_newline();
-                },
-                _ => unsafe { debug_terminal_putbyte(0xFE) },
+                0x20..=0x7e => self.debug_terminal_putbyte(byte),
+                b'\n' => self.debug_terminal_newline(),
+                _ => self.debug_terminal_putbyte(0xFE),
             }
         }
-        update_debug_cursor(false);
+        self.update_debug_cursor(false);
     }
 }
