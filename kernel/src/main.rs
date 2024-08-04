@@ -1,16 +1,18 @@
 #![no_std]
 #![no_main]
-
+#![feature(abi_x86_interrupt)]
 use core::arch::asm;
 
+use base::arch::x86_64::{gdt::init_gdt, idt::init_idt};
 use limine::BaseRevision;
 
 pub mod base;
 
 // this is the kernel entry point
 fn kernel_main() {
+    println!("Hello World!");
+    x86_64::instructions::interrupts::int3();
     loop {
-        println!("nice: {}", 2);
         unsafe {
             asm!("hlt");
         }
@@ -31,6 +33,9 @@ unsafe extern "C" fn _start() -> ! {
     // removed by the linker.
     assert!(BASE_REVISION.is_supported());
     base::debug::terminal::DEFAULT_WRITER.init_debug_terminal();
+
+    init_gdt();
+    init_idt();
 
     kernel_main();
 

@@ -187,19 +187,6 @@ impl DebugWriter {
         }
     }
 
-    fn debug_terminal_back(&mut self) {
-        if self.current_col == 0 {
-            self.current_col = self.terminal_width - 1;
-            if self.current_row == 0 {
-                self.current_row = 0;
-            } else {
-                self.current_row -= 1;
-            }
-        } else {
-            self.current_col -= 1;
-        }
-    }
-
     fn debug_terminal_newline(&mut self) {
         self.current_col = 0;
         self.current_row += 1;
