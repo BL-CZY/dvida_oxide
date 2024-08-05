@@ -11,7 +11,7 @@ pub mod base;
 // this is the kernel entry point
 fn kernel_main() {
     println!("Hello World!");
-    x86_64::instructions::interrupts::int3();
+
     loop {
         unsafe {
             asm!("hlt");
@@ -36,6 +36,7 @@ unsafe extern "C" fn _start() -> ! {
 
     init_gdt();
     init_idt();
+    x86_64::instructions::interrupts::enable();
 
     kernel_main();
 
@@ -45,6 +46,7 @@ unsafe extern "C" fn _start() -> ! {
 #[cfg(not(test))]
 #[panic_handler]
 fn rust_panic(_info: &core::panic::PanicInfo) -> ! {
+    println!("{}", _info);
     hcf();
 }
 
