@@ -3,7 +3,7 @@
 #![feature(abi_x86_interrupt)]
 use core::arch::asm;
 
-use base::arch::x86_64::{gdt::init_gdt, idt::init_idt, pic::init_pic};
+use base::arch::x86_64::{gdt::init_gdt, idt::init_idt, memory::pmm::init_pmm, pic::init_pic};
 use limine::BaseRevision;
 
 pub mod base;
@@ -40,6 +40,8 @@ unsafe extern "C" fn _start() -> ! {
     init_idt();
     init_pic();
     x86_64::instructions::interrupts::enable();
+
+    init_pmm();
 
     kernel_main();
 

@@ -252,8 +252,8 @@ impl DebugWriter {
     pub fn write_string(&mut self, format: &str) {
         for byte in format.bytes() {
             match byte {
-                0x20..=0x7e => self.debug_terminal_putbyte(byte),
                 b'\n' => self.debug_terminal_newline(),
+                0x00..=0x7f => self.debug_terminal_putbyte(byte),
                 _ => self.debug_terminal_putbyte(0xFE),
             }
         }
