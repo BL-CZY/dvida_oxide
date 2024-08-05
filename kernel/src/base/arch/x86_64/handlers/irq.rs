@@ -16,7 +16,7 @@ pub enum IrqIndex {
 pub extern "x86-interrupt" fn timer_handler(_stack_frame: InterruptStackFrame) {
     print!(".");
     unsafe {
-        PICS.notify_end_of_interrupt(IrqIndex::Timer as u8);
+        PICS.lock().notify_end_of_interrupt(IrqIndex::Timer as u8);
     }
 }
 
@@ -26,6 +26,7 @@ pub extern "x86-interrupt" fn keyboard_handler(_stack_frame: InterruptStackFrame
     print!("{}", scancode);
 
     unsafe {
-        PICS.notify_end_of_interrupt(IrqIndex::Keyboard as u8);
+        PICS.lock()
+            .notify_end_of_interrupt(IrqIndex::Keyboard as u8);
     }
 }

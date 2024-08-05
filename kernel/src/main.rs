@@ -37,8 +37,8 @@ unsafe extern "C" fn _start() -> ! {
 
     init_gdt();
     init_idt();
-    x86_64::instructions::interrupts::enable();
     init_pic();
+    x86_64::instructions::interrupts::enable();
 
     kernel_main();
 
