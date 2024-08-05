@@ -3,15 +3,14 @@
 #![feature(abi_x86_interrupt)]
 use core::arch::asm;
 
-use base::arch::x86_64::{gdt::init_gdt, idt::init_idt};
+use base::arch::x86_64::{gdt::init_gdt, idt::init_idt, pic::init_pic};
 use limine::BaseRevision;
 
 pub mod base;
+pub mod drivers;
 
 // this is the kernel entry point
 fn kernel_main() {
-    println!("Hello World!");
-
     loop {
         unsafe {
             asm!("hlt");
@@ -31,12 +30,15 @@ static BASE_REVISION: BaseRevision = BaseRevision::new();
 unsafe extern "C" fn _start() -> ! {
     // All limine requests must also be referenced in a called function, otherwise they may be
     // removed by the linker.
+
+    // clear keyboard port
     assert!(BASE_REVISION.is_supported());
     base::debug::terminal::DEFAULT_WRITER.init_debug_terminal();
 
     init_gdt();
     init_idt();
     x86_64::instructions::interrupts::enable();
+    init_pic();
 
     kernel_main();
 
