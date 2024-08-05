@@ -3,6 +3,7 @@ use core::ptr::null_mut;
 
 use limine::framebuffer::Framebuffer;
 use limine::request::FramebufferRequest;
+use spin::Mutex;
 
 use super::BUILTIN_FONT;
 
@@ -18,12 +19,14 @@ pub struct DebugWriter {
     cur_fg_color: u32,
     cursor_row: u64,
     cursor_col: u64,
+    is_cursor_on: bool,
+    cursor_blink_interval: u8,
     color_buffer: [[u64; 160]; 50],
     text_buffer: [[u8; 160]; 50],
 }
 
 // Debug Terminal Context
-pub static mut DEFAULT_WRITER: DebugWriter = DebugWriter {
+pub static mut DEFAULT_WRITER: Mutex<DebugWriter> = Mutex::new(DebugWriter {
     frame_buffer_width: 0,
     frame_buffer_height: 0,
     frame_buffer_addr: null_mut(),
@@ -35,9 +38,11 @@ pub static mut DEFAULT_WRITER: DebugWriter = DebugWriter {
     cur_fg_color: 0xFFFFFF,
     cursor_row: 0,
     cursor_col: 0,
+    is_cursor_on: true,
+    cursor_blink_interval: 2,
     color_buffer: [[0xFFFFFF00000000; 160]; 50],
     text_buffer: [[b'\0'; 160]; 50],
-};
+});
 
 pub enum TerminalErr {
     NoFrameBuffer,
@@ -83,6 +88,26 @@ impl DebugWriter {
         self.current_col = 0;
 
         self.update_debug_cursor(false);
+    }
+
+    pub fn blink_debug_cursor(&mut self) {
+        if self.is_cursor_on {
+            if self.cursor_blink_interval == 0 {
+                self.update_debug_cursor(true);
+                self.is_cursor_on = false;
+                self.cursor_blink_interval = 2;
+            } else {
+                self.cursor_blink_interval -= 1;
+            }
+        } else {
+            if self.cursor_blink_interval == 0 {
+                self.update_debug_cursor(false);
+                self.is_cursor_on = true;
+                self.cursor_blink_interval = 2;
+            } else {
+                self.cursor_blink_interval -= 1;
+            }
+        }
     }
 
     fn remove_debug_cursor(&mut self, row: u64, col: u64) {
@@ -246,8 +271,9 @@ impl fmt::Write for DebugWriter {
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write;
+    use x86_64::instructions::interrupts;
     unsafe {
-        DEFAULT_WRITER.write_fmt(args).unwrap();
+        interrupts::without_interrupts(|| DEFAULT_WRITER.lock().write_fmt(args).unwrap());
     }
 }
 

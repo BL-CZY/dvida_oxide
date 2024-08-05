@@ -8,13 +8,12 @@ use limine::BaseRevision;
 
 pub mod base;
 pub mod drivers;
+pub mod hal;
 
 // this is the kernel entry point
 fn kernel_main() {
     loop {
-        unsafe {
-            asm!("hlt");
-        }
+        x86_64::instructions::hlt();
     }
 }
 
@@ -33,7 +32,9 @@ unsafe extern "C" fn _start() -> ! {
 
     // clear keyboard port
     assert!(BASE_REVISION.is_supported());
-    base::debug::terminal::DEFAULT_WRITER.init_debug_terminal();
+    base::debug::terminal::DEFAULT_WRITER
+        .lock()
+        .init_debug_terminal();
 
     init_gdt();
     init_idt();
