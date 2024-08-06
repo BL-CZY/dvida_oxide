@@ -275,7 +275,7 @@ pub fn _print(args: fmt::Arguments) {
 
 #[macro_export]
 macro_rules! print {
-    ($($arg:tt)*) => ($crate::base::debug::terminal::_print(format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::debug::terminal::_print(format_args!($($arg)*)));
 }
 
 #[macro_export]

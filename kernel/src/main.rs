@@ -2,13 +2,14 @@
 #![no_main]
 #![feature(abi_x86_interrupt)]
 #![feature(custom_test_frameworks)]
-#![test_runner(crate::base::debug::test::test_runner)]
+#![test_runner(debug::test::test_runner)]
 use core::arch::asm;
 
-use base::arch::x86_64::{gdt::init_gdt, idt::init_idt, memory::pmm::init_pmm, pic::init_pic};
+use arch::x86_64::{gdt::init_gdt, idt::init_idt, memory::pmm::init_pmm, pic::init_pic};
 use limine::BaseRevision;
 
-pub mod base;
+pub mod arch;
+pub mod debug;
 pub mod drivers;
 pub mod hal;
 
@@ -34,9 +35,7 @@ unsafe extern "C" fn _start() -> ! {
 
     // clear keyboard port
     assert!(BASE_REVISION.is_supported());
-    base::debug::terminal::DEFAULT_WRITER
-        .lock()
-        .init_debug_terminal();
+    debug::terminal::DEFAULT_WRITER.lock().init_debug_terminal();
 
     init_gdt();
     init_idt();

@@ -1,10 +1,8 @@
 use x86_64::{instructions::port::Port, structures::idt::InterruptStackFrame};
 
 use crate::{
-    base::{
-        arch::x86_64::pic::{PICS, PRIMARY_PIC_OFFSET},
-        debug::terminal::DEFAULT_WRITER,
-    },
+    arch::x86_64::pic::{PICS, PRIMARY_PIC_OFFSET},
+    debug::terminal::DEFAULT_WRITER,
     hal::keyboard::process_scancode,
 };
 

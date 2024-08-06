@@ -5,7 +5,7 @@ use crate::println;
 #[link_section = ".requests"]
 static MEMMAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 enum MemmapEntryType {
     Usable = 0,
@@ -41,6 +41,9 @@ pub fn init_pmm() {
         panic!("[Kernal Panic]: No Hhdm offset");
     };
 
+    let mut total_memory: u64 = 0;
+    let mut total_memory_usable: u64 = 0;
+
     if let Some(res) = MEMMAP_REQUEST.get_response() {
         for (index, entry) in res.entries().iter().enumerate() {
             println!(
@@ -50,6 +53,18 @@ pub fn init_pmm() {
                 entry.base + hhdm_offset,
                 entry.length
             );
+
+            if MemmapEntryType::from_entry(entry.entry_type) == MemmapEntryType::Usable {
+                total_memory_usable += entry.length;
+            }
+
+            total_memory += entry.length;
         }
     }
+
+    println!(
+        "total memory: {}G (round down), total usable: {}G (round down)",
+        total_memory / 0x400 / 0x400 / 0x400,
+        total_memory_usable / 0x400 / 0x400 / 0x400
+    );
 }
