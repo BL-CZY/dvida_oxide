@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 #![feature(abi_x86_interrupt)]
+#![feature(custom_test_frameworks)]
+#![test_runner(crate::base::debug::test::test_runner)]
 use core::arch::asm;
 
 use base::arch::x86_64::{gdt::init_gdt, idt::init_idt, memory::pmm::init_pmm, pic::init_pic};
@@ -48,7 +50,6 @@ unsafe extern "C" fn _start() -> ! {
     hcf();
 }
 
-#[cfg(not(test))]
 #[panic_handler]
 fn rust_panic(_info: &core::panic::PanicInfo) -> ! {
     println!("{}", _info);
