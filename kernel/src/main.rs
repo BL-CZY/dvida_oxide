@@ -2,10 +2,12 @@
 #![no_main]
 #![feature(abi_x86_interrupt)]
 #![feature(custom_test_frameworks)]
-#![test_runner(debug::test::test_runner)]
+#![test_runner(debug::test::run_tests)]
 use core::arch::asm;
 
 use arch::x86_64::{gdt::init_gdt, idt::init_idt, memory::pmm::init_pmm, pic::init_pic};
+#[allow(unused_imports)]
+use debug::test::test_main;
 use limine::BaseRevision;
 
 pub mod arch;
