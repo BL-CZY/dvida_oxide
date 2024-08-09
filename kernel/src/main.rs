@@ -5,7 +5,12 @@
 #![test_runner(debug::test::run_tests)]
 use core::arch::asm;
 
-use arch::x86_64::{gdt::init_gdt, idt::init_idt, memory::pmm::init_pmm, pic::init_pic};
+use arch::x86_64::{
+    gdt::init_gdt,
+    idt::init_idt,
+    memory::{self, memmap::log_memmap},
+    pic::init_pic,
+};
 #[allow(unused_imports)]
 use debug::test::test_main;
 use limine::BaseRevision;
@@ -44,7 +49,8 @@ unsafe extern "C" fn _start() -> ! {
     init_pic();
     x86_64::instructions::interrupts::enable();
 
-    init_pmm();
+    log_memmap();
+    memory::init();
 
     kernel_main();
 
