@@ -6,7 +6,7 @@ use x86_64::{structures::paging::PhysFrame, PhysAddr};
 
 use crate::println;
 
-use super::HHDM_REQUEST;
+use super::get_hhdm_offset;
 
 #[link_section = ".requests"]
 static MEMMAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
@@ -40,21 +40,41 @@ impl MemmapEntryType {
     }
 }
 
-fn sum_memmap(entries: &[&Entry], hhdm_offset: u64) -> (u64, u64) {
+pub fn get_memmap<'a>() -> &'a [&'a Entry] {
+    MEMMAP_REQUEST
+        .get_response()
+        .expect("[Kernel Panic]: Can't get memmap")
+        .entries()
+}
+
+/// returns (total_memory, total_memory_usable), ignoring the last entry if it's not usable
+pub fn sum_memmap(entries: &[&Entry], hhdm_offset: u64, log: bool) -> (u64, u64) {
     let mut total_memory: u64 = 0;
     let mut total_memory_usable: u64 = 0;
 
     for (index, entry) in entries.iter().enumerate() {
-        println!(
-            "memmap entry {}: type: {:?}, base: {:#x}, length: {:#x}",
-            index,
-            MemmapEntryType::from_entry(entry.entry_type),
-            entry.base + hhdm_offset,
-            entry.length
-        );
+        if log {
+            println!(
+                "memmap entry {}: type: {:?}, base: {:#x}, length: {:#x}",
+                index,
+                MemmapEntryType::from_entry(entry.entry_type),
+                entry.base + hhdm_offset,
+                entry.length
+            );
+        }
 
         if MemmapEntryType::from_entry(entry.entry_type) == MemmapEntryType::Usable {
             total_memory_usable += entry.length;
+        }
+
+        // ignore the last one if it's not usable
+        if MemmapEntryType::from_entry(entry.entry_type) != MemmapEntryType::Usable
+            && index >= entries.len() - 1
+        {
+            if log {
+                println!("Ignored the last entry as it's not usable");
+            }
+            continue;
         }
 
         total_memory += entry.length;
@@ -64,38 +84,27 @@ fn sum_memmap(entries: &[&Entry], hhdm_offset: u64) -> (u64, u64) {
 }
 
 pub fn log_memmap() {
-    let hhdm_offset = if let Some(res) = super::HHDM_REQUEST.get_response() {
-        res.offset()
-    } else {
-        panic!("[Kernel Panic]: No Hhdm offset");
-    };
+    let hhdm_offset = get_hhdm_offset().as_u64();
 
-    if let Some(res) = MEMMAP_REQUEST.get_response() {
-        let (total_memory, total_memory_usable) = sum_memmap(res.entries(), hhdm_offset);
+    let (total_memory, total_memory_usable) = sum_memmap(get_memmap(), hhdm_offset, true);
 
-        // filer out usable entry
-        println!(
-            "total memory: {}G (round down), total usable: {}G (round down)",
-            total_memory / 0x400 / 0x400 / 0x400,
-            total_memory_usable / 0x400 / 0x400 / 0x400
-        );
-    } else {
-        panic!("[Kernel Panic]: Can't find memory map");
-    }
+    println!(
+        "total memory: {}G (round down), total usable: {}G (round down)",
+        total_memory / 0x400 / 0x400 / 0x400,
+        total_memory_usable / 0x400 / 0x400 / 0x400
+    );
 }
 
 pub fn read_memmap_usable() -> impl Iterator<Item = PhysFrame> {
-    if let Some(res) = MEMMAP_REQUEST.get_response() {
-        let usable_regions = res
-            .entries()
-            .iter()
-            .filter(|r| r.entry_type == EntryType::USABLE)
-            .map(move |r| r.base..r.base + r.length)
-            .flat_map(|r| r.step_by(super::PAGE_SIZE as usize))
-            .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)));
+    get_memmap()
+        .iter()
+        .filter(|r| r.entry_type == EntryType::USABLE)
+        .map(move |r| r.base..r.base + r.length)
+        .flat_map(|r| r.step_by(super::PAGE_SIZE as usize))
+        .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
+}
 
-        return usable_regions;
-    } else {
-        panic!("[Kernel Panic]: Can't find memory map");
-    }
+pub fn count_mem_usable() -> u64 {
+    let (_, res) = sum_memmap(get_memmap(), get_hhdm_offset().as_u64(), false);
+    res
 }

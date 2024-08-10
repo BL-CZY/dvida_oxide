@@ -56,7 +56,11 @@ impl DebugWriter {
     pub fn init_debug_terminal(&mut self) {
         if let Some(framebuffer_response) = FRAMEBUFFER_REQUEST.get_response() {
             if let Some(framebuffer) = framebuffer_response.framebuffers().next() {
-                self.configure_debug_terminal(&framebuffer, 640, 400);
+                self.configure_debug_terminal(
+                    &framebuffer,
+                    framebuffer.width(),
+                    framebuffer.height(),
+                );
             }
         }
     }

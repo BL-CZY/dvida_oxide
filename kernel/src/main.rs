@@ -18,7 +18,9 @@ use limine::BaseRevision;
 pub mod arch;
 pub mod debug;
 pub mod drivers;
+pub mod dyn_mem;
 pub mod hal;
+pub mod utils;
 
 // this is the kernel entry point
 fn kernel_main() {
