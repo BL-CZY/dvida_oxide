@@ -4,15 +4,17 @@
 #![feature(custom_test_frameworks)]
 #![test_runner(debug::test::run_tests)]
 use core::arch::asm;
+extern crate alloc;
 
 use arch::x86_64::{
     gdt::init_gdt,
     idt::init_idt,
-    memory::{self, memmap::log_memmap},
+    memory::{self, memmap::log_memmap, PAGE_SIZE},
     pic::init_pic,
 };
 #[allow(unused_imports)]
 use debug::test::test_main;
+use dyn_mem::{allocator::init_kheap, KHEAP_PAGE_COUNT};
 use limine::BaseRevision;
 
 pub mod arch;
@@ -52,7 +54,11 @@ unsafe extern "C" fn _start() -> ! {
     x86_64::instructions::interrupts::enable();
 
     log_memmap();
-    memory::init();
+    let (_, kheap_start) = memory::init();
+    init_kheap(
+        kheap_start as *mut u8,
+        (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
+    );
 
     kernel_main();
 
