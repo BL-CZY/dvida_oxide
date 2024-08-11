@@ -11,7 +11,7 @@ all-hdd: $(IMAGE_NAME).hdd
 
 .PHONY: run
 run: $(IMAGE_NAME).iso
-	qemu-system-x86_64 -M q35 -m 4G -cdrom $(IMAGE_NAME).iso -boot d
+	qemu-system-x86_64 -m 4G -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk
 
 .PHONY: run-uefi
 run-uefi: ovmf $(IMAGE_NAME).iso
@@ -19,7 +19,7 @@ run-uefi: ovmf $(IMAGE_NAME).iso
 
 .PHONY: run-hdd
 run-hdd: $(IMAGE_NAME).hdd
-	qemu-system-x86_64 -M q35 -m 4G -hda $(IMAGE_NAME).hdd
+	qemu-system-x86_64 -m 4G -hda $(IMAGE_NAME).hdd
 
 .PHONY: run-hdd-uefi
 run-hdd-uefi: ovmf $(IMAGE_NAME).hdd

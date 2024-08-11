@@ -14,6 +14,7 @@ lazy_static! {
         }
         idt[irq::IrqIndex::Timer as u8].set_handler_fn(irq::timer_handler);
         idt[irq::IrqIndex::Keyboard as u8].set_handler_fn(irq::keyboard_handler);
+        idt[irq::IrqIndex::PrimaryIDE as u8].set_handler_fn(irq::primary_ide_handler);
         idt
     };
 }
