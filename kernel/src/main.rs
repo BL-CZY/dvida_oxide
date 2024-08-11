@@ -14,6 +14,7 @@ use arch::x86_64::{
 };
 #[allow(unused_imports)]
 use debug::test::test_main;
+use drivers::ata::pata::PRIMARY_PATA;
 use dyn_mem::{allocator::init_kheap, KHEAP_PAGE_COUNT};
 use limine::BaseRevision;
 
@@ -26,6 +27,9 @@ pub mod utils;
 
 // this is the kernel entry point
 fn kernel_main() {
+    unsafe {
+        PRIMARY_PATA.lock().identify();
+    }
     loop {
         x86_64::instructions::hlt();
     }
