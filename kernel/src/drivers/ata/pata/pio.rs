@@ -4,10 +4,10 @@ use alloc::vec::Vec;
 use crate::drivers::ata::cmd;
 use crate::utils::binary_test;
 
-use super::PATADevice;
+use super::PataDevice;
 
 #[derive(Debug)]
-pub enum AtaPioIOErr {
+pub enum PataPioIoErr {
     DeviceUnidentified,
     SectorOutOfRange,
     InitTimeout,
@@ -18,7 +18,7 @@ pub enum AtaPioIOErr {
 
 const WAIT_TIME: u32 = 100000;
 
-impl PATADevice {
+impl PataDevice {
     fn get_lba(&self, index: i64) -> u64 {
         if index < 0 {
             if self.lba48_supported {
@@ -32,36 +32,36 @@ impl PATADevice {
         }
     }
 
-    fn verify_lba(&self, lba: u64, count: u16) -> Result<(), AtaPioIOErr> {
+    fn verify_lba(&self, lba: u64, count: u16) -> Result<(), PataPioIoErr> {
         if self.lba48_supported {
             if lba + count as u64 > self.lba48_sector_count {
-                return Err(AtaPioIOErr::SectorOutOfRange);
+                return Err(PataPioIoErr::SectorOutOfRange);
             }
         } else {
             if lba + count as u64 > self.lba28_sector_count as u64 {
-                return Err(AtaPioIOErr::SectorOutOfRange);
+                return Err(PataPioIoErr::SectorOutOfRange);
             }
         }
 
         Ok(())
     }
 
-    fn wait_init(&mut self) -> Result<(), AtaPioIOErr> {
+    fn wait_init(&mut self) -> Result<(), PataPioIoErr> {
         let mut timer = 0;
         while binary_test(unsafe { self.status_port.read() } as u64, 7) {
             timer += 1;
 
             if timer > WAIT_TIME {
-                return Err(AtaPioIOErr::InitTimeout);
+                return Err(PataPioIoErr::InitTimeout);
             }
         }
 
         Ok(())
     }
 
-    fn io_init(&mut self, index: i64, count: u16) -> Result<u64, AtaPioIOErr> {
+    fn io_init(&mut self, index: i64, count: u16) -> Result<u64, PataPioIoErr> {
         if !self.identified {
-            return Err(AtaPioIOErr::DeviceUnidentified);
+            return Err(PataPioIoErr::DeviceUnidentified);
         }
 
         let lba: u64 = self.get_lba(index);
@@ -133,7 +133,7 @@ impl PATADevice {
         }
     }
 
-    fn wait_io(&mut self) -> Result<(), AtaPioIOErr> {
+    fn wait_io(&mut self) -> Result<(), PataPioIoErr> {
         for _ in 0..14 {
             unsafe {
                 self.status_port.read();
@@ -146,13 +146,13 @@ impl PATADevice {
         {
             timer += 1;
             if timer > WAIT_TIME {
-                return Err(AtaPioIOErr::IOTimeout);
+                return Err(PataPioIoErr::IOTimeout);
             }
         }
         Ok(())
     }
 
-    fn read_data(&mut self, count: u16, result: &mut Vec<u8>) -> Result<(), AtaPioIOErr> {
+    fn read_data(&mut self, count: u16, result: &mut Vec<u8>) -> Result<(), PataPioIoErr> {
         for _ in 0..count {
             if let Err(e) = self.wait_io() {
                 return Err(e);
@@ -168,19 +168,19 @@ impl PATADevice {
         Ok(())
     }
 
-    fn flush_cache(&mut self) -> Result<(), AtaPioIOErr> {
+    fn flush_cache(&mut self) -> Result<(), PataPioIoErr> {
         unsafe {
             self.cmd_port.write(cmd::FLUSH_CACHE);
         }
 
         if let Err(_) = self.wait_init() {
-            return Err(AtaPioIOErr::FlushCacheTimeout);
+            return Err(PataPioIoErr::FlushCacheTimeout);
         }
 
         Ok(())
     }
 
-    fn write_data(&mut self, count: u16, input: &mut Vec<u8>) -> Result<(), AtaPioIOErr> {
+    fn write_data(&mut self, count: u16, input: &mut Vec<u8>) -> Result<(), PataPioIoErr> {
         for sector in 0..count as usize {
             if let Err(e) = self.wait_io() {
                 return Err(e);
@@ -199,7 +199,7 @@ impl PATADevice {
         Ok(())
     }
 
-    pub fn pio_read_sectors(&mut self, index: i64, count: u16) -> Result<Vec<u8>, AtaPioIOErr> {
+    pub fn pio_read_sectors(&mut self, index: i64, count: u16) -> Result<Vec<u8>, PataPioIoErr> {
         let lba = match self.io_init(index, count) {
             Ok(val) => val,
             Err(e) => return Err(e),
@@ -225,9 +225,9 @@ impl PATADevice {
         index: i64,
         count: u16,
         input: &mut Vec<u8>,
-    ) -> Result<(), AtaPioIOErr> {
+    ) -> Result<(), PataPioIoErr> {
         if input.len() < (count * 512).into() {
-            return Err(AtaPioIOErr::InputTooSmall);
+            return Err(PataPioIoErr::InputTooSmall);
         }
 
         let lba = match self.io_init(index, count) {

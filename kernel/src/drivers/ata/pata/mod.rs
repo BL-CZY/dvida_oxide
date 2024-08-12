@@ -14,10 +14,17 @@ use x86_64::instructions::port::{
 pub mod pio;
 
 lazy_static! {
-    pub static ref PRIMARY_PATA: Mutex<PATADevice> = Mutex::new(PATADevice::new(0x1F0));
+    pub static ref PRIMARY_PATA: Mutex<PataDevice> = Mutex::new(PataDevice::new(0x1F0));
+    pub static ref SECONDARY_PATA: Mutex<PataDevice> = Mutex::new(PataDevice::new(0x170));
 }
 
-pub struct PATADevice {
+pub enum PataIdentErr {
+    DeviceNonExist,
+    DeviceNotAta,
+    Error,
+}
+
+pub struct PataDevice {
     identified: bool,
     lba48_supported: bool,
     lba28_sector_count: u32,
@@ -38,9 +45,9 @@ pub struct PATADevice {
     cmd_port: PortGeneric<u8, WriteOnlyAccess>,
 }
 
-impl PATADevice {
+impl PataDevice {
     pub fn new(base_port: u16) -> Self {
-        PATADevice {
+        PataDevice {
             identified: false,
             lba48_supported: false,
             lba28_sector_count: 0,
@@ -77,11 +84,11 @@ impl PATADevice {
 
         println!("[ATA drive at port {} identify result]:", { self.port });
         println!("Is lba48 supported: {}", self.lba48_supported);
-        println!("Lba28 last sector: {:x}", self.lba28_sector_count);
-        println!("Lba48 last sector: {:x}", self.lba48_sector_count);
+        println!("Lba28 sector count: {:x}", self.lba28_sector_count);
+        println!("Lba48 sector count: {:x}", self.lba48_sector_count);
     }
 
-    pub unsafe fn identify(&mut self) {
+    pub unsafe fn identify(&mut self) -> Result<(), PataIdentErr> {
         self.drive_port.write(START_IDENTIFY);
 
         self.sector_count_port.write(0);
@@ -93,7 +100,7 @@ impl PATADevice {
 
         if self.status_port.read() == 0 {
             println!("Drive doesn't exist");
-            return;
+            return Err(PataIdentErr::DeviceNonExist);
         }
 
         for _ in 0..14 {
@@ -103,12 +110,12 @@ impl PATADevice {
         loop {
             if self.lba_mid_port.read() != 0 || self.lba_high_port.read() != 0 {
                 println!("Device not ATA");
-                return;
+                return Err(PataIdentErr::DeviceNotAta);
             }
 
             if (self.status_port.read() & 0b00000001) == 0b00000001 {
                 println!("Error");
-                return;
+                return Err(PataIdentErr::Error);
             }
 
             if (self.status_port.read() & 0b00001000) == 0b00001000 {
@@ -123,5 +130,7 @@ impl PATADevice {
         }
 
         self.read_identify_buffer(&buf);
+
+        Ok(())
     }
 }

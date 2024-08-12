@@ -14,8 +14,8 @@ use arch::x86_64::{
 };
 #[allow(unused_imports)]
 use debug::test::test_main;
-use drivers::ata::pata::PRIMARY_PATA;
 use dyn_mem::{allocator::init_kheap, KHEAP_PAGE_COUNT};
+use hal::storage::{PRIMARY_STORAGE_CONTEXT, SECONDARY_STORAGE_CONTEXT};
 use limine::BaseRevision;
 
 pub mod arch;
@@ -27,8 +27,7 @@ pub mod utils;
 
 // this is the kernel entry point
 fn kernel_main() {
-    test_main();
-    PRIMARY_PATA.lock().pio_read_sectors(0, 1);
+    //test_main();
     loop {
         x86_64::instructions::hlt();
     }
@@ -63,9 +62,8 @@ unsafe extern "C" fn _start() -> ! {
         (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
     );
 
-    unsafe {
-        PRIMARY_PATA.lock().identify();
-    }
+    PRIMARY_STORAGE_CONTEXT.lock().init();
+    SECONDARY_STORAGE_CONTEXT.lock().init();
 
     kernel_main();
 

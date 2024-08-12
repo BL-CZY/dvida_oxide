@@ -6,8 +6,6 @@ use crate::{
     hal::keyboard::process_scancode,
 };
 
-use crate::println;
-
 #[derive(Debug, Clone, Copy)]
 // makes it like c enums
 #[repr(u8)]
