@@ -27,6 +27,7 @@ pub mod utils;
 
 // this is the kernel entry point
 fn kernel_main() {
+    test_main();
     unsafe {
         PRIMARY_PATA.lock().identify();
     }

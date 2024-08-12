@@ -24,4 +24,5 @@ pub mod cmd {
     pub const IDENTITY: u8 = 0xEC;
     pub const LBA28: u8 = 0xE0;
     pub const LBA48: u8 = 0x40;
+    pub const FLUSH_CACHE: u8 = 0xE7;
 }
