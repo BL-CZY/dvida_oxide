@@ -49,9 +49,16 @@ pub extern "x86-interrupt" fn keyboard_handler(_stack_frame: InterruptStackFrame
 }
 
 pub extern "x86-interrupt" fn primary_ide_handler(_stack_frame: InterruptStackFrame) {
-    println!("primary ide");
+    //TODO stop polling ig
     unsafe {
         PICS.lock()
-            .notify_end_of_interrupt(IrqIndex::PrimaryIDE as u8)
+            .notify_end_of_interrupt(IrqIndex::PrimaryIDE as u8);
+    }
+}
+
+pub extern "x86-interrupt" fn secondary_ide_handler(_stack_frame: InterruptStackFrame) {
+    unsafe {
+        PICS.lock()
+            .notify_end_of_interrupt(IrqIndex::SecondaryIDE as u8);
     }
 }

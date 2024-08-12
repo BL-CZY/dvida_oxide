@@ -28,9 +28,7 @@ pub mod utils;
 // this is the kernel entry point
 fn kernel_main() {
     test_main();
-    unsafe {
-        PRIMARY_PATA.lock().identify();
-    }
+    PRIMARY_PATA.lock().pio_read_sectors(0, 1);
     loop {
         x86_64::instructions::hlt();
     }
@@ -64,6 +62,10 @@ unsafe extern "C" fn _start() -> ! {
         kheap_start as *mut u8,
         (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
     );
+
+    unsafe {
+        PRIMARY_PATA.lock().identify();
+    }
 
     kernel_main();
 

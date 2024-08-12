@@ -6,13 +6,17 @@ use crate::utils::binary_test;
 
 use super::PATADevice;
 
+#[derive(Debug)]
 pub enum AtaPioIOErr {
     DeviceUnidentified,
     SectorOutOfRange,
     InitTimeout,
     IOTimeout,
     FlushCacheTimeout,
+    InputTooSmall,
 }
+
+const WAIT_TIME: u32 = 100000;
 
 impl PATADevice {
     fn get_lba(&self, index: i64) -> u64 {
@@ -47,7 +51,7 @@ impl PATADevice {
         while binary_test(unsafe { self.status_port.read() } as u64, 7) {
             timer += 1;
 
-            if timer > 10000 {
+            if timer > WAIT_TIME {
                 return Err(AtaPioIOErr::InitTimeout);
             }
         }
@@ -141,7 +145,7 @@ impl PATADevice {
             || binary_test(unsafe { self.status_port.read().into() }, 7)
         {
             timer += 1;
-            if timer > 10000 {
+            if timer > WAIT_TIME {
                 return Err(AtaPioIOErr::IOTimeout);
             }
         }
@@ -185,8 +189,8 @@ impl PATADevice {
             for byte in 0..256usize {
                 unsafe {
                     self.data_port.write(
-                        (input[sector * 512 + byte * 2] as u16) << 8
-                            | input[sector * 512 + (byte * 2) + 1] as u16,
+                        (input[sector * 512 + (byte * 2) + 1] as u16) << 8
+                            | input[sector * 512 + byte * 2] as u16,
                     );
                 }
             }
@@ -222,6 +226,10 @@ impl PATADevice {
         count: u16,
         input: &mut Vec<u8>,
     ) -> Result<(), AtaPioIOErr> {
+        if input.len() < (count * 512).into() {
+            return Err(AtaPioIOErr::InputTooSmall);
+        }
+
         let lba = match self.io_init(index, count) {
             Ok(val) => val,
             Err(e) => return Err(e),
