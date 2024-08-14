@@ -10,15 +10,19 @@ fn guid() {
 }
 
 pub struct Guid {
+    /// the entire guid in little endian
+    whole: u128,
     first: u32,
     second: u16,
     third: u16,
+    // the last two chunks of it in big endian
     last: u64, // u16 & u48
 }
 
 impl Guid {
     pub fn from_buf(buf: &[u8; 16]) -> Self {
         Guid {
+            whole: u128::from_le_bytes(*buf).try_into().unwrap(),
             first: u32::from_le_bytes(buf[0..4].try_into().unwrap()),
             second: u16::from_le_bytes(buf[4..6].try_into().unwrap()),
             third: u16::from_le_bytes(buf[6..8].try_into().unwrap()),
