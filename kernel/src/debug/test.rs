@@ -74,16 +74,3 @@ fn pata_pio() {
         panic!("failed test pata_pio write {:?}", e);
     }
 }
-
-pub fn run_tests(tests: &[&dyn Fn()]) {
-    use crate::println;
-    println!("Running {} tests", tests.len());
-    for (index, test) in tests.iter().enumerate() {
-        test();
-        println!("Test {} succeeded!", index + 1);
-    }
-}
-
-pub fn test_main() {
-    run_tests(&[&pata_pio]);
-}

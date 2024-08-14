@@ -2,7 +2,8 @@
 #![no_main]
 #![feature(abi_x86_interrupt)]
 #![feature(custom_test_frameworks)]
-#![test_runner(debug::test::run_tests)]
+#![test_runner(run_tests)]
+#![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 extern crate alloc;
 
@@ -13,7 +14,6 @@ use arch::x86_64::{
     pic::init_pic,
 };
 #[allow(unused_imports)]
-use debug::test::test_main;
 use dyn_mem::{allocator::init_kheap, KHEAP_PAGE_COUNT};
 use hal::storage::{PRIMARY_STORAGE_CONTEXT, SECONDARY_STORAGE_CONTEXT};
 use limine::BaseRevision;
@@ -27,7 +27,9 @@ pub mod utils;
 
 // this is the kernel entry point
 fn kernel_main() {
-    //test_main();
+    #[cfg(test)]
+    test_main();
+
     loop {
         x86_64::instructions::hlt();
     }
@@ -45,7 +47,6 @@ static BASE_REVISION: BaseRevision = BaseRevision::new();
 unsafe extern "C" fn _start() -> ! {
     // All limine requests must also be referenced in a called function, otherwise they may be
     // removed by the linker.
-
     // clear keyboard port
     assert!(BASE_REVISION.is_supported());
     debug::terminal::DEFAULT_WRITER.lock().init_debug_terminal();
@@ -82,5 +83,16 @@ fn hcf() -> ! {
         loop {
             asm!("hlt");
         }
+    }
+}
+
+#[cfg(test)]
+pub fn run_tests(tests: &[&dyn Fn()]) {
+    use crate::println;
+    println!("sadjaskdjaskdaskdjaksljdklasjdlkasjdklasjdkalsjdklasd");
+    println!("Running {} tests", tests.len());
+    for (index, test) in tests.iter().enumerate() {
+        test();
+        println!("Test {} succeeded!", index + 1);
     }
 }

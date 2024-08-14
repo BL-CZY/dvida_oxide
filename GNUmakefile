@@ -1,29 +1,55 @@
 # Nuke built-in rules and variables.
 override MAKEFLAGS += -rR
 
-override IMAGE_NAME := template
+override IMAGE_NAME := os
 
 .PHONY: all
-all: $(IMAGE_NAME).iso
+all: kernel $(IMAGE_NAME).iso
+
+.PHONY: all-test
+all-test: kernel-test $(IMAGE_NAME).iso
 
 .PHONY: all-hdd
-all-hdd: $(IMAGE_NAME).hdd
+all-hdd: kernel $(IMAGE_NAME).hdd
+
+.PHONY: all-test-hdd
+all-test-hdd: kernel-test $(IMAGE_NAME).hdd
 
 .PHONY: run
-run: $(IMAGE_NAME).iso
+run: kernel $(IMAGE_NAME).iso
 	qemu-system-x86_64 -m 4G -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk
 
+.PHONY: run-test
+run-test: kernel-test $(IMAGE_NAME).iso
+	qemu-system-x86_64 -m 4G -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk
+
+
 .PHONY: run-uefi
-run-uefi: ovmf $(IMAGE_NAME).iso
+run-uefi: kernel ovmf $(IMAGE_NAME).iso
 	qemu-system-x86_64 -m 4G -bios ovmf/OVMF.fd -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk
 
+.PHONY: run-test-uefi
+run-test-uefi: kernel-test ovmf $(IMAGE_NAME).iso
+	qemu-system-x86_64 -m 4G -bios ovmf/OVMF.fd -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk
+
+
 .PHONY: run-hdd
-run-hdd: $(IMAGE_NAME).hdd
+run-hdd: kernel $(IMAGE_NAME).hdd
 	qemu-system-x86_64 -m 4G -hda $(IMAGE_NAME).hdd
 
+.PHONY: run-test-hdd
+run-test-hdd: kernel-test $(IMAGE_NAME).hdd
+	qemu-system-x86_64 -m 4G -hda $(IMAGE_NAME).hdd
+
+
 .PHONY: run-hdd-uefi
-run-hdd-uefi: ovmf $(IMAGE_NAME).hdd
+run-hdd-uefi: kernel ovmf $(IMAGE_NAME).hdd
 	qemu-system-x86_64 -m 4G -bios ovmf/OVMF.fd -hda $(IMAGE_NAME).hdd
+
+.PHONY: run-test-hdd-uefi
+run-test-hdd-uefi: kernel-test ovmf $(IMAGE_NAME).hdd
+	qemu-system-x86_64 -m 4G -bios ovmf/OVMF.fd -hda $(IMAGE_NAME).hdd
+
 
 ovmf:
 	mkdir -p ovmf
@@ -36,9 +62,13 @@ limine/limine:
 
 .PHONY: kernel
 kernel:
-	$(MAKE) -C kernel
+	$(MAKE) -C kernel all
 
-$(IMAGE_NAME).iso: limine/limine kernel
+.PHONY: kernel-test
+kernel-test:
+	$(MAKE) -C kernel all-test
+
+$(IMAGE_NAME).iso: limine/limine
 	rm -rf iso_root
 	mkdir -p iso_root/boot
 	cp -v kernel/kernel iso_root/boot/
@@ -55,7 +85,7 @@ $(IMAGE_NAME).iso: limine/limine kernel
 	./limine/limine bios-install $(IMAGE_NAME).iso
 	rm -rf iso_root
 
-$(IMAGE_NAME).hdd: limine/limine kernel
+$(IMAGE_NAME).hdd: limine/limine
 	rm -f $(IMAGE_NAME).hdd
 	dd if=/dev/zero bs=1M count=0 seek=64 of=$(IMAGE_NAME).hdd
 	sgdisk $(IMAGE_NAME).hdd -n 1:2048 -t 1:ef00
