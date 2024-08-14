@@ -24,6 +24,7 @@ all:
 
 .PHONY: all-test
 all-test:
+		rm -rf target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR)/deps/*kernel*
 		cargo build --tests --keep-going --target $(RUST_TARGET) --profile $(RUST_PROFILE)
 		cp target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR)/deps/$$(cd target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR)/deps && find . -maxdepth 1 -type f -regex "./kernel-................") kernel
 

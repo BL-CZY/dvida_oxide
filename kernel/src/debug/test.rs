@@ -1,28 +1,22 @@
+#[cfg(test)]
+use crate::drivers::ata::pata::PRIMARY_PATA;
+#[cfg(test)]
 use alloc::vec;
-
-use crate::{drivers::ata::pata::PRIMARY_PATA, println};
-
-#[allow(unconditional_recursion)]
-#[allow(unused)]
-fn stack_overflow() {
-    stack_overflow();
-    stack_overflow();
-}
-
-#[allow(unused)]
-fn page_fault() {
-    unsafe {
-        *(0xdeadbeef as *mut u8) = 42;
-    }
-}
-
-#[allow(unused)]
+//
+//#[test_case]
+//fn page_fault() {
+//    unsafe {
+//        *(0xdeadbeef as *mut u8) = 42;
+//    }
+//}
+//
+#[test_case]
 fn binary_test_test() {
     assert!(crate::utils::binary_test(0b001000u64, 3));
     assert!(!crate::utils::binary_test(0b010000u64, 3));
 }
 
-#[allow(unused)]
+#[test_case]
 fn pata_pio() {
     let mut input = vec![];
     for _ in 0..256 {
