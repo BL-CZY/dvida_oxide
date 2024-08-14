@@ -4,41 +4,41 @@ override MAKEFLAGS += -rR
 override IMAGE_NAME := os
 
 .PHONY: all
-all: kernel $(IMAGE_NAME).iso
+all: clean-img kernel $(IMAGE_NAME).iso
 
 .PHONY: all-test
-all-test: kernel-test $(IMAGE_NAME).iso
+all-test: clean-img kernel-test $(IMAGE_NAME).iso
 
 .PHONY: all-hdd
-all-hdd: kernel $(IMAGE_NAME).hdd
+all-hdd: clean-img kernel $(IMAGE_NAME).hdd
 
 .PHONY: all-test-hdd
-all-test-hdd: kernel-test $(IMAGE_NAME).hdd
+all-test-hdd: clean-img kernel-test $(IMAGE_NAME).hdd
 
 .PHONY: run
-run: kernel $(IMAGE_NAME).iso
+run: clean-img kernel $(IMAGE_NAME).iso
 	qemu-system-x86_64 -m 4G -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk
 
 .PHONY: run-test
-run-test: kernel-test $(IMAGE_NAME).iso
+run-test: clean-img kernel-test $(IMAGE_NAME).iso
 	qemu-system-x86_64 -m 4G -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk
 
 
 .PHONY: run-uefi
-run-uefi: kernel ovmf $(IMAGE_NAME).iso
+run-uefi: clean-img kernel ovmf $(IMAGE_NAME).iso
 	qemu-system-x86_64 -m 4G -bios ovmf/OVMF.fd -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk
 
 .PHONY: run-test-uefi
-run-test-uefi: kernel-test ovmf $(IMAGE_NAME).iso
+run-test-uefi: clean-img kernel-test ovmf $(IMAGE_NAME).iso
 	qemu-system-x86_64 -m 4G -bios ovmf/OVMF.fd -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk
 
 
 .PHONY: run-hdd
-run-hdd: kernel $(IMAGE_NAME).hdd
+run-hdd: clean-img kernel $(IMAGE_NAME).hdd
 	qemu-system-x86_64 -m 4G -hda $(IMAGE_NAME).hdd
 
 .PHONY: run-test-hdd
-run-test-hdd: kernel-test $(IMAGE_NAME).hdd
+run-test-hdd: clean-img kernel-test $(IMAGE_NAME).hdd
 	qemu-system-x86_64 -m 4G -hda $(IMAGE_NAME).hdd
 
 
@@ -101,6 +101,10 @@ $(IMAGE_NAME).hdd: limine/limine
 clean:
 	rm -rf iso_root $(IMAGE_NAME).iso $(IMAGE_NAME).hdd
 	$(MAKE) -C kernel clean
+
+.PHONY: clean-img
+clean-img:	
+	rm -rf iso_root $(IMAGE_NAME).iso $(IMAGE_NAME).hdd
 
 .PHONY: distclean
 distclean: clean
