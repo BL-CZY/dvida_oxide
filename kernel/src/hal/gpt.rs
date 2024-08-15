@@ -59,7 +59,6 @@ impl GPTHeader {
         vec.extend(&self.entry_num.to_le_bytes());
         vec.extend(&self.entry_size.to_le_bytes());
         vec.extend(&self.array_crc32.to_le_bytes());
-        assert_eq!(vec.len(), 92);
 
         vec
     }
@@ -122,6 +121,26 @@ impl HalStorageDevice {
 
         result[510] = 0x55;
         result[511] = 0xAA;
+
+        result
+    }
+
+    fn create_raw_header_buf(&self) -> Vec<u8> {
+        let mut result: Vec<u8> = vec![];
+
+        result.extend(b"EFI PART");
+        result.extend(1u32.to_le_bytes());
+        result.extend(92u32.to_le_bytes());
+        result.extend([0u8; 8]);
+        result.extend(1u32.to_le_bytes());
+        result.extend((self.highest_lba() - 1).to_le_bytes());
+        result.extend(34u32.to_le_bytes());
+        result.extend((self.highest_lba() - 34).to_le_bytes());
+        result.extend(Guid::new().to_buf());
+        result.extend(2u32.to_le_bytes());
+        result.extend(128u32.to_le_bytes());
+        result.extend(128u32.to_le_bytes());
+        result.extend([0u8; 4]);
 
         result
     }

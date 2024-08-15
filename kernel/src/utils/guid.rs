@@ -41,6 +41,17 @@ impl Guid {
 
         res
     }
+
+    pub fn new() -> Self {
+        Guid {
+            // TODO dummy
+            whole: 0,
+            first: 0,
+            second: 0,
+            third: 0,
+            last: 0,
+        }
+    }
 }
 
 #[cfg(test)]
