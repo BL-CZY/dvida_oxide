@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 static mut I_TABLE: [u32; 256] = [0; 256];
 
 pub fn initialize_crc32() {
@@ -35,13 +37,20 @@ fn reflect(mut i_reflect: u32, c_char: i8) -> u32 {
     i_val
 }
 
-fn partial_crc(i_crc: &mut u32, s_data: &[u8]) {
+fn partial_crc(i_crc: &mut u32, s_data: &Vec<u8>) {
     for data in s_data.iter() {
         *i_crc = (*i_crc >> 8) ^ unsafe { I_TABLE[((*i_crc & 0xFF) ^ (*data) as u32) as usize] };
     }
 }
 
-fn full_crc(s_data: &[u8]) -> u32 {
+pub fn is_verified_crc32(arr: &Vec<u8>, crc32: u32) -> bool {
+    if crc32 == full_crc(arr) {
+        return true;
+    }
+    false
+}
+
+pub fn full_crc(s_data: &Vec<u8>) -> u32 {
     let mut ul_crc: u32 = 0xFFFFFFFF;
     partial_crc(&mut ul_crc, s_data);
 

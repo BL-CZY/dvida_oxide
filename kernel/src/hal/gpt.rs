@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use crate::utils;
 use crate::utils::guid::Guid;
 
-use super::storage::HalStorageDevice;
+use super::storage::{HalStorageDevice, IoErr};
 
 pub struct GPTHeader {
     sig: [u8; 8],
@@ -64,8 +64,68 @@ impl GPTHeader {
     }
 }
 
+pub struct GPTEntry {
+    type_guid: Guid,
+    unique_guid: Guid,
+    start_lba: u64,
+    end_lba: u64,
+    flags: u64,
+    name: [u16; 36],
+}
+
+impl GPTEntry {
+    pub fn try_from_buf(buf: &[u8]) -> Result<Self, ()> {
+        if !(buf.len() / 128).is_power_of_two() {
+            return Err(());
+        }
+
+        Ok(GPTEntry {
+            type_guid: Guid::from_buf(buf[0..16].try_into().unwrap()),
+            unique_guid: Guid::from_buf(buf[16..32].try_into().unwrap()),
+            start_lba: u64::from_le_bytes(buf[32..40].try_into().unwrap()),
+            end_lba: u64::from_le_bytes(buf[40..48].try_into().unwrap()),
+            flags: u64::from_le_bytes(buf[48..56].try_into().unwrap()),
+            name: buf[56..]
+                .windows(2)
+                .map(|slice| u16::from_le_bytes(slice.try_into().unwrap()))
+                .collect::<Vec<u16>>()
+                .try_into()
+                .unwrap(),
+        })
+    }
+
+    pub fn to_buf(&self) -> Vec<u8> {
+        let mut result = vec![];
+
+        result.extend(self.type_guid.to_buf());
+        result.extend(self.unique_guid.to_buf());
+        result.extend(self.start_lba.to_le_bytes());
+        result.extend(self.end_lba.to_le_bytes());
+        result.extend(self.flags.to_le_bytes());
+        self.name
+            .iter()
+            .inspect(|character| result.extend(character.to_le_bytes()));
+
+        result
+    }
+}
+
+#[derive(Debug)]
+pub enum GPTWriteErr {
+    GPTAlreadyExist,
+    ErrWritingBuf(IoErr),
+}
+
+#[derive(Debug)]
+pub enum GPTReadErr {
+    GPTNonExist,
+    GPTCorrupted,
+    BadArrayEntrySize,
+    ErrReadingBuf(IoErr),
+}
+
 impl HalStorageDevice {
-    pub fn is_gpt_present(&mut self) -> bool {
+    fn is_normal_present(&mut self) -> bool {
         let buf: Vec<u8> = if let Ok(res) = self.read_sectors(1, 1) {
             res
         } else {
@@ -77,6 +137,23 @@ impl HalStorageDevice {
         } else {
             false
         }
+    }
+    fn is_backup_present(&mut self) -> bool {
+        let buf: Vec<u8> = if let Ok(res) = self.read_sectors(-1, 1) {
+            res
+        } else {
+            return false;
+        };
+
+        if buf.starts_with(b"EFI PART") {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_gpt_present(&mut self) -> bool {
+        self.is_normal_present() || self.is_backup_present()
     }
 
     fn create_pmbr_buf(&self) -> Vec<u8> {
@@ -125,7 +202,7 @@ impl HalStorageDevice {
         result
     }
 
-    fn create_raw_header_buf(&self) -> Vec<u8> {
+    fn create_unhashed_header_buf(&self) -> Vec<u8> {
         let mut result: Vec<u8> = vec![];
 
         result.extend(b"EFI PART");
@@ -140,12 +217,119 @@ impl HalStorageDevice {
         result.extend(2u32.to_le_bytes());
         result.extend(128u32.to_le_bytes());
         result.extend(128u32.to_le_bytes());
-        result.extend([0u8; 4]);
 
         result
     }
 
-    pub fn create_gpt() {}
+    fn hash_header_buf(&self, buf: &mut Vec<u8>, array_crc32: u32) {
+        buf.extend(array_crc32.to_le_bytes());
+        let crc32 = utils::crc32::full_crc(&buf);
+        for (index, val) in crc32.to_le_bytes().iter().enumerate() {
+            buf[16 + index] = *val;
+        }
+    }
+
+    fn write_pmbr(&mut self, pmbr: &Vec<u8>) -> Result<(), IoErr> {
+        if let Err(e) = self.write_sectors(0, 1, pmbr) {
+            return Err(e);
+        };
+
+        Ok(())
+    }
+
+    fn write_table(&mut self, header: &Vec<u8>, array: &Vec<u8>) -> Result<(), IoErr> {
+        if let Err(e) = self.write_sectors(1, 1, header) {
+            return Err(e);
+        }
+
+        if let Err(e) = self.write_sectors(2, 32, array) {
+            return Err(e);
+        }
+
+        if let Err(e) = self.write_sectors(-1, 1, header) {
+            return Err(e);
+        }
+
+        if let Err(e) = self.write_sectors(-33, 32, array) {
+            return Err(e);
+        };
+
+        Ok(())
+    }
+
+    pub fn create_gpt(&mut self, force: bool) -> Result<(), GPTWriteErr> {
+        if !force && self.is_gpt_present() {
+            return Err(GPTWriteErr::GPTAlreadyExist);
+        }
+
+        let pmbr: Vec<u8> = self.create_pmbr_buf();
+        let mut header: Vec<u8> = self.create_unhashed_header_buf();
+        let array: Vec<u8> = Vec::from([0; 32 * 512]);
+        let array_crc32 = utils::crc32::full_crc(&array);
+        self.hash_header_buf(&mut header, array_crc32);
+
+        if let Err(e) = self.write_pmbr(&pmbr) {
+            return Err(GPTWriteErr::ErrWritingBuf(e));
+        }
+
+        if let Err(e) = self.write_table(&header, &array) {
+            return Err(GPTWriteErr::ErrWritingBuf(e));
+        }
+
+        Ok(())
+    }
+
+    fn is_valid_header(&self, buf: &mut Vec<u8>) -> bool {
+        let crc32 = u32::from_be_bytes(buf[16..20].try_into().unwrap());
+        buf[16] = 0;
+        buf[17] = 0;
+        buf[18] = 0;
+        buf[19] = 0;
+        utils::crc32::is_verified_crc32(buf, crc32)
+    }
+
+    pub fn read_gpt(&mut self) -> Result<(GPTHeader, Vec<GPTEntry>), GPTReadErr> {
+        if !self.is_gpt_present() {
+            return Err(GPTReadErr::GPTNonExist);
+        }
+
+        let mut primary_header_buf = match self.read_sectors(1, 1) {
+            Ok(res) => res,
+            Err(e) => return Err(GPTReadErr::ErrReadingBuf(e)),
+        };
+
+        if !self.is_valid_header(&mut primary_header_buf) {
+            // TODO check backup
+            return Err(GPTReadErr::GPTCorrupted);
+        }
+
+        let result_header = GPTHeader::from_buf(&primary_header_buf);
+
+        if !(result_header.entry_size / 128).is_power_of_two() {
+            return Err(GPTReadErr::BadArrayEntrySize);
+        }
+
+        let primary_arr_buf = match self.read_sectors(
+            2,
+            (result_header.entry_num * result_header.entry_size / 512) as u16,
+        ) {
+            Ok(res) => res,
+            Err(e) => return Err(GPTReadErr::ErrReadingBuf(e)),
+        };
+
+        if !utils::crc32::is_verified_crc32(&primary_arr_buf, result_header.array_crc32) {
+            return Err(GPTReadErr::GPTCorrupted);
+        }
+
+        let result_array: Vec<GPTEntry> = primary_arr_buf
+            .windows(result_header.entry_size as usize)
+            // unwrap because we are sure that this function will not throw an error
+            // entry size is a 128 * 2^n
+            .map(|slice| GPTEntry::try_from_buf(slice).unwrap())
+            .collect::<Vec<GPTEntry>>();
+
+        Ok((result_header, result_array))
+    }
 }
 
 #[cfg(test)]

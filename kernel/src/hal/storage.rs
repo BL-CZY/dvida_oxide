@@ -23,6 +23,7 @@ enum DeviceLoc {
     Secondary,
 }
 
+#[derive(Debug)]
 pub enum IoErr {
     Unavailable,
     PataPio(PataPioIoErr),
@@ -96,12 +97,7 @@ impl HalStorageDevice {
         }
     }
 
-    pub fn write_sectors(
-        &mut self,
-        index: i64,
-        count: u16,
-        input: &mut Vec<u8>,
-    ) -> Result<(), IoErr> {
+    pub fn write_sectors(&mut self, index: i64, count: u16, input: &Vec<u8>) -> Result<(), IoErr> {
         if !self.available {
             return Err(IoErr::Unavailable);
         }

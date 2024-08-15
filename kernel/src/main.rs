@@ -17,6 +17,7 @@ use arch::x86_64::{
 use dyn_mem::{allocator::init_kheap, KHEAP_PAGE_COUNT};
 use hal::storage::{PRIMARY_STORAGE_CONTEXT, SECONDARY_STORAGE_CONTEXT};
 use limine::BaseRevision;
+use utils::crc32::initialize_crc32;
 
 pub mod arch;
 pub mod debug;
@@ -65,6 +66,8 @@ unsafe extern "C" fn _start() -> ! {
 
     PRIMARY_STORAGE_CONTEXT.lock().init();
     SECONDARY_STORAGE_CONTEXT.lock().init();
+
+    initialize_crc32();
 
     kernel_main();
 

@@ -180,7 +180,7 @@ impl PataDevice {
         Ok(())
     }
 
-    fn write_data(&mut self, count: u16, input: &mut Vec<u8>) -> Result<(), PataPioIoErr> {
+    fn write_data(&mut self, count: u16, input: &Vec<u8>) -> Result<(), PataPioIoErr> {
         for sector in 0..count as usize {
             if let Err(e) = self.wait_io() {
                 return Err(e);
@@ -224,7 +224,7 @@ impl PataDevice {
         &mut self,
         index: i64,
         count: u16,
-        input: &mut Vec<u8>,
+        input: &Vec<u8>,
     ) -> Result<(), PataPioIoErr> {
         if input.len() < (count * 512).into() {
             return Err(PataPioIoErr::InputTooSmall);
