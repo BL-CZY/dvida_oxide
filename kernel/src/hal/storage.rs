@@ -16,27 +16,28 @@ enum DeviceType {
     Nvme,
 }
 
+#[derive(PartialEq)]
 enum DeviceLoc {
     Primary,
     Secondary,
 }
 
-enum IoErr {
+pub enum IoErr {
     Unavailable,
     PataPio(PataPioIoErr),
 }
 
-pub struct HalStorageContext {
+pub struct HalStorageDevice {
     device_io_type: DeviceType,
     device_loc: DeviceLoc,
     available: bool,
 }
 
 lazy_static! {
-    pub static ref PRIMARY_STORAGE_CONTEXT: Mutex<HalStorageContext> =
-        Mutex::new(HalStorageContext::new(DeviceLoc::Primary));
-    pub static ref SECONDARY_STORAGE_CONTEXT: Mutex<HalStorageContext> =
-        Mutex::new(HalStorageContext::new(DeviceLoc::Secondary));
+    pub static ref PRIMARY_STORAGE_CONTEXT: Mutex<HalStorageDevice> =
+        Mutex::new(HalStorageDevice::new(DeviceLoc::Primary));
+    pub static ref SECONDARY_STORAGE_CONTEXT: Mutex<HalStorageDevice> =
+        Mutex::new(HalStorageDevice::new(DeviceLoc::Secondary));
 }
 
 macro_rules! read_helper {
@@ -64,9 +65,9 @@ macro_rules! write_helper {
     };
 }
 
-impl HalStorageContext {
+impl HalStorageDevice {
     pub fn new(loc: DeviceLoc) -> Self {
-        HalStorageContext {
+        HalStorageDevice {
             device_io_type: DeviceType::Unidentified,
             device_loc: loc,
             available: false,
@@ -88,6 +89,32 @@ impl HalStorageContext {
                 self.available = true;
                 self.device_io_type = DeviceType::PataPio;
             }
+        }
+    }
+
+    pub fn highest_lba(&self) -> u64 {
+        match self.device_io_type {
+            DeviceType::PataPio | DeviceType::PataDma => {
+                if self.device_loc == DeviceLoc::Primary {
+                    PRIMARY_PATA.lock().highest_lba()
+                } else {
+                    PRIMARY_PATA.lock().highest_lba()
+                }
+            }
+            _ => 0,
+        }
+    }
+
+    pub fn sectors_per_track(&self) -> u16 {
+        match self.device_io_type {
+            DeviceType::PataPio | DeviceType::PataDma => {
+                if self.device_loc == DeviceLoc::Primary {
+                    PRIMARY_PATA.lock().sectors_per_track
+                } else {
+                    PRIMARY_PATA.lock().sectors_per_track
+                }
+            }
+            _ => 0,
         }
     }
 

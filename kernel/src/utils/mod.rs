@@ -16,3 +16,11 @@ fn binary_test_test() {
 pub fn binary_test(target: u64, bit: u64) -> bool {
     (target & (0x1 << bit)) == (0x1 << bit)
 }
+
+pub fn lba_to_chs(sectors_per_track: u16, lba: u64) -> (u64, u64, u64) {
+    let sectors_per_track: u64 = sectors_per_track as u64;
+    let cylinder = lba / (sectors_per_track * 2);
+    let head = (lba % (sectors_per_track * 2)) / sectors_per_track;
+    let sector = (lba % sectors_per_track) + 1;
+    (cylinder, head, sector)
+}

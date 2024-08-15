@@ -1,9 +1,10 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::utils;
 use crate::utils::guid::Guid;
 
-use super::storage::HalStorageContext;
+use super::storage::HalStorageDevice;
 
 pub struct GPTHeader {
     sig: [u8; 8],
@@ -64,9 +65,65 @@ impl GPTHeader {
     }
 }
 
-impl HalStorageContext {
-    pub fn is_gpt_present() -> bool {
-        false
+impl HalStorageDevice {
+    pub fn is_gpt_present(&mut self) -> bool {
+        let buf: Vec<u8> = if let Ok(res) = self.read_sectors(1, 1) {
+            res
+        } else {
+            return false;
+        };
+
+        if buf.starts_with(b"EFI PART") {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn create_pmbr_buf(&self) -> Vec<u8> {
+        const PMBR_OFFSET: usize = 446;
+        let mut result = Vec::from([0; 512]);
+
+        result[PMBR_OFFSET + 1] = 0x0;
+        result[PMBR_OFFSET + 2] = 0x2;
+        result[PMBR_OFFSET + 3] = 0x0;
+        result[PMBR_OFFSET + 4] = 0xEE;
+
+        let (cylinder, head, sector) =
+            utils::lba_to_chs(self.sectors_per_track(), self.highest_lba());
+
+        if cylinder > 0xFF || head > 0xFF || sector > 0xFF {
+            result[PMBR_OFFSET + 5] = 0xFF;
+            result[PMBR_OFFSET + 6] = 0xFF;
+            result[PMBR_OFFSET + 7] = 0xFF;
+        } else {
+            result[PMBR_OFFSET + 5] = cylinder as u8;
+            result[PMBR_OFFSET + 6] = head as u8;
+            result[PMBR_OFFSET + 7] = sector as u8;
+        }
+
+        result[PMBR_OFFSET + 8] = 0x1;
+        result[PMBR_OFFSET + 9] = 0x0;
+        result[PMBR_OFFSET + 10] = 0x0;
+        result[PMBR_OFFSET + 11] = 0x0;
+
+        if self.highest_lba() > 0xFFFFFFFF {
+            result[PMBR_OFFSET + 12] = 0xFF;
+            result[PMBR_OFFSET + 13] = 0xFF;
+            result[PMBR_OFFSET + 14] = 0xFF;
+            result[PMBR_OFFSET + 15] = 0xFF;
+        } else {
+            let temp = self.highest_lba() as u32;
+            result[PMBR_OFFSET + 12] = temp.to_le_bytes()[0];
+            result[PMBR_OFFSET + 13] = temp.to_le_bytes()[1];
+            result[PMBR_OFFSET + 14] = temp.to_le_bytes()[2];
+            result[PMBR_OFFSET + 15] = temp.to_le_bytes()[3];
+        }
+
+        result[510] = 0x55;
+        result[511] = 0xAA;
+
+        result
     }
 
     pub fn create_gpt() {}
@@ -81,5 +138,11 @@ mod tests {
     fn gptheader() {
         ignore!("gpt header serialization");
         test_name!("gpt header serialization");
+    }
+
+    #[test_case]
+    #[allow(unreachable_code)]
+    fn gpt_present() {
+        ignore!("test for is_gpt_present");
     }
 }

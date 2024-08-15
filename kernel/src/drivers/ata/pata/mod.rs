@@ -29,6 +29,7 @@ pub struct PataDevice {
     lba48_supported: bool,
     lba28_sector_count: u32,
     lba48_sector_count: u64,
+    pub sectors_per_track: u16,
 
     port: u16,
     data_port: PortGeneric<u16, ReadWriteAccess>,
@@ -52,6 +53,7 @@ impl PataDevice {
             lba48_supported: false,
             lba28_sector_count: 0,
             lba48_sector_count: 0,
+            sectors_per_track: 1,
 
             port: base_port,
             data_port: Port::new(base_port),
@@ -76,6 +78,7 @@ impl PataDevice {
             self.lba48_supported = true;
         }
 
+        self.sectors_per_track = buf[6];
         self.lba28_sector_count = ((buf[61] as u32) << 16) | buf[60] as u32;
         self.lba48_sector_count = ((buf[103] as u64) << 48)
             | ((buf[102] as u64) << 32)
@@ -86,6 +89,14 @@ impl PataDevice {
         println!("Is lba48 supported: {}", self.lba48_supported);
         println!("Lba28 sector count: {:x}", self.lba28_sector_count);
         println!("Lba48 sector count: {:x}", self.lba48_sector_count);
+    }
+
+    pub fn highest_lba(&self) -> u64 {
+        if self.lba48_supported {
+            self.lba48_sector_count
+        } else {
+            self.lba28_sector_count as u64
+        }
     }
 
     pub unsafe fn identify(&mut self) -> Result<(), PataIdentErr> {
