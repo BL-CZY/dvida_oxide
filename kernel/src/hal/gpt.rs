@@ -1,3 +1,4 @@
+use crate::println;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -6,6 +7,7 @@ use crate::utils::guid::Guid;
 
 use super::storage::{HalStorageDevice, IoErr};
 
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub struct GPTHeader {
     sig: [u8; 8],
     revision: u32,
@@ -64,6 +66,7 @@ impl GPTHeader {
     }
 }
 
+#[derive(PartialEq, Eq, Clone)]
 pub struct GPTEntry {
     type_guid: Guid,
     unique_guid: Guid,
@@ -288,40 +291,51 @@ impl HalStorageDevice {
         utils::crc32::is_verified_crc32(buf, crc32)
     }
 
-    pub fn read_gpt(&mut self) -> Result<(GPTHeader, Vec<GPTEntry>), GPTReadErr> {
-        if !self.is_gpt_present() {
-            return Err(GPTReadErr::GPTNonExist);
-        }
-
-        let mut primary_header_buf = match self.read_sectors(1, 1) {
+    pub fn check_table(
+        &mut self,
+        lba: i64,
+        is_backup: bool,
+    ) -> Result<(GPTHeader, Vec<GPTEntry>), GPTReadErr> {
+        // read buffer
+        let mut header_buf = match self.read_sectors(lba, 1) {
             Ok(res) => res,
             Err(e) => return Err(GPTReadErr::ErrReadingBuf(e)),
         };
 
-        if !self.is_valid_header(&mut primary_header_buf) {
-            // TODO check backup
+        if !self.is_valid_header(&mut header_buf) {
             return Err(GPTReadErr::GPTCorrupted);
         }
 
-        let result_header = GPTHeader::from_buf(&primary_header_buf);
+        let result_header = GPTHeader::from_buf(&header_buf);
 
         if !(result_header.entry_size / 128).is_power_of_two() {
             return Err(GPTReadErr::BadArrayEntrySize);
         }
 
-        let primary_arr_buf = match self.read_sectors(
-            2,
+        let arr_block_count: i64 = ((result_header.entry_num * result_header.entry_size / 512)
+            + ((result_header.entry_num * result_header.entry_size) % 512)
+            == 0)
+            .into();
+
+        let arr_lba: i64 = if is_backup {
+            -1 - arr_block_count
+        } else {
+            result_header.array_start as i64
+        };
+
+        let arr_buf = match self.read_sectors(
+            arr_lba,
             (result_header.entry_num * result_header.entry_size / 512) as u16,
         ) {
             Ok(res) => res,
             Err(e) => return Err(GPTReadErr::ErrReadingBuf(e)),
         };
 
-        if !utils::crc32::is_verified_crc32(&primary_arr_buf, result_header.array_crc32) {
+        if !utils::crc32::is_verified_crc32(&arr_buf, result_header.array_crc32) {
             return Err(GPTReadErr::GPTCorrupted);
         }
 
-        let result_array: Vec<GPTEntry> = primary_arr_buf
+        let result_array: Vec<GPTEntry> = arr_buf
             .windows(result_header.entry_size as usize)
             // unwrap because we are sure that this function will not throw an error
             // entry size is a 128 * 2^n
@@ -330,6 +344,53 @@ impl HalStorageDevice {
 
         Ok((result_header, result_array))
     }
+
+    pub fn read_gpt(&mut self) -> Result<(GPTHeader, Vec<GPTEntry>), GPTReadErr> {
+        if !self.is_gpt_present() {
+            return Err(GPTReadErr::GPTNonExist);
+        }
+
+        let primary_result = self.check_table(1, false);
+        let backup_result = self.check_table(-1, false);
+
+        if let Ok((primary_header, primary_array)) = primary_result.as_ref()
+            && let Ok((backup_header, backup_array)) = backup_result.as_ref()
+        {
+            if primary_header != backup_header || primary_array != backup_array {
+                println!(
+                    "Primary table appears is different from the backup table, sync backup..."
+                );
+                // TODO sync this
+            }
+
+            return Ok((*primary_header, primary_array.to_vec()));
+        } else if let Ok((primary_header, primary_array)) = primary_result.as_ref()
+            && let Err(e) = backup_result.as_ref()
+        {
+            // TODO fix this
+            println!(
+                "Primary table appears ok, but the backup one is corrupted: {:?}",
+                e
+            );
+            return Ok((*primary_header, primary_array.to_vec()));
+        } else if let Err(e) = primary_result
+            && let Ok((secondary_header, secondary_array)) = backup_result
+        {
+            // TODO fix this
+            println!(
+                "Backup table appears ok, but the primary one is corrupted: {:?}",
+                e
+            );
+
+            return Ok((secondary_header, secondary_array));
+        } else {
+            return Err(GPTReadErr::GPTCorrupted);
+        }
+    }
+
+    pub fn add_entry(&mut self) {}
+
+    pub fn delete_entry(&mut self, index: u32) {}
 }
 
 #[cfg(test)]

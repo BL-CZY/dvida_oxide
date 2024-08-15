@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 #![feature(abi_x86_interrupt)]
+#![feature(let_chains)]
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::debug::test::run_tests)]
 #![reexport_test_harness_main = "test_main"]
