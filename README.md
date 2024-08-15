@@ -1,4 +1,4 @@
-# The 4th gen of Dvida OS powered with rust and limine
+# The 4th gen of Dvida OS powered by rust and limine
 
 Hi there, this is a mini operating system that I am developing
 
