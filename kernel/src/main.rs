@@ -2,7 +2,7 @@
 #![no_main]
 #![feature(abi_x86_interrupt)]
 #![feature(custom_test_frameworks)]
-#![test_runner(run_tests)]
+#![test_runner(crate::debug::test::run_tests)]
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 extern crate alloc;
@@ -83,16 +83,5 @@ fn hcf() -> ! {
         loop {
             asm!("hlt");
         }
-    }
-}
-
-#[cfg(test)]
-pub fn run_tests(tests: &[&dyn Fn()]) {
-    use crate::println;
-    println!("sadjaskdjaskdaskdjaksljdklasjdlkasjdklasjdkalsjdklasd");
-    println!("Running {} tests", tests.len());
-    for (index, test) in tests.iter().enumerate() {
-        test();
-        println!("Test {} succeeded!", index + 1);
     }
 }

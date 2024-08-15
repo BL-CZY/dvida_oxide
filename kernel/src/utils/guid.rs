@@ -1,14 +1,3 @@
-#[cfg(test)]
-use crate::test_name;
-
-#[test_case]
-fn guid() {
-    test_name!("guid struct");
-    let buf: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-    let guid = Guid::from_buf(&buf);
-    assert_eq!(buf, guid.to_buf());
-}
-
 pub struct Guid {
     /// the entire guid in little endian
     whole: u128,
@@ -51,5 +40,20 @@ impl Guid {
         }
 
         res
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{end_test, test_name};
+
+    #[test_case]
+    fn guid() {
+        test_name!("guid struct");
+        let buf: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+        let guid = Guid::from_buf(&buf);
+        assert_eq!(buf, guid.to_buf());
+        end_test!();
     }
 }

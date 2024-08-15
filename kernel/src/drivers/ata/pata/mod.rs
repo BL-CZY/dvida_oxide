@@ -14,8 +14,10 @@ use x86_64::instructions::port::{
 pub mod pio;
 
 lazy_static! {
-    pub static ref PRIMARY_PATA: Mutex<PataDevice> = Mutex::new(PataDevice::new(0x1F0));
-    pub static ref SECONDARY_PATA: Mutex<PataDevice> = Mutex::new(PataDevice::new(0x170));
+    pub static ref PATA_DEVICES: [Mutex<PataDevice>; 2] = [
+        Mutex::new(PataDevice::new(0x1F0)),
+        Mutex::new(PataDevice::new(0x170))
+    ];
 }
 
 pub enum PataIdentErr {

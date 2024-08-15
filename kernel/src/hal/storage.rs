@@ -1,4 +1,4 @@
-use crate::drivers::ata::pata::{pio::PataPioIoErr, PRIMARY_PATA, SECONDARY_PATA};
+use crate::drivers::ata::pata::{pio::PataPioIoErr, PATA_DEVICES};
 use alloc::vec;
 use alloc::vec::Vec;
 use lazy_static::lazy_static;
@@ -16,9 +16,10 @@ enum DeviceType {
     Nvme,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
+#[repr(C)]
 enum DeviceLoc {
-    Primary,
+    Primary = 0,
     Secondary,
 }
 
@@ -40,31 +41,6 @@ lazy_static! {
         Mutex::new(HalStorageDevice::new(DeviceLoc::Secondary));
 }
 
-macro_rules! read_helper {
-    ($self: ident, $device: ident, $index: ident, $count: ident) => {
-        match $self.device_io_type {
-            DeviceType::PataPio => match $device.lock().pio_read_sectors($index, $count) {
-                Ok(res) => Ok(res),
-                Err(e) => Err(IoErr::PataPio(e)),
-            },
-            _ => Ok(vec![]),
-        }
-    };
-}
-
-macro_rules! write_helper {
-    ($self: ident, $device: ident, $index: ident, $count: ident, $input: ident) => {
-        match $self.device_io_type {
-            DeviceType::PataPio => match $device.lock().pio_write_sectors($index, $count, $input) {
-                Ok(()) => Ok(()),
-                Err(e) => Err(IoErr::PataPio(e)),
-            },
-
-            _ => Ok(()),
-        }
-    };
-}
-
 impl HalStorageDevice {
     pub fn new(loc: DeviceLoc) -> Self {
         HalStorageDevice {
@@ -74,18 +50,9 @@ impl HalStorageDevice {
         }
     }
 
-    fn identify_primary(&mut self) {
+    pub fn init(&mut self) {
         unsafe {
-            if let Ok(()) = PRIMARY_PATA.lock().identify() {
-                self.available = true;
-                self.device_io_type = DeviceType::PataPio;
-            }
-        }
-    }
-
-    fn identify_secondary(&mut self) {
-        unsafe {
-            if let Ok(()) = SECONDARY_PATA.lock().identify() {
+            if let Ok(()) = PATA_DEVICES[self.device_loc as usize].lock().identify() {
                 self.available = true;
                 self.device_io_type = DeviceType::PataPio;
             }
@@ -95,11 +62,7 @@ impl HalStorageDevice {
     pub fn highest_lba(&self) -> u64 {
         match self.device_io_type {
             DeviceType::PataPio | DeviceType::PataDma => {
-                if self.device_loc == DeviceLoc::Primary {
-                    PRIMARY_PATA.lock().highest_lba()
-                } else {
-                    PRIMARY_PATA.lock().highest_lba()
-                }
+                PATA_DEVICES[self.device_loc as usize].lock().highest_lba()
             }
             _ => 0,
         }
@@ -108,24 +71,11 @@ impl HalStorageDevice {
     pub fn sectors_per_track(&self) -> u16 {
         match self.device_io_type {
             DeviceType::PataPio | DeviceType::PataDma => {
-                if self.device_loc == DeviceLoc::Primary {
-                    PRIMARY_PATA.lock().sectors_per_track
-                } else {
-                    PRIMARY_PATA.lock().sectors_per_track
-                }
+                PATA_DEVICES[self.device_loc as usize]
+                    .lock()
+                    .sectors_per_track
             }
             _ => 0,
-        }
-    }
-
-    pub fn init(&mut self) {
-        match self.device_loc {
-            DeviceLoc::Primary => {
-                self.identify_primary();
-            }
-            DeviceLoc::Secondary => {
-                self.identify_secondary();
-            }
         }
     }
 
@@ -134,9 +84,15 @@ impl HalStorageDevice {
             return Err(IoErr::Unavailable);
         }
 
-        match self.device_loc {
-            DeviceLoc::Primary => read_helper!(self, PRIMARY_PATA, index, count),
-            DeviceLoc::Secondary => read_helper!(self, SECONDARY_PATA, index, count),
+        match self.device_io_type {
+            DeviceType::PataPio => match PATA_DEVICES[self.device_loc as usize]
+                .lock()
+                .pio_read_sectors(index, count)
+            {
+                Ok(res) => Ok(res),
+                Err(e) => Err(IoErr::PataPio(e)),
+            },
+            _ => Ok(vec![]),
         }
     }
 
@@ -150,9 +106,16 @@ impl HalStorageDevice {
             return Err(IoErr::Unavailable);
         }
 
-        match self.device_loc {
-            DeviceLoc::Primary => write_helper!(self, PRIMARY_PATA, index, count, input),
-            DeviceLoc::Secondary => write_helper!(self, SECONDARY_PATA, index, count, input),
+        match self.device_io_type {
+            DeviceType::PataPio => match PATA_DEVICES[self.device_loc as usize]
+                .lock()
+                .pio_write_sectors(index, count, input)
+            {
+                Ok(()) => Ok(()),
+                Err(e) => Err(IoErr::PataPio(e)),
+            },
+
+            _ => Ok(()),
         }
     }
 }

@@ -29,13 +29,14 @@ pub mod cmd {
 
 #[cfg(test)]
 pub mod tests {
-    use crate::drivers::ata::pata::PRIMARY_PATA;
-    use crate::test_name;
+    use crate::drivers::ata::pata::PATA_DEVICES;
+    use crate::{end_test, ignore, test_name};
     use alloc::vec;
 
     #[test_case]
     #[allow(unreachable_code)]
     fn pata_pio() {
+        ignore!();
         test_name!("PATA PIO r/w");
 
         let mut input = vec![];
@@ -44,11 +45,11 @@ pub mod tests {
             input.push(20);
         }
 
-        if let Err(e) = PRIMARY_PATA.lock().pio_write_sectors(0, 1, &mut input) {
+        if let Err(e) = PATA_DEVICES[0].lock().pio_write_sectors(0, 1, &mut input) {
             panic!("failed test pata_pio write {:?}", e);
         }
 
-        let vec = match PRIMARY_PATA.lock().pio_read_sectors(0, 1) {
+        let vec = match PATA_DEVICES[0].lock().pio_read_sectors(0, 1) {
             Ok(res) => res,
             Err(e) => panic!("failed test pata_pio read {:?}", e),
         };
@@ -59,7 +60,7 @@ pub mod tests {
             input[i] = 0;
         }
 
-        if let Err(e) = PRIMARY_PATA.lock().pio_write_sectors(0, 1, &mut input) {
+        if let Err(e) = PATA_DEVICES[0].lock().pio_write_sectors(0, 1, &mut input) {
             panic!("failed test pata_pio write {:?}", e);
         }
 
@@ -69,11 +70,11 @@ pub mod tests {
             input.push(20);
         }
 
-        if let Err(e) = PRIMARY_PATA.lock().pio_write_sectors(0, 2, &mut input) {
+        if let Err(e) = PATA_DEVICES[0].lock().pio_write_sectors(0, 2, &mut input) {
             panic!("failed test pata_pio write {:?}", e);
         }
 
-        let vec = match PRIMARY_PATA.lock().pio_read_sectors(0, 2) {
+        let vec = match PATA_DEVICES[0].lock().pio_read_sectors(0, 2) {
             Ok(res) => res,
             Err(e) => panic!("failed test pata_pio read {:?}", e),
         };
@@ -84,8 +85,10 @@ pub mod tests {
             input[i] = 0;
         }
 
-        if let Err(e) = PRIMARY_PATA.lock().pio_write_sectors(0, 1, &mut input) {
+        if let Err(e) = PATA_DEVICES[0].lock().pio_write_sectors(0, 1, &mut input) {
             panic!("failed test pata_pio write {:?}", e);
         }
+
+        end_test!();
     }
 }

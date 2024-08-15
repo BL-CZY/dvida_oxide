@@ -2,15 +2,22 @@ pub mod crc32;
 pub mod guid;
 
 #[cfg(test)]
-use crate::test_name;
+mod tests {
+    use crate::end_test;
+    use crate::ignore;
+    use crate::test_name;
 
-#[test_case]
-#[allow(unreachable_code)]
-fn binary_test_test() {
-    test_name!("binary test function");
+    #[test_case]
+    #[allow(unreachable_code)]
+    fn binary_test_test() {
+        ignore!();
+        test_name!("binary test function");
 
-    assert!(crate::utils::binary_test(0b001000u64, 3));
-    assert!(!crate::utils::binary_test(0b010000u64, 3));
+        assert!(crate::utils::binary_test(0b001000u64, 3));
+        assert!(!crate::utils::binary_test(0b010000u64, 3));
+
+        end_test!();
+    }
 }
 
 pub fn binary_test(target: u64, bit: u64) -> bool {

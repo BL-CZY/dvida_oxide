@@ -131,18 +131,21 @@ impl HalStorageDevice {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ignore, test_name};
+    use crate::{end_test, ignore, test_name};
 
     #[test_case]
     #[allow(unreachable_code)]
     fn gptheader() {
-        ignore!("gpt header serialization");
+        ignore!();
         test_name!("gpt header serialization");
+        end_test!();
     }
 
     #[test_case]
     #[allow(unreachable_code)]
     fn gpt_present() {
-        ignore!("test for is_gpt_present");
+        ignore!();
+        test_name!("tests for is_gpt_present");
+        end_test!();
     }
 }
