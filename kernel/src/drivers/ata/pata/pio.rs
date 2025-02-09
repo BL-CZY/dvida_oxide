@@ -1,12 +1,14 @@
+use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
+use thiserror::Error;
 
 use crate::drivers::ata::cmd;
 use crate::utils::binary_test;
 
 use super::PataDevice;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum PataPioIoErr {
     DeviceUnidentified,
     SectorOutOfRange,
@@ -32,7 +34,7 @@ impl PataDevice {
         }
     }
 
-    fn verify_lba(&self, lba: u64, count: u16) -> Result<(), PataPioIoErr> {
+    fn verify_lba(&self, lba: u64, count: u16) -> Result<(), Box<dyn core::error::Error>> {
         if self.lba48_supported {
             if lba + count as u64 > self.lba48_sector_count {
                 return Err(PataPioIoErr::SectorOutOfRange);
@@ -46,7 +48,7 @@ impl PataDevice {
         Ok(())
     }
 
-    fn wait_init(&mut self) -> Result<(), PataPioIoErr> {
+    fn wait_init(&mut self) -> Result<(), Box<dyn core::error::Error>> {
         let mut timer = 0;
         while binary_test(unsafe { self.status_port.read() } as u64, 7) {
             timer += 1;
@@ -59,7 +61,7 @@ impl PataDevice {
         Ok(())
     }
 
-    fn io_init(&mut self, index: i64, count: u16) -> Result<u64, PataPioIoErr> {
+    fn io_init(&mut self, index: i64, count: u16) -> Result<u64, Box<dyn core::error::Error>> {
         if !self.identified {
             return Err(PataPioIoErr::DeviceUnidentified);
         }
@@ -129,7 +131,7 @@ impl PataDevice {
         }
     }
 
-    fn wait_io(&mut self) -> Result<(), PataPioIoErr> {
+    fn wait_io(&mut self) -> Result<(), Box<dyn core::error::Error>> {
         for _ in 0..14 {
             unsafe {
                 self.status_port.read();
@@ -148,7 +150,11 @@ impl PataDevice {
         Ok(())
     }
 
-    fn read_data(&mut self, count: u16, result: &mut Vec<u8>) -> Result<(), PataPioIoErr> {
+    fn read_data(
+        &mut self,
+        count: u16,
+        result: &mut Vec<u8>,
+    ) -> Result<(), Box<dyn core::error::Error>> {
         for _ in 0..count {
             self.wait_io()?;
 
@@ -162,7 +168,7 @@ impl PataDevice {
         Ok(())
     }
 
-    fn flush_cache(&mut self) -> Result<(), PataPioIoErr> {
+    fn flush_cache(&mut self) -> Result<(), Box<dyn core::error::Error>> {
         unsafe {
             self.cmd_port.write(cmd::FLUSH_CACHE);
         }
@@ -172,7 +178,11 @@ impl PataDevice {
         Ok(())
     }
 
-    fn write_data(&mut self, count: u16, input: &Vec<u8>) -> Result<(), PataPioIoErr> {
+    fn write_data(
+        &mut self,
+        count: u16,
+        input: &Vec<u8>,
+    ) -> Result<(), Box<dyn core::error::Error>> {
         for sector in 0..count as usize {
             self.wait_io()?;
 
@@ -189,7 +199,11 @@ impl PataDevice {
         Ok(())
     }
 
-    pub fn pio_read_sectors(&mut self, index: i64, count: u16) -> Result<Vec<u8>, PataPioIoErr> {
+    pub fn pio_read_sectors(
+        &mut self,
+        index: i64,
+        count: u16,
+    ) -> Result<Vec<u8>, Box<dyn core::error::Error>> {
         let lba = match self.io_init(index, count) {
             Ok(val) => val,
             Err(e) => return Err(e),
@@ -213,7 +227,7 @@ impl PataDevice {
         index: i64,
         count: u16,
         input: &Vec<u8>,
-    ) -> Result<(), PataPioIoErr> {
+    ) -> Result<(), Box<dyn core::error::Error>> {
         if input.len() < (count * 512).into() {
             return Err(PataPioIoErr::InputTooSmall);
         }

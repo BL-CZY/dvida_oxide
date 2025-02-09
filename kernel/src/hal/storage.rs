@@ -1,8 +1,10 @@
-use crate::drivers::ata::pata::{pio::PataPioIoErr, PATA_DEVICES};
+use crate::drivers::ata::pata::PATA_DEVICES;
+use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use lazy_static::lazy_static;
 use spin::Mutex;
+use thiserror::Error;
 
 enum DeviceType {
     Unidentified,
@@ -19,10 +21,10 @@ enum DeviceType {
 pub const PRIMARY: usize = 0;
 pub const SECONDARY: usize = 1;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum IoErr {
     Unavailable,
-    PataPio(PataPioIoErr),
+    Unimplemented,
 }
 
 pub struct HalStorageDevice {
@@ -76,38 +78,38 @@ impl HalStorageDevice {
         }
     }
 
-    pub fn read_sectors(&mut self, index: i64, count: u16) -> Result<Vec<u8>, IoErr> {
+    pub fn read_sectors(
+        &mut self,
+        index: i64,
+        count: u16,
+    ) -> Result<Vec<u8>, Box<dyn core::error::Error>> {
         if !self.available {
             return Err(IoErr::Unavailable);
         }
 
         match self.device_io_type {
-            DeviceType::PataPio => match PATA_DEVICES[self.device_loc as usize]
+            DeviceType::PataPio => Ok(PATA_DEVICES[self.device_loc as usize]
                 .lock()
-                .pio_read_sectors(index, count)
-            {
-                Ok(res) => Ok(res),
-                Err(e) => Err(IoErr::PataPio(e)),
-            },
-            _ => Ok(vec![]),
+                .pio_read_sectors(index, count)?),
+            _ => Err(IoErr::Unimplemented),
         }
     }
 
-    pub fn write_sectors(&mut self, index: i64, count: u16, input: &Vec<u8>) -> Result<(), IoErr> {
+    pub fn write_sectors(
+        &mut self,
+        index: i64,
+        count: u16,
+        input: &Vec<u8>,
+    ) -> Result<(), Box<dyn core::error::Error>> {
         if !self.available {
             return Err(IoErr::Unavailable);
         }
 
         match self.device_io_type {
-            DeviceType::PataPio => match PATA_DEVICES[self.device_loc as usize]
+            DeviceType::PataPio => Ok(PATA_DEVICES[self.device_loc as usize]
                 .lock()
-                .pio_write_sectors(index, count, input)
-            {
-                Ok(()) => Ok(()),
-                Err(e) => Err(IoErr::PataPio(e)),
-            },
-
-            _ => Ok(()),
+                .pio_write_sectors(index, count, input)?),
+            _ => Err(IoErr::Unimplemented),
         }
     }
 }

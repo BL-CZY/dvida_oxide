@@ -1,6 +1,7 @@
 use crate::println;
 use alloc::vec;
 use alloc::vec::Vec;
+use thiserror::Error;
 
 use crate::utils;
 use crate::utils::guid::Guid;
@@ -113,13 +114,13 @@ impl GPTEntry {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum GPTWriteErr {
     GPTAlreadyExist,
     ErrWritingBuf(IoErr),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum GPTReadErr {
     GPTNonExist,
     GPTCorrupted,
