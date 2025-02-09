@@ -66,13 +66,9 @@ impl PataDevice {
 
         let lba: u64 = self.get_lba(index);
 
-        if let Err(e) = self.verify_lba(lba, count) {
-            return Err(e);
-        }
+        self.verify_lba(lba, count)?;
 
-        if let Err(e) = self.wait_init() {
-            return Err(e);
-        }
+        self.wait_init()?;
 
         Ok(lba)
     }
@@ -154,9 +150,7 @@ impl PataDevice {
 
     fn read_data(&mut self, count: u16, result: &mut Vec<u8>) -> Result<(), PataPioIoErr> {
         for _ in 0..count {
-            if let Err(e) = self.wait_io() {
-                return Err(e);
-            }
+            self.wait_io()?;
 
             for _ in 0..256 {
                 let temp = unsafe { self.data_port.read() };
@@ -173,18 +167,14 @@ impl PataDevice {
             self.cmd_port.write(cmd::FLUSH_CACHE);
         }
 
-        if let Err(_) = self.wait_init() {
-            return Err(PataPioIoErr::FlushCacheTimeout);
-        }
+        self.wait_init()?;
 
         Ok(())
     }
 
     fn write_data(&mut self, count: u16, input: &Vec<u8>) -> Result<(), PataPioIoErr> {
         for sector in 0..count as usize {
-            if let Err(e) = self.wait_io() {
-                return Err(e);
-            }
+            self.wait_io()?;
 
             for byte in 0..256usize {
                 unsafe {
@@ -213,9 +203,7 @@ impl PataDevice {
 
         let mut result: Vec<u8> = vec![];
 
-        if let Err(e) = self.read_data(count, &mut result) {
-            return Err(e);
-        }
+        self.read_data(count, &mut result)?;
 
         Ok(result)
     }
@@ -241,13 +229,9 @@ impl PataDevice {
             self.send_write_lba28(count, lba);
         }
 
-        if let Err(e) = self.write_data(count, input) {
-            return Err(e);
-        }
+        self.write_data(count, input)?;
 
-        if let Err(e) = self.flush_cache() {
-            return Err(e);
-        }
+        self.flush_cache()?;
 
         Ok(())
     }

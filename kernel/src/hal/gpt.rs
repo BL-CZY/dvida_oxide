@@ -141,6 +141,7 @@ impl HalStorageDevice {
             false
         }
     }
+
     fn is_backup_present(&mut self) -> bool {
         let buf: Vec<u8> = if let Ok(res) = self.read_sectors(-1, 1) {
             res
@@ -233,29 +234,19 @@ impl HalStorageDevice {
     }
 
     fn write_pmbr(&mut self, pmbr: &Vec<u8>) -> Result<(), IoErr> {
-        if let Err(e) = self.write_sectors(0, 1, pmbr) {
-            return Err(e);
-        };
+        self.write_sectors(0, 1, pmbr)?;
 
         Ok(())
     }
 
     fn write_table(&mut self, header: &Vec<u8>, array: &Vec<u8>) -> Result<(), IoErr> {
-        if let Err(e) = self.write_sectors(1, 1, header) {
-            return Err(e);
-        }
+        self.write_sectors(1, 1, header)?;
 
-        if let Err(e) = self.write_sectors(2, 32, array) {
-            return Err(e);
-        }
+        self.write_sectors(2, 32, array)?;
 
-        if let Err(e) = self.write_sectors(-1, 1, header) {
-            return Err(e);
-        }
+        self.write_sectors(-1, 1, header)?;
 
-        if let Err(e) = self.write_sectors(-33, 32, array) {
-            return Err(e);
-        };
+        self.write_sectors(-33, 32, array)?;
 
         Ok(())
     }
