@@ -23,8 +23,20 @@ pub const SECONDARY: usize = 1;
 
 #[derive(Debug, Error)]
 pub enum IoErr {
+    #[error("The device is unavailable")]
     Unavailable,
+    #[error("The device is unimplemented")]
     Unimplemented,
+    #[error("Sector is out of range")]
+    SectorOutOfRange,
+    #[error("The initialization timed out")]
+    InitTimeout,
+    #[error("The IO process timed out")]
+    IOTimeout,
+    #[error("The cache flush process timed out")]
+    FlushCacheTimeout,
+    #[error("Input buffer is too small")]
+    InputTooSmall,
 }
 
 pub struct HalStorageDevice {
@@ -84,14 +96,14 @@ impl HalStorageDevice {
         count: u16,
     ) -> Result<Vec<u8>, Box<dyn core::error::Error>> {
         if !self.available {
-            return Err(IoErr::Unavailable);
+            return Err(Box::new(IoErr::Unavailable));
         }
 
         match self.device_io_type {
             DeviceType::PataPio => Ok(PATA_DEVICES[self.device_loc as usize]
                 .lock()
                 .pio_read_sectors(index, count)?),
-            _ => Err(IoErr::Unimplemented),
+            _ => Err(Box::new(IoErr::Unimplemented)),
         }
     }
 
@@ -102,14 +114,14 @@ impl HalStorageDevice {
         input: &Vec<u8>,
     ) -> Result<(), Box<dyn core::error::Error>> {
         if !self.available {
-            return Err(IoErr::Unavailable);
+            return Err(Box::new(IoErr::Unavailable));
         }
 
         match self.device_io_type {
             DeviceType::PataPio => Ok(PATA_DEVICES[self.device_loc as usize]
                 .lock()
                 .pio_write_sectors(index, count, input)?),
-            _ => Err(IoErr::Unimplemented),
+            _ => Err(Box::new(IoErr::Unimplemented)),
         }
     }
 }

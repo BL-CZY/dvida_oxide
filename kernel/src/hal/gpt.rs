@@ -1,12 +1,12 @@
 use crate::println;
-use alloc::vec;
 use alloc::vec::Vec;
+use alloc::{boxed::Box, vec};
 use thiserror::Error;
 
 use crate::utils;
 use crate::utils::guid::Guid;
 
-use super::storage::{HalStorageDevice, IoErr};
+use super::storage::HalStorageDevice;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub struct GPTHeader {
@@ -26,24 +26,42 @@ pub struct GPTHeader {
     array_crc32: u32,
 }
 
-impl GPTHeader {
-    pub fn from_buf(buf: &Vec<u8>) -> Self {
-        GPTHeader {
-            sig: buf[0..8].try_into().unwrap(),
-            revision: u32::from_le_bytes(buf[8..12].try_into().unwrap()),
-            size: u32::from_le_bytes(buf[12..16].try_into().unwrap()),
-            header_crc32: u32::from_le_bytes(buf[16..20].try_into().unwrap()),
-            reserved: 0,
-            loc: u64::from_le_bytes(buf[24..32].try_into().unwrap()),
-            backup_loc: u64::from_le_bytes(buf[32..40].try_into().unwrap()),
-            first_usable_block: u64::from_le_bytes(buf[40..48].try_into().unwrap()),
-            last_usable_block: u64::from_le_bytes(buf[48..56].try_into().unwrap()),
-            guid: Guid::from_buf(buf[56..72].try_into().unwrap()),
-            array_start: u64::from_le_bytes(buf[72..80].try_into().unwrap()),
-            entry_num: u32::from_le_bytes(buf[80..84].try_into().unwrap()),
-            entry_size: u32::from_le_bytes(buf[84..88].try_into().unwrap()),
-            array_crc32: u32::from_le_bytes(buf[88..92].try_into().unwrap()),
+impl Into<Vec<u8>> for GPTHeader {
+    fn into(self) -> Vec<u8> {
+        self.to_buf()
+    }
+}
+
+impl TryFrom<&Vec<u8>> for GPTHeader {
+    type Error = Box<dyn core::error::Error>;
+
+    fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
+        if value.len() > 92 {
+            return Err(Box::new(GPTErr::BufferTooSmall));
         }
+
+        Ok(GPTHeader {
+            sig: value[0..8].try_into().unwrap(),
+            revision: u32::from_le_bytes(value[8..12].try_into().unwrap()),
+            size: u32::from_le_bytes(value[12..16].try_into().unwrap()),
+            header_crc32: u32::from_le_bytes(value[16..20].try_into().unwrap()),
+            reserved: 0,
+            loc: u64::from_le_bytes(value[24..32].try_into().unwrap()),
+            backup_loc: u64::from_le_bytes(value[32..40].try_into().unwrap()),
+            first_usable_block: u64::from_le_bytes(value[40..48].try_into().unwrap()),
+            last_usable_block: u64::from_le_bytes(value[48..56].try_into().unwrap()),
+            guid: Guid::from_buf(value[56..72].try_into().unwrap()),
+            array_start: u64::from_le_bytes(value[72..80].try_into().unwrap()),
+            entry_num: u32::from_le_bytes(value[80..84].try_into().unwrap()),
+            entry_size: u32::from_le_bytes(value[84..88].try_into().unwrap()),
+            array_crc32: u32::from_le_bytes(value[88..92].try_into().unwrap()),
+        })
+    }
+}
+
+impl GPTHeader {
+    pub fn try_from_buf(buf: &Vec<u8>) -> Result<Self, Box<dyn core::error::Error>> {
+        GPTHeader::try_from(buf)
     }
 
     pub fn to_buf(&self) -> Vec<u8> {
@@ -115,17 +133,17 @@ impl GPTEntry {
 }
 
 #[derive(Debug, Error)]
-pub enum GPTWriteErr {
+pub enum GPTErr {
+    #[error("The buffer input is too small")]
+    BufferTooSmall,
+    #[error("A GPT table already exists")]
     GPTAlreadyExist,
-    ErrWritingBuf(IoErr),
-}
-
-#[derive(Debug, Error)]
-pub enum GPTReadErr {
+    #[error("A GPT table doesn't exist")]
     GPTNonExist,
+    #[error("The GPT table is corrupted")]
     GPTCorrupted,
+    #[error("The Array size is bad")]
     BadArrayEntrySize,
-    ErrReadingBuf(IoErr),
 }
 
 impl HalStorageDevice {
@@ -234,13 +252,17 @@ impl HalStorageDevice {
         }
     }
 
-    fn write_pmbr(&mut self, pmbr: &Vec<u8>) -> Result<(), IoErr> {
+    fn write_pmbr(&mut self, pmbr: &Vec<u8>) -> Result<(), Box<dyn core::error::Error>> {
         self.write_sectors(0, 1, pmbr)?;
 
         Ok(())
     }
 
-    fn write_table(&mut self, header: &Vec<u8>, array: &Vec<u8>) -> Result<(), IoErr> {
+    fn write_table(
+        &mut self,
+        header: &Vec<u8>,
+        array: &Vec<u8>,
+    ) -> Result<(), Box<dyn core::error::Error>> {
         self.write_sectors(1, 1, header)?;
 
         self.write_sectors(2, 32, array)?;
@@ -252,9 +274,9 @@ impl HalStorageDevice {
         Ok(())
     }
 
-    pub fn create_gpt(&mut self, force: bool) -> Result<(), GPTWriteErr> {
+    pub fn create_gpt(&mut self, force: bool) -> Result<(), Box<dyn core::error::Error>> {
         if !force && self.is_gpt_present() {
-            return Err(GPTWriteErr::GPTAlreadyExist);
+            return Err(Box::new(GPTErr::GPTAlreadyExist));
         }
 
         let pmbr: Vec<u8> = self.create_pmbr_buf();
@@ -263,13 +285,8 @@ impl HalStorageDevice {
         let array_crc32 = utils::crc32::full_crc(&array);
         self.hash_header_buf(&mut header, array_crc32);
 
-        if let Err(e) = self.write_pmbr(&pmbr) {
-            return Err(GPTWriteErr::ErrWritingBuf(e));
-        }
-
-        if let Err(e) = self.write_table(&header, &array) {
-            return Err(GPTWriteErr::ErrWritingBuf(e));
-        }
+        self.write_pmbr(&pmbr)?;
+        self.write_table(&header, &array)?;
 
         Ok(())
     }
@@ -287,21 +304,18 @@ impl HalStorageDevice {
         &mut self,
         lba: i64,
         is_backup: bool,
-    ) -> Result<(GPTHeader, Vec<GPTEntry>), GPTReadErr> {
+    ) -> Result<(GPTHeader, Vec<GPTEntry>), Box<dyn core::error::Error>> {
         // read buffer
-        let mut header_buf = match self.read_sectors(lba, 1) {
-            Ok(res) => res,
-            Err(e) => return Err(GPTReadErr::ErrReadingBuf(e)),
-        };
+        let mut header_buf = self.read_sectors(lba, 1)?;
 
         if !self.is_valid_header(&mut header_buf) {
-            return Err(GPTReadErr::GPTCorrupted);
+            return Err(Box::new(GPTErr::GPTCorrupted));
         }
 
-        let result_header = GPTHeader::from_buf(&header_buf);
+        let result_header = GPTHeader::try_from(&header_buf)?;
 
         if !(result_header.entry_size / 128).is_power_of_two() {
-            return Err(GPTReadErr::BadArrayEntrySize);
+            return Err(Box::new(GPTErr::BadArrayEntrySize));
         }
 
         let arr_block_count: i64 = ((result_header.entry_num * result_header.entry_size / 512)
@@ -315,16 +329,13 @@ impl HalStorageDevice {
             result_header.array_start as i64
         };
 
-        let arr_buf = match self.read_sectors(
+        let arr_buf = self.read_sectors(
             arr_lba,
             (result_header.entry_num * result_header.entry_size / 512) as u16,
-        ) {
-            Ok(res) => res,
-            Err(e) => return Err(GPTReadErr::ErrReadingBuf(e)),
-        };
+        )?;
 
         if !utils::crc32::is_verified_crc32(&arr_buf, result_header.array_crc32) {
-            return Err(GPTReadErr::GPTCorrupted);
+            return Err(Box::new(GPTErr::GPTCorrupted));
         }
 
         let result_array: Vec<GPTEntry> = arr_buf
@@ -337,9 +348,9 @@ impl HalStorageDevice {
         Ok((result_header, result_array))
     }
 
-    pub fn read_gpt(&mut self) -> Result<(GPTHeader, Vec<GPTEntry>), GPTReadErr> {
+    pub fn read_gpt(&mut self) -> Result<(GPTHeader, Vec<GPTEntry>), Box<dyn core::error::Error>> {
         if !self.is_gpt_present() {
-            return Err(GPTReadErr::GPTNonExist);
+            return Err(Box::new(GPTErr::GPTNonExist));
         }
 
         let primary_result = self.check_table(1, false);
@@ -376,13 +387,13 @@ impl HalStorageDevice {
 
             return Ok((secondary_header, secondary_array));
         } else {
-            return Err(GPTReadErr::GPTCorrupted);
+            return Err(Box::new(GPTErr::GPTCorrupted));
         }
     }
 
     pub fn add_entry(&mut self) {}
 
-    pub fn delete_entry(&mut self, index: u32) {}
+    pub fn delete_entry(&mut self, _index: u32) {}
 }
 
 #[cfg(test)]

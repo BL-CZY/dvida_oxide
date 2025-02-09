@@ -1,22 +1,12 @@
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
-use thiserror::Error;
 
 use crate::drivers::ata::cmd;
+use crate::hal::storage::IoErr;
 use crate::utils::binary_test;
 
 use super::PataDevice;
-
-#[derive(Debug, Error)]
-pub enum PataPioIoErr {
-    DeviceUnidentified,
-    SectorOutOfRange,
-    InitTimeout,
-    IOTimeout,
-    FlushCacheTimeout,
-    InputTooSmall,
-}
 
 const WAIT_TIME: u32 = 100000;
 
@@ -37,11 +27,11 @@ impl PataDevice {
     fn verify_lba(&self, lba: u64, count: u16) -> Result<(), Box<dyn core::error::Error>> {
         if self.lba48_supported {
             if lba + count as u64 > self.lba48_sector_count {
-                return Err(PataPioIoErr::SectorOutOfRange);
+                return Err(Box::new(IoErr::SectorOutOfRange));
             }
         } else {
             if lba + count as u64 > self.lba28_sector_count as u64 {
-                return Err(PataPioIoErr::SectorOutOfRange);
+                return Err(Box::new(IoErr::SectorOutOfRange));
             }
         }
 
@@ -54,7 +44,7 @@ impl PataDevice {
             timer += 1;
 
             if timer > WAIT_TIME {
-                return Err(PataPioIoErr::InitTimeout);
+                return Err(Box::new(IoErr::InitTimeout));
             }
         }
 
@@ -63,7 +53,7 @@ impl PataDevice {
 
     fn io_init(&mut self, index: i64, count: u16) -> Result<u64, Box<dyn core::error::Error>> {
         if !self.identified {
-            return Err(PataPioIoErr::DeviceUnidentified);
+            return Err(Box::new(IoErr::Unavailable));
         }
 
         let lba: u64 = self.get_lba(index);
@@ -144,7 +134,7 @@ impl PataDevice {
         {
             timer += 1;
             if timer > WAIT_TIME {
-                return Err(PataPioIoErr::IOTimeout);
+                return Err(Box::new(IoErr::IOTimeout));
             }
         }
         Ok(())
@@ -229,7 +219,7 @@ impl PataDevice {
         input: &Vec<u8>,
     ) -> Result<(), Box<dyn core::error::Error>> {
         if input.len() < (count * 512).into() {
-            return Err(PataPioIoErr::InputTooSmall);
+            return Err(Box::new(IoErr::InputTooSmall));
         }
 
         let lba = match self.io_init(index, count) {

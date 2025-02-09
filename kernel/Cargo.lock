@@ -30,7 +30,7 @@ dependencies = [
  "pc-keyboard",
  "pic8259",
  "spin",
- "thiserror",
+ "thiserror-core",
  "x86_64",
 ]
 
@@ -146,19 +146,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "thiserror"
-version = "2.0.11"
+name = "thiserror-core"
+version = "1.0.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d452f284b73e6d76dd36758a0c8684b1d5be31f92b89d07fd5822175732206fc"
+checksum = "c001ee18b7e5e3f62cbf58c7fe220119e68d902bb7443179c0c8aef30090e999"
 dependencies = [
- "thiserror-impl",
+ "thiserror-core-impl",
 ]
 
 [[package]]
-name = "thiserror-impl"
-version = "2.0.11"
+name = "thiserror-core-impl"
+version = "1.0.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26afc1baea8a989337eeb52b6e72a039780ce45c3edfcc9c5b9d112feeb173c2"
+checksum = "e4c60d69f36615a077cc7663b9cb8e42275722d23e58a7fa3d2c7f2915d09d04"
 dependencies = [
  "proc-macro2",
  "quote",
