@@ -16,12 +16,8 @@ enum DeviceType {
     Nvme,
 }
 
-#[derive(PartialEq, Clone, Copy)]
-#[repr(C)]
-enum DeviceLoc {
-    Primary = 0,
-    Secondary,
-}
+pub const PRIMARY: usize = 0;
+pub const SECONDARY: usize = 1;
 
 #[derive(Debug)]
 pub enum IoErr {
@@ -31,19 +27,19 @@ pub enum IoErr {
 
 pub struct HalStorageDevice {
     device_io_type: DeviceType,
-    device_loc: DeviceLoc,
+    device_loc: usize,
     available: bool,
 }
 
 lazy_static! {
-    pub static ref PRIMARY_STORAGE_CONTEXT: Mutex<HalStorageDevice> =
-        Mutex::new(HalStorageDevice::new(DeviceLoc::Primary));
-    pub static ref SECONDARY_STORAGE_CONTEXT: Mutex<HalStorageDevice> =
-        Mutex::new(HalStorageDevice::new(DeviceLoc::Secondary));
+    pub static ref STORAGE_CONTEXT_ARR: Vec<Mutex<HalStorageDevice>> = vec![
+        Mutex::new(HalStorageDevice::new(PRIMARY)),
+        Mutex::new(HalStorageDevice::new(SECONDARY))
+    ];
 }
 
 impl HalStorageDevice {
-    pub fn new(loc: DeviceLoc) -> Self {
+    pub fn new(loc: usize) -> Self {
         HalStorageDevice {
             device_io_type: DeviceType::Unidentified,
             device_loc: loc,

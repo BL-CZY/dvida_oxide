@@ -16,9 +16,8 @@ use arch::x86_64::{
 };
 #[allow(unused_imports)]
 use dyn_mem::{allocator::init_kheap, KHEAP_PAGE_COUNT};
-use hal::storage::{PRIMARY_STORAGE_CONTEXT, SECONDARY_STORAGE_CONTEXT};
+use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::BaseRevision;
-use utils::crc32::initialize_crc32;
 
 pub mod arch;
 pub mod debug;
@@ -65,10 +64,8 @@ unsafe extern "C" fn _start() -> ! {
         (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
     );
 
-    PRIMARY_STORAGE_CONTEXT.lock().init();
-    SECONDARY_STORAGE_CONTEXT.lock().init();
-
-    initialize_crc32();
+    STORAGE_CONTEXT_ARR[hal::storage::PRIMARY].lock().init();
+    STORAGE_CONTEXT_ARR[hal::storage::SECONDARY].lock().init();
 
     kernel_main();
 

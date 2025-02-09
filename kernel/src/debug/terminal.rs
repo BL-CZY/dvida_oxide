@@ -21,8 +21,8 @@ pub struct DebugWriter {
     cursor_col: u64,
     is_cursor_on: bool,
     cursor_blink_interval: u8,
-    color_buffer: [[u64; 160]; 50],
-    text_buffer: [[u8; 160]; 50],
+    color_buffer: [[u64; 160]; 100],
+    text_buffer: [[u8; 160]; 100],
 }
 
 // Debug Terminal Context
@@ -40,8 +40,8 @@ pub static mut DEFAULT_WRITER: Mutex<DebugWriter> = Mutex::new(DebugWriter {
     cursor_col: 0,
     is_cursor_on: true,
     cursor_blink_interval: 2,
-    color_buffer: [[0xFFFFFF00000000; 160]; 50],
-    text_buffer: [[b'\0'; 160]; 50],
+    color_buffer: [[0xFFFFFF00000000; 160]; 100],
+    text_buffer: [[b'\0'; 160]; 100],
 });
 
 pub enum TerminalErr {
@@ -56,7 +56,11 @@ impl DebugWriter {
     pub fn init_debug_terminal(&mut self) {
         if let Some(framebuffer_response) = FRAMEBUFFER_REQUEST.get_response() {
             if let Some(framebuffer) = framebuffer_response.framebuffers().next() {
-                self.configure_debug_terminal(&framebuffer, 1020, 512);
+                self.configure_debug_terminal(
+                    &framebuffer,
+                    framebuffer.width(),
+                    framebuffer.height(),
+                );
             }
         }
     }
