@@ -1,4 +1,4 @@
-use crate::drivers::ata::pata::PATA_DEVICES;
+use crate::drivers::ata::pata::{PataDevice, PATA_PRIMARY_BASE, PATA_SECONDARY_BASE};
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -9,7 +9,7 @@ use thiserror::Error;
 enum DeviceType {
     Unidentified,
     /// I only know this lol
-    PataPio,
+    PataPio(PataDevice),
     /// I might be able to do this in the future
     PataDma,
     /// Trust me I will do it
@@ -43,49 +43,46 @@ pub struct HalStorageDevice {
     device_io_type: DeviceType,
     device_loc: usize,
     available: bool,
+    pata_port: u16,
 }
 
 lazy_static! {
     pub static ref STORAGE_CONTEXT_ARR: Vec<Mutex<HalStorageDevice>> = vec![
-        Mutex::new(HalStorageDevice::new(PRIMARY)),
-        Mutex::new(HalStorageDevice::new(SECONDARY))
+        Mutex::new(HalStorageDevice::new(PRIMARY, PATA_PRIMARY_BASE)),
+        Mutex::new(HalStorageDevice::new(SECONDARY, PATA_SECONDARY_BASE))
     ];
 }
 
 impl HalStorageDevice {
-    pub fn new(loc: usize) -> Self {
+    pub fn new(loc: usize, pata_port: u16) -> Self {
         HalStorageDevice {
             device_io_type: DeviceType::Unidentified,
             device_loc: loc,
             available: false,
+            pata_port,
         }
     }
 
     pub fn init(&mut self) {
-        unsafe {
-            if let Ok(()) = PATA_DEVICES[self.device_loc as usize].lock().identify() {
-                self.available = true;
-                self.device_io_type = DeviceType::PataPio;
-            }
+        // test pata
+        let mut pata = PataDevice::new(self.pata_port);
+        if let Ok(()) = pata.identify() {
+            self.available = true;
+            self.device_io_type = DeviceType::PataPio(pata);
+            return;
         }
     }
 
     pub fn highest_lba(&self) -> u64 {
         match self.device_io_type {
-            DeviceType::PataPio | DeviceType::PataDma => {
-                PATA_DEVICES[self.device_loc as usize].lock().highest_lba()
-            }
+            DeviceType::PataPio(ref pata) => pata.highest_lba(),
             _ => 0,
         }
     }
 
     pub fn sectors_per_track(&self) -> u16 {
         match self.device_io_type {
-            DeviceType::PataPio | DeviceType::PataDma => {
-                PATA_DEVICES[self.device_loc as usize]
-                    .lock()
-                    .sectors_per_track
-            }
+            DeviceType::PataPio(ref pata) => pata.sectors_per_track,
             _ => 0,
         }
     }
@@ -100,9 +97,7 @@ impl HalStorageDevice {
         }
 
         match self.device_io_type {
-            DeviceType::PataPio => Ok(PATA_DEVICES[self.device_loc as usize]
-                .lock()
-                .pio_read_sectors(index, count)?),
+            DeviceType::PataPio(ref mut pata) => Ok(pata.pio_read_sectors(index, count)?),
             _ => Err(Box::new(IoErr::Unimplemented)),
         }
     }
@@ -118,9 +113,7 @@ impl HalStorageDevice {
         }
 
         match self.device_io_type {
-            DeviceType::PataPio => Ok(PATA_DEVICES[self.device_loc as usize]
-                .lock()
-                .pio_write_sectors(index, count, input)?),
+            DeviceType::PataPio(ref mut pata) => Ok(pata.pio_write_sectors(index, count, input)?),
             _ => Err(Box::new(IoErr::Unimplemented)),
         }
     }

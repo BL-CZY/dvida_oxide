@@ -32,10 +32,10 @@ impl Into<Vec<u8>> for GPTHeader {
     }
 }
 
-impl TryFrom<&Vec<u8>> for GPTHeader {
+impl TryFrom<&[u8]> for GPTHeader {
     type Error = Box<dyn core::error::Error>;
 
-    fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if value.len() > 92 {
             return Err(Box::new(GPTErr::BufferTooSmall));
         }
@@ -60,7 +60,7 @@ impl TryFrom<&Vec<u8>> for GPTHeader {
 }
 
 impl GPTHeader {
-    pub fn try_from_buf(buf: &Vec<u8>) -> Result<Self, Box<dyn core::error::Error>> {
+    pub fn try_from_buf(buf: &[u8]) -> Result<Self, Box<dyn core::error::Error>> {
         GPTHeader::try_from(buf)
     }
 
@@ -312,7 +312,7 @@ impl HalStorageDevice {
             return Err(Box::new(GPTErr::GPTCorrupted));
         }
 
-        let result_header = GPTHeader::try_from(&header_buf)?;
+        let result_header = GPTHeader::try_from(header_buf.as_slice())?;
 
         if !(result_header.entry_size / 128).is_power_of_two() {
             return Err(Box::new(GPTErr::BadArrayEntrySize));

@@ -4,8 +4,6 @@ use super::{
 };
 use crate::println;
 use crate::utils::binary_test;
-use lazy_static::lazy_static;
-use spin::Mutex;
 use x86_64::instructions::port::{
     Port, PortGeneric, PortReadOnly, PortWriteOnly, ReadOnlyAccess, ReadWriteAccess,
     WriteOnlyAccess,
@@ -13,12 +11,8 @@ use x86_64::instructions::port::{
 
 pub mod pio;
 
-lazy_static! {
-    pub static ref PATA_DEVICES: [Mutex<PataDevice>; 2] = [
-        Mutex::new(PataDevice::new(0x1F0)),
-        Mutex::new(PataDevice::new(0x170))
-    ];
-}
+pub const PATA_PRIMARY_BASE: u16 = 0x1F0;
+pub const PATA_SECONDARY_BASE: u16 = 0x170;
 
 pub enum PataIdentErr {
     DeviceNonExist,
@@ -101,45 +95,51 @@ impl PataDevice {
         }
     }
 
-    pub unsafe fn identify(&mut self) -> Result<(), PataIdentErr> {
-        self.drive_port.write(START_IDENTIFY);
+    pub fn identify(&mut self) -> Result<(), PataIdentErr> {
+        unsafe {
+            self.drive_port.write(START_IDENTIFY);
 
-        self.sector_count_port.write(0);
-        self.lba_low_port.write(0);
-        self.lba_mid_port.write(0);
-        self.lba_high_port.write(0);
+            self.sector_count_port.write(0);
+            self.lba_low_port.write(0);
+            self.lba_mid_port.write(0);
+            self.lba_high_port.write(0);
 
-        self.cmd_port.write(IDENTITY);
+            self.cmd_port.write(IDENTITY);
 
-        if self.status_port.read() == 0 {
-            println!("Drive doesn't exist");
-            return Err(PataIdentErr::DeviceNonExist);
-        }
+            if self.status_port.read() == 0 {
+                println!("Drive doesn't exist");
+                return Err(PataIdentErr::DeviceNonExist);
+            }
 
-        for _ in 0..14 {
-            self.status_port.read();
+            for _ in 0..14 {
+                self.status_port.read();
+            }
         }
 
         loop {
-            if self.lba_mid_port.read() != 0 || self.lba_high_port.read() != 0 {
-                println!("Device not ATA");
-                return Err(PataIdentErr::DeviceNotAta);
-            }
+            unsafe {
+                if self.lba_mid_port.read() != 0 || self.lba_high_port.read() != 0 {
+                    println!("Device not ATA");
+                    return Err(PataIdentErr::DeviceNotAta);
+                }
 
-            if (self.status_port.read() & 0b00000001) == 0b00000001 {
-                println!("Error");
-                return Err(PataIdentErr::Error);
-            }
+                if (self.status_port.read() & 0b00000001) == 0b00000001 {
+                    println!("Error");
+                    return Err(PataIdentErr::Error);
+                }
 
-            if (self.status_port.read() & 0b00001000) == 0b00001000 {
-                break;
+                if (self.status_port.read() & 0b00001000) == 0b00001000 {
+                    break;
+                }
             }
         }
 
         let mut buf: [u16; 256] = [0; 256];
 
         for i in 0..256 {
-            buf[i] = self.data_port.read();
+            unsafe {
+                buf[i] = self.data_port.read();
+            }
         }
 
         self.read_identify_buffer(&buf);
