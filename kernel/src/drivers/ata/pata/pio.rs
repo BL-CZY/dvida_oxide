@@ -9,6 +9,7 @@ use crate::utils::binary_test;
 use super::PataDevice;
 
 const WAIT_TIME: u32 = 100000;
+const SECTOR_SIZE: u16 = 512;
 
 impl PataDevice {
     fn get_lba(&self, index: i64) -> u64 {
@@ -168,11 +169,7 @@ impl PataDevice {
         Ok(())
     }
 
-    fn write_data(
-        &mut self,
-        count: u16,
-        input: &Vec<u8>,
-    ) -> Result<(), Box<dyn core::error::Error>> {
+    fn write_data(&mut self, count: u16, input: &[u8]) -> Result<(), Box<dyn core::error::Error>> {
         for sector in 0..count as usize {
             self.wait_io()?;
 
@@ -216,9 +213,9 @@ impl PataDevice {
         &mut self,
         index: i64,
         count: u16,
-        input: &Vec<u8>,
+        input: &[u8],
     ) -> Result<(), Box<dyn core::error::Error>> {
-        if input.len() < (count * 512).into() {
+        if input.len() < (count * SECTOR_SIZE).into() {
             return Err(Box::new(IoErr::InputTooSmall));
         }
 

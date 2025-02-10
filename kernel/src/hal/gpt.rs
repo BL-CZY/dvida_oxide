@@ -1,4 +1,5 @@
 use crate::println;
+use alloc::string::String;
 use alloc::vec::Vec;
 use alloc::{boxed::Box, vec};
 use thiserror::Error;
@@ -24,6 +25,27 @@ pub struct GPTHeader {
     entry_num: u32,
     entry_size: u32,
     array_crc32: u32,
+}
+
+impl Default for GPTHeader {
+    fn default() -> Self {
+        GPTHeader {
+            sig: *b"EFI PART",
+            revision: 0x00010000,
+            size: 0x5C,
+            header_crc32: 0,
+            reserved: 0,
+            loc: 1,
+            backup_loc: 0,
+            first_usable_block: 0x22,
+            last_usable_block: 0,
+            guid: Guid::new(),
+            array_start: 2,
+            entry_num: 0x80,
+            entry_size: 0x80,
+            array_crc32: 0,
+        }
+    }
 }
 
 impl Into<Vec<u8>> for GPTHeader {
@@ -83,6 +105,15 @@ impl GPTHeader {
 
         vec
     }
+
+    pub fn to_buf_full(&self) -> Vec<u8> {
+        let mut result = self.to_buf();
+        while result.len() < 512 {
+            result.push(0);
+        }
+
+        result
+    }
 }
 
 #[derive(PartialEq, Eq, Clone)]
@@ -92,28 +123,43 @@ pub struct GPTEntry {
     start_lba: u64,
     end_lba: u64,
     flags: u64,
-    name: [u16; 36],
+    name: String,
 }
 
-impl GPTEntry {
-    pub fn try_from_buf(buf: &[u8]) -> Result<Self, ()> {
-        if !(buf.len() / 128).is_power_of_two() {
-            return Err(());
+impl TryFrom<&[u8]> for GPTEntry {
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if (value.len() / 128) % 2 != 0 {
+            return Err(Box::new(GPTErr::BadArrayEntrySize));
         }
 
         Ok(GPTEntry {
-            type_guid: Guid::from_buf(buf[0..16].try_into().unwrap()),
-            unique_guid: Guid::from_buf(buf[16..32].try_into().unwrap()),
-            start_lba: u64::from_le_bytes(buf[32..40].try_into().unwrap()),
-            end_lba: u64::from_le_bytes(buf[40..48].try_into().unwrap()),
-            flags: u64::from_le_bytes(buf[48..56].try_into().unwrap()),
-            name: buf[56..]
-                .windows(2)
-                .map(|slice| u16::from_le_bytes(slice.try_into().unwrap()))
-                .collect::<Vec<u16>>()
-                .try_into()
-                .unwrap(),
+            type_guid: Guid::from_buf(value[0..16].try_into().unwrap()),
+            unique_guid: Guid::from_buf(value[16..32].try_into().unwrap()),
+            start_lba: u64::from_le_bytes(value[32..40].try_into().unwrap()),
+            end_lba: u64::from_le_bytes(value[40..48].try_into().unwrap()),
+            flags: u64::from_le_bytes(value[48..56].try_into().unwrap()),
+            name: String::from_utf16(
+                value[56..]
+                    .windows(2)
+                    .map(|slice| u16::from_le_bytes(slice.try_into().unwrap()))
+                    .collect::<Vec<u16>>()
+                    .as_slice(),
+            )?,
         })
+    }
+
+    type Error = Box<dyn core::error::Error>;
+}
+
+impl Into<Vec<u8>> for GPTEntry {
+    fn into(self) -> Vec<u8> {
+        self.to_buf()
+    }
+}
+
+impl GPTEntry {
+    pub fn try_from_buf(buf: &[u8]) -> Result<Self, Box<dyn core::error::Error>> {
+        buf.try_into()
     }
 
     pub fn to_buf(&self) -> Vec<u8> {
@@ -124,9 +170,13 @@ impl GPTEntry {
         result.extend(self.start_lba.to_le_bytes());
         result.extend(self.end_lba.to_le_bytes());
         result.extend(self.flags.to_le_bytes());
-        self.name
-            .iter()
-            .inspect(|character| result.extend(character.to_le_bytes()));
+        result.extend(
+            self.name
+                .encode_utf16()
+                .map(|ele| ele.to_le_bytes())
+                .flatten()
+                .collect::<Vec<u8>>(),
+        );
 
         result
     }
@@ -189,7 +239,7 @@ impl HalStorageDevice {
         result[PMBR_OFFSET + 4] = 0xEE;
 
         let (cylinder, head, sector) =
-            utils::lba_to_chs(self.sectors_per_track(), self.highest_lba());
+            utils::lba_to_chs(self.sectors_per_track(), self.sector_count());
 
         if cylinder > 0xFF || head > 0xFF || sector > 0xFF {
             result[PMBR_OFFSET + 5] = 0xFF;
@@ -206,13 +256,13 @@ impl HalStorageDevice {
         result[PMBR_OFFSET + 10] = 0x0;
         result[PMBR_OFFSET + 11] = 0x0;
 
-        if self.highest_lba() > 0xFFFFFFFF {
+        if self.sector_count() > 0xFFFFFFFF {
             result[PMBR_OFFSET + 12] = 0xFF;
             result[PMBR_OFFSET + 13] = 0xFF;
             result[PMBR_OFFSET + 14] = 0xFF;
             result[PMBR_OFFSET + 15] = 0xFF;
         } else {
-            let temp = self.highest_lba() as u32;
+            let temp = self.sector_count() as u32;
             result[PMBR_OFFSET + 12] = temp.to_le_bytes()[0];
             result[PMBR_OFFSET + 13] = temp.to_le_bytes()[1];
             result[PMBR_OFFSET + 14] = temp.to_le_bytes()[2];
@@ -225,30 +275,11 @@ impl HalStorageDevice {
         result
     }
 
-    fn create_unhashed_header_buf(&self) -> Vec<u8> {
-        let mut result: Vec<u8> = vec![];
-
-        result.extend(b"EFI PART");
-        result.extend(1u32.to_le_bytes());
-        result.extend(92u32.to_le_bytes());
-        result.extend([0u8; 8]);
-        result.extend(1u32.to_le_bytes());
-        result.extend((self.highest_lba() - 1).to_le_bytes());
-        result.extend(34u32.to_le_bytes());
-        result.extend((self.highest_lba() - 34).to_le_bytes());
-        result.extend(Guid::new().to_buf());
-        result.extend(2u32.to_le_bytes());
-        result.extend(128u32.to_le_bytes());
-        result.extend(128u32.to_le_bytes());
-
-        result
-    }
-
-    fn hash_header_buf(&self, buf: &mut Vec<u8>, array_crc32: u32) {
-        buf.extend(array_crc32.to_le_bytes());
-        let crc32 = utils::crc32::full_crc(&buf);
-        for (index, val) in crc32.to_le_bytes().iter().enumerate() {
-            buf[16 + index] = *val;
+    fn create_unhashed_header(&self) -> GPTHeader {
+        GPTHeader {
+            backup_loc: self.sector_count() - 1,
+            last_usable_block: self.sector_count() - 34,
+            ..Default::default()
         }
     }
 
@@ -260,8 +291,8 @@ impl HalStorageDevice {
 
     fn write_table(
         &mut self,
-        header: &Vec<u8>,
-        array: &Vec<u8>,
+        header: &[u8],
+        array: &[u8],
     ) -> Result<(), Box<dyn core::error::Error>> {
         self.write_sectors(1, 1, header)?;
 
@@ -280,27 +311,31 @@ impl HalStorageDevice {
         }
 
         let pmbr: Vec<u8> = self.create_pmbr_buf();
-        let mut header: Vec<u8> = self.create_unhashed_header_buf();
+        let mut header = self.create_unhashed_header();
         let array: Vec<u8> = Vec::from([0; 32 * 512]);
-        let array_crc32 = utils::crc32::full_crc(&array);
-        self.hash_header_buf(&mut header, array_crc32);
+        header.array_crc32 = utils::crc32::full_crc(&array);
+        header.header_crc32 = utils::crc32::full_crc(&header.to_buf());
 
         self.write_pmbr(&pmbr)?;
-        self.write_table(&header, &array)?;
+        self.write_table(&header.to_buf_full(), &array)?;
 
         Ok(())
     }
 
-    fn is_valid_header(&self, buf: &mut Vec<u8>) -> bool {
-        let crc32 = u32::from_be_bytes(buf[16..20].try_into().unwrap());
-        buf[16] = 0;
-        buf[17] = 0;
-        buf[18] = 0;
-        buf[19] = 0;
-        utils::crc32::is_verified_crc32(buf, crc32)
+    fn is_valid_header(&self, buf: &[u8]) -> bool {
+        let mut header: GPTHeader = if let Ok(h) = buf.try_into() {
+            h
+        } else {
+            return false;
+        };
+
+        let crc = header.header_crc32;
+        header.header_crc32 = 0;
+
+        utils::crc32::is_verified_crc32(&header.to_buf(), crc)
     }
 
-    pub fn check_table(
+    pub fn get_table(
         &mut self,
         lba: i64,
         is_backup: bool,
@@ -314,7 +349,7 @@ impl HalStorageDevice {
 
         let result_header = GPTHeader::try_from(header_buf.as_slice())?;
 
-        if !(result_header.entry_size / 128).is_power_of_two() {
+        if (result_header.entry_size / 128) % 2 != 0 {
             return Err(Box::new(GPTErr::BadArrayEntrySize));
         }
 
@@ -353,8 +388,8 @@ impl HalStorageDevice {
             return Err(Box::new(GPTErr::GPTNonExist));
         }
 
-        let primary_result = self.check_table(1, false);
-        let backup_result = self.check_table(-1, false);
+        let primary_result = self.get_table(1, false);
+        let backup_result = self.get_table(-1, false);
 
         if let Ok((primary_header, primary_array)) = primary_result.as_ref()
             && let Ok((backup_header, backup_array)) = backup_result.as_ref()

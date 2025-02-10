@@ -87,11 +87,11 @@ impl PataDevice {
         println!("Lba48 sector count: {:x}", self.lba48_sector_count);
     }
 
-    pub fn highest_lba(&self) -> u64 {
+    pub fn sector_count(&self) -> u64 {
         if self.lba48_supported {
             self.lba48_sector_count
         } else {
-            self.lba28_sector_count as u64
+            (self.lba28_sector_count) as u64
         }
     }
 

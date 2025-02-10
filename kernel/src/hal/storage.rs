@@ -73,9 +73,9 @@ impl HalStorageDevice {
         }
     }
 
-    pub fn highest_lba(&self) -> u64 {
+    pub fn sector_count(&self) -> u64 {
         match self.device_io_type {
-            DeviceType::PataPio(ref pata) => pata.highest_lba(),
+            DeviceType::PataPio(ref pata) => pata.sector_count(),
             _ => 0,
         }
     }
@@ -106,7 +106,7 @@ impl HalStorageDevice {
         &mut self,
         index: i64,
         count: u16,
-        input: &Vec<u8>,
+        input: &[u8],
     ) -> Result<(), Box<dyn core::error::Error>> {
         if !self.available {
             return Err(Box::new(IoErr::Unavailable));
