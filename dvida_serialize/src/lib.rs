@@ -1,4 +1,7 @@
-#[no_std]
+#![no_std]
+
+mod numbers;
+
 #[derive(Clone, Copy, Debug)]
 pub enum Endianness {
     Little,
@@ -7,10 +10,14 @@ pub enum Endianness {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum DvSerErr {}
+pub enum DvSerErr {
+    BufferTooSmall,
+}
 
 #[derive(Debug, Clone, Copy)]
-pub enum DvDeErr {}
+pub enum DvDeErr {
+    WrongBufferSize,
+}
 
 pub trait DvSerialize {
     /// the serialize function takes in self, endianness, writes data to a slice of data

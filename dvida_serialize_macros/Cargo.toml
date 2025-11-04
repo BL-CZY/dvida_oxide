@@ -6,5 +6,8 @@ edition = "2024"
 [lib]
 proc-macro = true
 
+
 [dependencies]
 dvida_serialize = { path = "../dvida_serialize/" }
+syn = "2.0"
+quote = "1.0"

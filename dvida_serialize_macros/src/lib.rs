@@ -1,7 +1,12 @@
+#![no_std]
+
 use dvida_serialize::{DvSerErr, DvSerialize};
 
 extern crate proc_macro;
 use proc_macro::TokenStream;
+
+use quote::quote;
+use syn::{DeriveInput, parse_macro_input};
 
 #[proc_macro_derive(DvSerialize)]
 pub fn derive_dv_serialize(input: TokenStream) -> TokenStream {
@@ -17,7 +22,7 @@ pub fn derive_dv_serialize(input: TokenStream) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     let expanded = quote! {
-        impl #impl_generics for #name #ty_genetics #where_clause {
+        impl #impl_generics for #name #ty_generics #where_clause {
             fn serialize(&self, endianness: Endianness) {}
         }
     };
