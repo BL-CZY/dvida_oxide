@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "dvida_serialize"
+version = "0.1.0"
+
+[[package]]
 name = "dvida_serialize_macros"
 version = "0.1.0"
+dependencies = [
+ "dvida_serialize",
+]

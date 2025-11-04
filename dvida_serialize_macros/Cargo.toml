@@ -7,3 +7,4 @@ edition = "2024"
 proc-macro = true
 
 [dependencies]
+dvida_serialize = { path = "../dvida_serialize/" }
