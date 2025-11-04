@@ -28,8 +28,41 @@ pub trait DvSerialize {
 
 pub trait DvDeserialize {
     /// the deserialize function takes in endianness, a slice of data, and returns the parsed self
+    /// and number of bytes read
     /// it will error if the conversion goes wrong
-    fn deserialize(endianness: Endianness, input: &[u8]) -> Result<Self, DvDeErr>
+    fn deserialize(endianness: Endianness, input: &[u8]) -> Result<(Self, usize), DvDeErr>
     where
         Self: Sized;
+}
+
+pub struct TestStruct {
+    size: u32,
+    value: u32,
+}
+
+impl DvSerialize for TestStruct {
+    fn serialize(&self, endianness: Endianness, target: &mut [u8]) -> Result<usize, DvSerErr> {
+        let mut acc: usize = 0;
+
+        acc += self.size.serialize(endianness, &mut target[acc..])?;
+        acc += self.value.serialize(endianness, &mut target[acc..])?;
+
+        Ok(acc)
+    }
+}
+
+impl DvDeserialize for TestStruct {
+    fn deserialize(endianness: Endianness, input: &[u8]) -> Result<(Self, usize), DvDeErr>
+    where
+        Self: Sized,
+    {
+        let mut acc: usize = 0;
+
+        let (size, written) = u32::deserialize(endianness, &input[acc..])?;
+        acc += written;
+        let (value, written) = u32::deserialize(endianness, &input[acc..])?;
+        acc += written;
+
+        Ok((Self { size, value }, acc))
+    }
 }

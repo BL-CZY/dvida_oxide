@@ -6,26 +6,34 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 
 use quote::quote;
-use syn::{DeriveInput, parse_macro_input};
+use syn::{Data, DeriveInput, Fields, Ident, parse_macro_input};
+
+fn make_error(ident: &Ident, msg: &str) -> TokenStream {
+    return syn::Error::new_spanned(&ident, msg)
+        .to_compile_error()
+        .into();
+}
 
 #[proc_macro_derive(DvSerialize)]
 pub fn derive_dv_serialize(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
+    let DeriveInput {
+        attrs,
+        vis,
+        ident,
+        generics,
+        data,
+    } = parse_macro_input!(input as DeriveInput);
 
-    let name = &input.ident;
-    let generics = &input.generics;
-
-    // Input: struct Foo<T: Clone, U> where U: Debug { ... }
-    // Generates: impl<T: Clone, U> MyTrait for Foo<T, U> where U: Debug { ... }
-    //            ^^^^^ impl_generics   ^^^^ ty_generics  ^^^^^^^^^^^^^^ where_clause
-
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-
-    let expanded = quote! {
-        impl #impl_generics for #name #ty_generics #where_clause {
-            fn serialize(&self, endianness: Endianness) {}
-        }
+    let data_struct = if let Data::Struct(data_struct) = data {
+        data_struct
+    } else {
+        return make_error(&ident, "Only structs are supported");
     };
 
-    TokenStream::from(expanded)
+    for field in data_struct.fields.iter() {
+        match field.ident {
+            Some(name) => {}
+            None => continue,
+        }
+    }
 }

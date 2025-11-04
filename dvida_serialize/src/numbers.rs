@@ -19,7 +19,7 @@ macro_rules! impl_serialize_deserialize {
             }
 
             impl DvDeserialize for $t {
-                fn deserialize(endianness: Endianness, input: &[u8]) -> Result<Self, DvDeErr>
+                fn deserialize(endianness: Endianness, input: &[u8]) -> Result<(Self, usize), DvDeErr>
                 where
                     Self: Sized,
                 {
@@ -33,7 +33,7 @@ macro_rules! impl_serialize_deserialize {
                         Endianness::NA | Endianness::Little => <$t>::from_le_bytes(bytes),
                         Endianness::Big => <$t>::from_be_bytes(bytes),
                     };
-                    Ok(number)
+                    Ok((number, SIZE))
                 }
             }
         )*
