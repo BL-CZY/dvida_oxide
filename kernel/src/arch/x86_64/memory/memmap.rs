@@ -2,13 +2,13 @@ use limine::{
     memory_map::{Entry, EntryType},
     request::MemoryMapRequest,
 };
-use x86_64::{structures::paging::PhysFrame, PhysAddr};
+use x86_64::{PhysAddr, structures::paging::PhysFrame};
 
 use crate::println;
 
 use super::get_hhdm_offset;
 
-#[link_section = ".requests"]
+#[unsafe(link_section = ".requests")]
 static MEMMAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

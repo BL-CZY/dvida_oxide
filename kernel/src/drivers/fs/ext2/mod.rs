@@ -1,9 +1,8 @@
-use dvida_serialize::DvDeSer;
+use dvida_serialize::*;
 
 /// The ext2 superblock structure - located at byte offset 1024 from start
 /// All fields stored in little-endian format on disk
 #[derive(DvDeSer)]
-#[repr(C, packed)]
 pub struct SuperBlock {
     // Base fields (revision 0 and 1)
     s_inodes_count: u32,      // Total number of inodes
@@ -70,7 +69,6 @@ pub struct SuperBlock {
 
 /// Block Group Descriptor structure
 #[derive(DvDeSer)]
-#[repr(C, packed)]
 pub struct GroupDescriptor {
     bg_block_bitmap: u32,         // Block number of block bitmap
     bg_inode_bitmap: u32,         // Block number of inode bitmap
@@ -88,7 +86,6 @@ pub struct GroupDescriptor {
 
 /// Inode structure - represents a file, directory, or other filesystem object
 #[derive(DvDeSer)]
-#[repr(C, packed)]
 pub struct Inode {
     i_mode: u16,        // File mode (type and permissions)
     i_uid: u16,         // Low 16 bits of owner UID
@@ -112,7 +109,6 @@ pub struct Inode {
 
 /// Directory entry structure (variable length)
 #[derive(DvDeSer)]
-#[repr(C, packed)]
 pub struct DirEntry {
     inode: u32,   // Inode number (0 if entry is unused)
     rec_len: u16, // Distance to next directory entry
@@ -268,4 +264,3 @@ impl Inode {
         self.file_type() == EXT2_S_IFLNK
     }
 }
-

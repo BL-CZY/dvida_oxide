@@ -49,7 +49,7 @@ pub enum TerminalErr {
 }
 
 #[used]
-#[link_section = ".requests"]
+#[unsafe(link_section = ".requests")]
 static FRAMEBUFFER_REQUEST: FramebufferRequest = FramebufferRequest::new();
 
 impl DebugWriter {

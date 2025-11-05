@@ -19,5 +19,5 @@ pub unsafe fn read_active_table() -> &'static mut PageTable {
 
     let page_table: *mut PageTable = virt_addr.as_mut_ptr();
 
-    &mut *page_table
+    unsafe { &mut *page_table }
 }

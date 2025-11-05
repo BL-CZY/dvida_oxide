@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 #![feature(abi_x86_interrupt)]
-#![feature(let_chains)]
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::debug::test::run_tests)]
 #![reexport_test_harness_main = "test_main"]
@@ -11,11 +10,11 @@ extern crate alloc;
 use arch::x86_64::{
     gdt::init_gdt,
     idt::init_idt,
-    memory::{self, memmap::log_memmap, PAGE_SIZE},
+    memory::{self, PAGE_SIZE, memmap::log_memmap},
     pic::init_pic,
 };
 #[allow(unused_imports)]
-use dyn_mem::{allocator::init_kheap, KHEAP_PAGE_COUNT};
+use dyn_mem::{KHEAP_PAGE_COUNT, allocator::init_kheap};
 use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::BaseRevision;
 
@@ -41,16 +40,18 @@ fn kernel_main() {
 // Be sure to mark all limine requests with #[used], otherwise they may be removed by the compiler.
 #[used]
 // The .requests section allows limine to find the requests faster and more safely.
-#[link_section = ".requests"]
+#[unsafe(link_section = ".requests")]
 static BASE_REVISION: BaseRevision = BaseRevision::new();
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn _start() -> ! {
     // All limine requests must also be referenced in a called function, otherwise they may be
     // removed by the linker.
     // clear keyboard port
     assert!(BASE_REVISION.is_supported());
-    debug::terminal::DEFAULT_WRITER.lock().init_debug_terminal();
+    unsafe {
+        debug::terminal::DEFAULT_WRITER.lock().init_debug_terminal();
+    }
 
     init_gdt();
     init_idt();

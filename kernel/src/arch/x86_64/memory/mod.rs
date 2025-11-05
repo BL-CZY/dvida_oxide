@@ -9,10 +9,10 @@ use frame_allocator::MinimalAllocator;
 use limine::request::HhdmRequest;
 use memmap::read_memmap_usable;
 use page_table::read_offset_table;
-use x86_64::structures::paging::{Mapper, Page, PageTableFlags};
 use x86_64::VirtAddr;
+use x86_64::structures::paging::{Mapper, Page, PageTableFlags};
 
-#[link_section = ".requests"]
+#[unsafe(link_section = ".requests")]
 static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
 
 pub const PAGE_SIZE: u32 = 4096;
