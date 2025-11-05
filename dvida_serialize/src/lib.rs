@@ -2,6 +2,8 @@
 
 mod numbers;
 
+pub use dvida_serialize_macros::DvDeSer;
+
 #[derive(Clone, Copy, Debug)]
 pub enum Endianness {
     Little,
@@ -35,12 +37,18 @@ pub trait DvDeserialize {
         Self: Sized;
 }
 
+#[derive(DvDeSer)]
 pub struct TestStruct {
     size: u32,
     value: u32,
 }
 
-impl DvSerialize for TestStruct {
+pub struct EgStruct {
+    size: u32,
+    value: u32,
+}
+
+impl DvSerialize for EgStruct {
     fn serialize(&self, endianness: Endianness, target: &mut [u8]) -> Result<usize, DvSerErr> {
         let mut acc: usize = 0;
 
@@ -51,7 +59,7 @@ impl DvSerialize for TestStruct {
     }
 }
 
-impl DvDeserialize for TestStruct {
+impl DvDeserialize for EgStruct {
     fn deserialize(endianness: Endianness, input: &[u8]) -> Result<(Self, usize), DvDeErr>
     where
         Self: Sized,
