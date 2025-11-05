@@ -68,7 +68,7 @@ pub fn derive_dv_deser(input: TokenStream) -> TokenStream {
 
                 #(
 
-                let (#names, written) = #types::deserialize(endianness, &input[acc..])?;
+                let (#names, written) = <#types>::deserialize(endianness, &input[acc..])?;
                 acc += written;
 
                 )*

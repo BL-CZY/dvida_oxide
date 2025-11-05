@@ -94,3 +94,8 @@ impl_serialize_deserialize!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, f3
 
 // Apply to arrays of primitives
 impl_serialize_deserialize_array!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, f32, f64);
+
+// #[derive(DvDeSer)]
+// struct Test {
+//     field1: [u8; 16],
+// }

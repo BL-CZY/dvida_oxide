@@ -16,6 +16,8 @@ endif
 
 override CARGO_TARGET_DIR=.
 
+EXPAND_DIR=src/drivers/fs/mod.rs
+
 # Default target.
 .PHONY: all
 all:
@@ -27,6 +29,10 @@ all-test:
 		rm -rf target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR)/deps/*kernel*
 		cargo build --tests --keep-going --target $(RUST_TARGET) --profile $(RUST_PROFILE)
 		cp target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR)/deps/$$(cd target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR)/deps && find . -maxdepth 1 -type f -regex "./kernel-................") kernel
+
+.PHONY: expand
+expand:
+	cargo expand --profile $(RUST_PROFILE) --target $(RUST_TARGET)
 
 # Remove object files and the final executable.
 .PHONY: clean
