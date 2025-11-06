@@ -89,7 +89,7 @@ unsafe extern "C" fn _start() -> ! {
         kheap_start as *mut u8,
         (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
     );
-    writer.write_string("kheap!!\n");
+    writer.write_string("kheap!!");
 
     STORAGE_CONTEXT_ARR[hal::storage::PRIMARY].lock().init();
     STORAGE_CONTEXT_ARR[hal::storage::SECONDARY].lock().init();

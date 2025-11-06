@@ -1,5 +1,4 @@
 use core::fmt;
-use core::ptr::null_mut;
 
 use limine::framebuffer::Framebuffer;
 use limine::request::FramebufferRequest;
