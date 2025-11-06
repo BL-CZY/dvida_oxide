@@ -1,4 +1,5 @@
 use core::fmt;
+use core::ptr::null_mut;
 
 use limine::framebuffer::Framebuffer;
 use limine::request::FramebufferRequest;
@@ -19,8 +20,8 @@ pub struct DebugWriter {
     pub cursor_col: u64,
     pub is_cursor_on: bool,
     pub cursor_blink_interval: u8,
-    pub color_buffer: [[u64; 160]; 100],
-    pub text_buffer: [[u8; 160]; 100],
+    pub color_buffer: [[u64; 32]; 32],
+    pub text_buffer: [[u8; 32]; 32],
 }
 
 pub enum TerminalErr {
@@ -49,8 +50,11 @@ impl DebugWriter {
         self.frame_buffer_width = buffer.width();
         self.frame_buffer_height = buffer.height();
         self.frame_buffer_addr = buffer.addr() as *mut u32;
-        self.terminal_width = res_width / 8;
-        self.terminal_height = res_height / 16;
+        // self.terminal_width = res_width / 8;
+        // self.terminal_height = res_height / 16;
+
+        self.terminal_width = 32;
+        self.terminal_height = 32;
 
         self.clear_debug_terminal();
     }

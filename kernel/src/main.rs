@@ -66,12 +66,12 @@ unsafe extern "C" fn _start() -> ! {
         cursor_col: 0,
         is_cursor_on: true,
         cursor_blink_interval: 2,
-        color_buffer: [[0xFFFFFF00000000; 160]; 100],
-        text_buffer: [[b'\0'; 160]; 100],
+        color_buffer: [[0xFFFFFF00000000; 32]; 32], // 160 100
+        text_buffer: [[b'\0'; 32]; 32],
     };
 
     writer.init_debug_terminal();
-    writer.write_string("we are here\n");
+    writer.write_string("we are here with a micro temp terminal\n");
 
     init_gdt();
     writer.write_string("gdt\n");
