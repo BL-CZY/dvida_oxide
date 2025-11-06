@@ -1,8 +1,7 @@
 use x86_64::{instructions::port::Port, structures::idt::InterruptStackFrame};
 
 use crate::{
-    arch::x86_64::pic::{PICS, PRIMARY_PIC_OFFSET},
-    debug::terminal::DEFAULT_WRITER,
+    arch::x86_64::pic::{PRIMARY_PIC_OFFSET, get_pic},
     hal::keyboard::process_scancode,
 };
 
@@ -30,8 +29,8 @@ pub enum IrqIndex {
 
 pub extern "x86-interrupt" fn timer_handler(_stack_frame: InterruptStackFrame) {
     unsafe {
-        DEFAULT_WRITER.lock().blink_debug_cursor();
-        PICS.lock().notify_end_of_interrupt(IrqIndex::Timer as u8);
+        // blink_debug_cursor();
+        get_pic().notify_end_of_interrupt(IrqIndex::Timer as u8);
     }
 }
 
@@ -41,22 +40,19 @@ pub extern "x86-interrupt" fn keyboard_handler(_stack_frame: InterruptStackFrame
     process_scancode(scancode);
 
     unsafe {
-        PICS.lock()
-            .notify_end_of_interrupt(IrqIndex::Keyboard as u8);
+        get_pic().notify_end_of_interrupt(IrqIndex::Keyboard as u8);
     }
 }
 
 pub extern "x86-interrupt" fn primary_ide_handler(_stack_frame: InterruptStackFrame) {
     //TODO stop polling ig
     unsafe {
-        PICS.lock()
-            .notify_end_of_interrupt(IrqIndex::PrimaryIDE as u8);
+        get_pic().notify_end_of_interrupt(IrqIndex::PrimaryIDE as u8);
     }
 }
 
 pub extern "x86-interrupt" fn secondary_ide_handler(_stack_frame: InterruptStackFrame) {
     unsafe {
-        PICS.lock()
-            .notify_end_of_interrupt(IrqIndex::SecondaryIDE as u8);
+        get_pic().notify_end_of_interrupt(IrqIndex::SecondaryIDE as u8);
     }
 }

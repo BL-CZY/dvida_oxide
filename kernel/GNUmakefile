@@ -14,6 +14,13 @@ ifeq ($(RUST_PROFILE),dev)
     override RUST_PROFILE_SUBDIR := debug
 endif
 
+OS := $(shell uname -s | tr A-Z a-z)
+
+CMD := find -maxdepth 1 -perm -111 -type f
+ifeq ($(OS),darwin)
+	override CMD := find
+endif
+
 override CARGO_TARGET_DIR=.
 
 EXPAND_DIR=src/drivers/fs/mod.rs
@@ -22,7 +29,7 @@ EXPAND_DIR=src/drivers/fs/mod.rs
 .PHONY: all
 all:
 		cargo build --target $(RUST_TARGET) --profile $(RUST_PROFILE)
-		cp target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR)/$$(cd target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR) && find -maxdepth 1 -perm -111 -type f) kernel
+		cp target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR)/kernel kernel
 
 .PHONY: all-test
 all-test:

@@ -1,48 +1,27 @@
 use core::fmt;
-use core::ptr::null_mut;
 
 use limine::framebuffer::Framebuffer;
 use limine::request::FramebufferRequest;
-use spin::Mutex;
 
 use super::BUILTIN_FONT;
 
 pub struct DebugWriter {
-    frame_buffer_width: u64,
-    frame_buffer_height: u64,
-    frame_buffer_addr: *mut u32,
-    terminal_width: u64,
-    terminal_height: u64,
-    current_row: u64,
-    current_col: u64,
-    cur_bg_color: u32,
-    cur_fg_color: u32,
-    cursor_row: u64,
-    cursor_col: u64,
-    is_cursor_on: bool,
-    cursor_blink_interval: u8,
-    color_buffer: [[u64; 160]; 100],
-    text_buffer: [[u8; 160]; 100],
+    pub frame_buffer_width: u64,
+    pub frame_buffer_height: u64,
+    pub frame_buffer_addr: *mut u32,
+    pub terminal_width: u64,
+    pub terminal_height: u64,
+    pub current_row: u64,
+    pub current_col: u64,
+    pub cur_bg_color: u32,
+    pub cur_fg_color: u32,
+    pub cursor_row: u64,
+    pub cursor_col: u64,
+    pub is_cursor_on: bool,
+    pub cursor_blink_interval: u8,
+    pub color_buffer: [[u64; 160]; 100],
+    pub text_buffer: [[u8; 160]; 100],
 }
-
-// Debug Terminal Context
-pub static mut DEFAULT_WRITER: Mutex<DebugWriter> = Mutex::new(DebugWriter {
-    frame_buffer_width: 0,
-    frame_buffer_height: 0,
-    frame_buffer_addr: null_mut(),
-    terminal_width: 0,
-    terminal_height: 0,
-    current_row: 0,
-    current_col: 0,
-    cur_bg_color: 0x000000,
-    cur_fg_color: 0xFFFFFF,
-    cursor_row: 0,
-    cursor_col: 0,
-    is_cursor_on: true,
-    cursor_blink_interval: 2,
-    color_buffer: [[0xFFFFFF00000000; 160]; 100],
-    text_buffer: [[b'\0'; 160]; 100],
-});
 
 pub enum TerminalErr {
     NoFrameBuffer,
@@ -269,11 +248,12 @@ impl fmt::Write for DebugWriter {
 }
 
 #[doc(hidden)]
+#[allow(unused_unsafe, unused)]
 pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write;
     use x86_64::instructions::interrupts;
     unsafe {
-        interrupts::without_interrupts(|| DEFAULT_WRITER.lock().write_fmt(args).unwrap());
+        // interrupts::without_interrupts(|| DEFAULT_WRITER.lock().write_fmt(args).unwrap());
     }
 }
 

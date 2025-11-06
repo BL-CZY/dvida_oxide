@@ -4,7 +4,7 @@
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::debug::test::run_tests)]
 #![reexport_test_harness_main = "test_main"]
-use core::arch::asm;
+use core::{arch::asm, ptr::null_mut};
 extern crate alloc;
 
 use arch::x86_64::{
@@ -17,6 +17,8 @@ use arch::x86_64::{
 use dyn_mem::{KHEAP_PAGE_COUNT, allocator::init_kheap};
 use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::BaseRevision;
+
+use crate::debug::terminal::DebugWriter;
 
 pub mod arch;
 pub mod debug;
@@ -49,24 +51,49 @@ unsafe extern "C" fn _start() -> ! {
     // removed by the linker.
     // clear keyboard port
     assert!(BASE_REVISION.is_supported());
-    unsafe {
-        debug::terminal::DEFAULT_WRITER.lock().init_debug_terminal();
-    }
+
+    let mut writer: DebugWriter = DebugWriter {
+        frame_buffer_width: 0,
+        frame_buffer_height: 0,
+        frame_buffer_addr: null_mut(),
+        terminal_width: 0,
+        terminal_height: 0,
+        current_row: 0,
+        current_col: 0,
+        cur_bg_color: 0x000000,
+        cur_fg_color: 0xFFFFFF,
+        cursor_row: 0,
+        cursor_col: 0,
+        is_cursor_on: true,
+        cursor_blink_interval: 2,
+        color_buffer: [[0xFFFFFF00000000; 160]; 100],
+        text_buffer: [[b'\0'; 160]; 100],
+    };
+
+    writer.init_debug_terminal();
+    writer.write_string("we are here\n");
 
     init_gdt();
+    writer.write_string("gdt\n");
     init_idt();
+    writer.write_string("idt\n");
     init_pic();
+    writer.write_string("pic\n");
     x86_64::instructions::interrupts::enable();
+    writer.write_string("interrupts on\n");
 
     log_memmap();
+    writer.write_string("memmap acquired\n");
     let (_, kheap_start) = memory::init();
     init_kheap(
         kheap_start as *mut u8,
         (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
     );
+    writer.write_string("kheap!!\n");
 
     STORAGE_CONTEXT_ARR[hal::storage::PRIMARY].lock().init();
     STORAGE_CONTEXT_ARR[hal::storage::SECONDARY].lock().init();
+    writer.write_string("storage?!\n");
 
     kernel_main();
 
