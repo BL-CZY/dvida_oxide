@@ -18,7 +18,7 @@ use dyn_mem::{KHEAP_PAGE_COUNT, allocator::init_kheap};
 use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::BaseRevision;
 
-use crate::debug::terminal::DebugWriter;
+use crate::{arch::x86_64::memory::MemoryMappings, debug::terminal::DebugWriter};
 
 pub mod arch;
 pub mod debug;
@@ -84,9 +84,9 @@ unsafe extern "C" fn _start() -> ! {
 
     log_memmap();
     writer.write_string("memmap acquired\n");
-    let (_, kheap_start) = memory::init();
+    let MemoryMappings { kheap, .. } = memory::init();
     init_kheap(
-        kheap_start as *mut u8,
+        kheap.kheap_start,
         (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
     );
     writer.write_string("kheap!!");
