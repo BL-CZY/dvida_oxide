@@ -23,6 +23,7 @@ impl Task {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct TaskWaker {
     pub id: TaskID,
     pub tasks: Arc<Mutex<VecDeque<TaskID>>>,
