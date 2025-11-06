@@ -285,12 +285,12 @@ pub fn _print(args: fmt::Arguments) {
 }
 
 #[macro_export]
-macro_rules! print {
+macro_rules! iprint {
     ($($arg:tt)*) => ($crate::debug::terminal::_print(format_args!($($arg)*)));
 }
 
 #[macro_export]
-macro_rules! println {
+macro_rules! iprintln {
     () => ($crate::print!("\n"));
-    ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::iprint!("{}\n", format_args!($($arg)*)));
 }

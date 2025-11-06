@@ -1,4 +1,4 @@
-use crate::println;
+use crate::iprintln;
 use alloc::string::String;
 use alloc::vec::Vec;
 use alloc::{boxed::Box, vec};
@@ -395,7 +395,7 @@ impl HalStorageDevice {
             && let Ok((backup_header, backup_array)) = backup_result.as_ref()
         {
             if primary_header != backup_header || primary_array != backup_array {
-                println!(
+                iprintln!(
                     "Primary table appears is different from the backup table, sync backup..."
                 );
                 // TODO sync this
@@ -406,7 +406,7 @@ impl HalStorageDevice {
             && let Err(e) = backup_result.as_ref()
         {
             // TODO fix this
-            println!(
+            iprintln!(
                 "Primary table appears ok, but the backup one is corrupted: {:?}",
                 e
             );
@@ -415,7 +415,7 @@ impl HalStorageDevice {
             && let Ok((secondary_header, secondary_array)) = backup_result
         {
             // TODO fix this
-            println!(
+            iprintln!(
                 "Backup table appears ok, but the primary one is corrupted: {:?}",
                 e
             );
