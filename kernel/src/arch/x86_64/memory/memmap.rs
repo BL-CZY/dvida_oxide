@@ -4,7 +4,7 @@ use limine::{
 };
 use x86_64::{PhysAddr, structures::paging::PhysFrame};
 
-use crate::println;
+use crate::iprintln;
 
 use super::get_hhdm_offset;
 
@@ -54,7 +54,7 @@ pub fn sum_memmap(entries: &[&Entry], hhdm_offset: u64, log: bool) -> (u64, u64)
 
     for (index, entry) in entries.iter().enumerate() {
         if log {
-            println!(
+            iprintln!(
                 "memmap entry {}: type: {:?}, base: {:#x}, length: {:#x}",
                 index,
                 MemmapEntryType::from_entry(entry.entry_type),
@@ -72,7 +72,7 @@ pub fn sum_memmap(entries: &[&Entry], hhdm_offset: u64, log: bool) -> (u64, u64)
             && index >= entries.len() - 1
         {
             if log {
-                println!("Ignored the last entry as it's not usable");
+                iprintln!("Ignored the last entry as it's not usable");
             }
             continue;
         }
@@ -88,7 +88,7 @@ pub fn log_memmap() {
 
     let (total_memory, total_memory_usable) = sum_memmap(get_memmap(), hhdm_offset, true);
 
-    println!(
+    iprintln!(
         "total memory: {}G (round down), total usable: {}G (round down)",
         total_memory / 0x400 / 0x400 / 0x400,
         total_memory_usable / 0x400 / 0x400 / 0x400

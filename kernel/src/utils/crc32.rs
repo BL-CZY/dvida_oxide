@@ -62,7 +62,7 @@ pub fn full_crc(s_data: &Vec<u8>) -> u32 {
 mod tests {
     use super::*;
     use crate::{end_test, test_name};
-    use crate::{ignore, println};
+    use crate::{ignore, iprintln};
     use alloc::vec;
 
     #[test_case]
@@ -72,7 +72,7 @@ mod tests {
         test_name!("CRC32 test");
         let data = vec![0x31, 0x32, 0x33, 0x34]; // "12345"
         let crc = full_crc(&data);
-        println!("{:#X}", crc);
+        iprintln!("{:#X}", crc);
         end_test!();
     }
 }

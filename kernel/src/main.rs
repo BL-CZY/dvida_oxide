@@ -4,10 +4,9 @@
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::debug::test::run_tests)]
 #![reexport_test_harness_main = "test_main"]
-use core::{arch::asm, ptr::null_mut};
+use core::arch::asm;
 extern crate alloc;
 
-use alloc::boxed::Box;
 use arch::x86_64::{
     gdt::init_gdt,
     idt::init_idt,
@@ -20,10 +19,7 @@ use ejcineque::executor::Executor;
 use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::{BaseRevision, request::StackSizeRequest};
 
-use crate::{
-    arch::x86_64::memory::MemoryMappings,
-    debug::terminal::{DebugWriter, WRITER},
-};
+use crate::{arch::x86_64::memory::MemoryMappings, debug::terminal::WRITER};
 
 pub mod arch;
 pub mod debug;
@@ -85,7 +81,7 @@ unsafe extern "C" fn _start() -> ! {
 
 #[panic_handler]
 fn rust_panic(_info: &core::panic::PanicInfo) -> ! {
-    println!("{}", _info);
+    iprintln!("{}", _info);
     hcf();
 }
 

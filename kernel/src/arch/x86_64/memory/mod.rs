@@ -8,7 +8,7 @@ pub mod pmm;
 use crate::arch::x86_64::memory::bitmap::BitMap;
 use crate::arch::x86_64::memory::heap::KHeap;
 use crate::dyn_mem::KHEAP_PAGE_COUNT;
-use crate::{print, println};
+use crate::{iprint, iprintln};
 use frame_allocator::MinimalAllocator;
 use limine::request::HhdmRequest;
 use memmap::read_memmap_usable;
@@ -49,9 +49,11 @@ pub fn init() -> MemoryMappings {
     let bitmap_page_length =
         (bitmap_length / PAGE_SIZE as u64) + (bitmap_length % PAGE_SIZE as u64 != 0) as u64;
 
-    println!(
+    iprintln!(
         "Usable frame count: {}\nBitmap length: {}\nBitmap page count:{}",
-        usable_frame_count, bitmap_length, bitmap_page_length
+        usable_frame_count,
+        bitmap_length,
+        bitmap_page_length
     );
 
     // reserve a space for bitmap and kernel heap so we don't write page tables there
@@ -73,7 +75,7 @@ pub fn init() -> MemoryMappings {
         kheap_start: kheap_start as *mut u8,
     };
 
-    println!("[Mapped pages (b for bitmap, k for kernel heap)]:");
+    iprintln!("[Mapped pages (b for bitmap, k for kernel heap)]:");
 
     for (index, frame) in usable_mem.enumerate() {
         if index >= (KHEAP_PAGE_COUNT + bitmap_page_length) as usize {
@@ -93,9 +95,9 @@ pub fn init() -> MemoryMappings {
         }
 
         if index < bitmap_page_length as usize {
-            print!("b{:?}, ", page);
+            iprint!("b{:?}, ", page);
         } else {
-            print!("k{:?}, ", page);
+            iprint!("k{:?}, ", page);
         }
     }
 

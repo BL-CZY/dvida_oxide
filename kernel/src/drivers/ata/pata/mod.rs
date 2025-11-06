@@ -2,7 +2,7 @@ use super::{
     cmd::{IDENTITY, START_IDENTIFY},
     offsets::{COMMAND, DRIVE, ERROR, FEATURE, LBA_HIGH, LBA_LOW, LBA_MID, SECTOR_COUNT, STATUS},
 };
-use crate::println;
+use crate::iprintln;
 use crate::utils::binary_test;
 use x86_64::instructions::port::{
     Port, PortGeneric, PortReadOnly, PortWriteOnly, ReadOnlyAccess, ReadWriteAccess,
@@ -81,10 +81,10 @@ impl PataDevice {
             | ((buf[101] as u64) << 16)
             | (buf[100] as u64);
 
-        println!("[ATA drive at port {} identify result]:", { self.port });
-        println!("Is lba48 supported: {}", self.lba48_supported);
-        println!("Lba28 sector count: {:x}", self.lba28_sector_count);
-        println!("Lba48 sector count: {:x}", self.lba48_sector_count);
+        iprintln!("[ATA drive at port {} identify result]:", { self.port });
+        iprintln!("Is lba48 supported: {}", self.lba48_supported);
+        iprintln!("Lba28 sector count: {:x}", self.lba28_sector_count);
+        iprintln!("Lba48 sector count: {:x}", self.lba48_sector_count);
     }
 
     pub fn sector_count(&self) -> u64 {
@@ -107,7 +107,7 @@ impl PataDevice {
             self.cmd_port.write(IDENTITY);
 
             if self.status_port.read() == 0 {
-                println!("Drive doesn't exist");
+                iprintln!("Drive doesn't exist");
                 return Err(PataIdentErr::DeviceNonExist);
             }
 
@@ -119,12 +119,12 @@ impl PataDevice {
         loop {
             unsafe {
                 if self.lba_mid_port.read() != 0 || self.lba_high_port.read() != 0 {
-                    println!("Device not ATA");
+                    iprintln!("Device not ATA");
                     return Err(PataIdentErr::DeviceNotAta);
                 }
 
                 if (self.status_port.read() & 0b00000001) == 0b00000001 {
-                    println!("Error");
+                    iprintln!("Error");
                     return Err(PataIdentErr::Error);
                 }
 

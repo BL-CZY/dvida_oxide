@@ -37,8 +37,8 @@ fn page_fault() {
 
 #[cfg(test)]
 pub fn run_tests(tests: &[&dyn Fn()]) {
-    use crate::println;
-    println!("Found {} tests in total", tests.len());
+    use crate::iprintln;
+    iprintln!("Found {} tests in total", tests.len());
     for (_index, test) in tests.iter().enumerate() {
         test();
     }
