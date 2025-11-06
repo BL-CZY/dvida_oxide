@@ -33,6 +33,7 @@ pub struct TaskWaker {
 
 impl Wake for TaskWaker {
     fn wake(self: Arc<Self>) {
+        iprintln!("I am woken up");
         self.tasks.lock().push_back(self.id);
     }
 }
@@ -78,8 +79,8 @@ impl Executor {
 
     pub fn run(&self) {
         loop {
+            iprintln!("{:#?}", self.tasks.lock());
             // halt when nothing happens
-
             while self.tasks.lock().is_empty() {
                 unsafe {
                     asm!("hlt");

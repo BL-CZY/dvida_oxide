@@ -39,6 +39,7 @@ impl<T> UnboundedSender<T> {
 
         // wake up the waker and do nothing if there isn't any
         if let Some(waker) = channel_guard.rx_wakers.pop_front() {
+            iprintln!("wake up!!");
             waker.wake();
         }
     }
@@ -69,15 +70,14 @@ impl<'a, T> Future for RecvFuture<'a, T> {
     ) -> core::task::Poll<Self::Output> {
         let mut guard = self.rx.channel.lock();
 
-        // if there is no sender anymore do this
-        if guard.sender_count == 0 {
-            return core::task::Poll::Ready(None);
-        }
-
         match guard.buffer.pop_front() {
             Some(msg) => core::task::Poll::Ready(Some(msg)),
             None => {
                 // push the waker
+                if guard.sender_count == 0 {
+                    return core::task::Poll::Ready(None);
+                }
+
                 guard.rx_wakers.push_back(cx.waker().clone());
                 core::task::Poll::Pending
             }
