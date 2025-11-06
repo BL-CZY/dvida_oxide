@@ -2,10 +2,12 @@ use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, vec_deque::VecDeque};
 use alloc::sync::Arc;
 use alloc::task::Wake;
+use terminal::iprintln;
 
 use core::arch::asm;
 use core::future::Future;
 use core::pin::Pin;
+use core::sync::atomic::AtomicU64;
 use core::task::{Context, Poll, Waker};
 use spin::Mutex;
 
@@ -37,16 +39,16 @@ impl Wake for TaskWaker {
 
 #[derive(Default, Clone)]
 pub struct Executor {
-    pub counter: Arc<Mutex<u64>>,
+    pub counter: Arc<AtomicU64>,
     pub tasks: Arc<Mutex<VecDeque<TaskID>>>,
-    pub tasks_map: Arc<Mutex<BTreeMap<TaskID, Task>>>,
+    pub tasks_map: Arc<Mutex<BTreeMap<TaskID, Arc<Mutex<Task>>>>>,
     pub wakers: Arc<Mutex<BTreeMap<TaskID, Arc<TaskWaker>>>>,
 }
 
 impl Executor {
     pub fn new() -> Self {
         Executor {
-            counter: Arc::new(Mutex::new(0)),
+            counter: Arc::new(0.into()),
             ..Default::default()
         }
     }
@@ -54,24 +56,30 @@ impl Executor {
     pub fn spawn(&self, future: impl Future<Output = ()> + 'static) {
         let future = Box::pin(future);
 
-        let id = TaskID(*self.counter.lock());
+        // Get ID and increment counter atomically, then release lock
+        let id = {
+            let id = TaskID(self.counter.load(core::sync::atomic::Ordering::SeqCst));
+
+            if self.counter.load(core::sync::atomic::Ordering::SeqCst) == u64::MAX {
+                self.counter.swap(0, core::sync::atomic::Ordering::AcqRel);
+            } else {
+                self.counter
+                    .swap(id.0 + 1, core::sync::atomic::Ordering::AcqRel);
+            }
+
+            id // Lock is dropped here
+        };
+
         let task = Task { id, future };
 
-        let mut lock_handle = self.counter.lock();
-
-        if *lock_handle == u64::MAX {
-            *lock_handle = 0;
-        } else {
-            *lock_handle += 1;
-        }
-
         self.tasks.lock().push_back(id);
-        self.tasks_map.lock().insert(id, task);
+        self.tasks_map.lock().insert(id, Arc::new(Mutex::new(task)));
     }
 
     pub fn run(&self) {
         loop {
             // halt when nothing happens
+
             while self.tasks.lock().is_empty() {
                 unsafe {
                     asm!("hlt");
@@ -83,9 +91,8 @@ impl Executor {
                 None => continue,
             };
 
-            let mut task_map_handle = self.tasks_map.lock();
-            let task = match task_map_handle.get_mut(&id) {
-                Some(t) => t,
+            let task = match self.tasks_map.lock().get_mut(&id) {
+                Some(t) => t.clone(),
                 None => continue,
             };
 
@@ -104,10 +111,10 @@ impl Executor {
             let waker = Waker::from(waker);
 
             let mut ctx = Context::from_waker(&waker);
-            match task.poll(&mut ctx) {
+            match task.lock().poll(&mut ctx) {
                 Poll::Ready(_) => {
                     // the task is finished, remove it
-                    task_map_handle.remove(&id);
+                    self.tasks_map.lock().remove(&id);
                     self.wakers.lock().remove(&id);
                 }
                 Poll::Pending => {}

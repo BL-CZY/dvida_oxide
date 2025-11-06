@@ -50,6 +50,9 @@ async fn kernel_main(executor: Executor) {
 
     let (tx, rx) = unbounded_channel::<u32>();
 
+    // x86_64::instructions::interrupts::disable();
+
+    iprintln!("finished");
     executor.spawn(test_recv(rx));
 
     tx.send(32);
