@@ -2,6 +2,7 @@ use x86_64::{instructions::port::Port, structures::idt::InterruptStackFrame};
 
 use crate::{
     arch::x86_64::pic::{PRIMARY_PIC_OFFSET, get_pic},
+    debug::terminal::WRITER,
     hal::keyboard::process_scancode,
 };
 
@@ -29,7 +30,7 @@ pub enum IrqIndex {
 
 pub extern "x86-interrupt" fn timer_handler(_stack_frame: InterruptStackFrame) {
     unsafe {
-        // blink_debug_cursor();
+        WRITER.lock().blink_debug_cursor();
         get_pic().notify_end_of_interrupt(IrqIndex::Timer as u8);
     }
 }

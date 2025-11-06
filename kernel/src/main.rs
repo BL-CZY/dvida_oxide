@@ -76,6 +76,8 @@ unsafe extern "C" fn _start() -> ! {
     let executor: Executor = Executor::new();
     executor.spawn(kernel_main(executor.clone()));
 
+    executor.run();
+
     hcf();
 }
 
