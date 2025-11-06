@@ -35,7 +35,7 @@ impl Wake for TaskWaker {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Executor {
     pub counter: Arc<Mutex<u64>>,
     pub tasks: Arc<Mutex<VecDeque<TaskID>>>,
