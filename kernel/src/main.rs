@@ -4,9 +4,10 @@
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::debug::test::run_tests)]
 #![reexport_test_harness_main = "test_main"]
-use core::arch::asm;
+use core::{arch::asm, ptr::null_mut};
 extern crate alloc;
 
+use alloc::boxed::Box;
 use arch::x86_64::{
     gdt::init_gdt,
     idt::init_idt,
@@ -15,8 +16,14 @@ use arch::x86_64::{
 };
 #[allow(unused_imports)]
 use dyn_mem::{KHEAP_PAGE_COUNT, allocator::init_kheap};
+use ejcineque::executor::Executor;
 use hal::storage::STORAGE_CONTEXT_ARR;
-use limine::BaseRevision;
+use limine::{BaseRevision, request::StackSizeRequest};
+
+use crate::{
+    arch::x86_64::memory::MemoryMappings,
+    debug::terminal::{DebugWriter, WRITER},
+};
 
 pub mod arch;
 pub mod debug;
@@ -25,8 +32,11 @@ pub mod dyn_mem;
 pub mod hal;
 pub mod utils;
 
+pub const STACK_SIZE: u64 = 0x100000;
+pub static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_size(STACK_SIZE);
+
 // this is the kernel entry point
-fn kernel_main() {
+async fn kernel_main(executor: Executor) {
     #[cfg(test)]
     test_main();
 
@@ -49,9 +59,8 @@ unsafe extern "C" fn _start() -> ! {
     // removed by the linker.
     // clear keyboard port
     assert!(BASE_REVISION.is_supported());
-    unsafe {
-        debug::terminal::DEFAULT_WRITER.lock().init_debug_terminal();
-    }
+
+    WRITER.lock().init_debug_terminal();
 
     init_gdt();
     init_idt();
@@ -59,16 +68,17 @@ unsafe extern "C" fn _start() -> ! {
     x86_64::instructions::interrupts::enable();
 
     log_memmap();
-    let (_, kheap_start) = memory::init();
+    let MemoryMappings { kheap, .. } = memory::init();
     init_kheap(
-        kheap_start as *mut u8,
+        kheap.kheap_start,
         (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
     );
 
     STORAGE_CONTEXT_ARR[hal::storage::PRIMARY].lock().init();
     STORAGE_CONTEXT_ARR[hal::storage::SECONDARY].lock().init();
 
-    kernel_main();
+    let executor: Executor = Executor::new();
+    executor.spawn(kernel_main(executor.clone()));
 
     hcf();
 }

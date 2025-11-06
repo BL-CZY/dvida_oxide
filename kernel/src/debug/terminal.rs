@@ -1,5 +1,4 @@
 use core::fmt;
-use core::ptr::null_mut;
 
 use limine::framebuffer::Framebuffer;
 use limine::request::FramebufferRequest;
@@ -8,40 +7,39 @@ use spin::Mutex;
 use super::BUILTIN_FONT;
 
 pub struct DebugWriter {
-    frame_buffer_width: u64,
-    frame_buffer_height: u64,
-    frame_buffer_addr: *mut u32,
-    terminal_width: u64,
-    terminal_height: u64,
-    current_row: u64,
-    current_col: u64,
-    cur_bg_color: u32,
-    cur_fg_color: u32,
-    cursor_row: u64,
-    cursor_col: u64,
-    is_cursor_on: bool,
-    cursor_blink_interval: u8,
-    color_buffer: [[u64; 160]; 100],
-    text_buffer: [[u8; 160]; 100],
+    pub frame_buffer_width: u64,
+    pub frame_buffer_height: u64,
+    pub frame_buffer_addr: u64,
+    pub terminal_width: u64,
+    pub terminal_height: u64,
+    pub current_row: u64,
+    pub current_col: u64,
+    pub cur_bg_color: u32,
+    pub cur_fg_color: u32,
+    pub cursor_row: u64,
+    pub cursor_col: u64,
+    pub is_cursor_on: bool,
+    pub cursor_blink_interval: u8,
+    pub color_buffer: [[u64; 160]; 100],
+    pub text_buffer: [[u8; 160]; 100],
 }
 
-// Debug Terminal Context
-pub static mut DEFAULT_WRITER: Mutex<DebugWriter> = Mutex::new(DebugWriter {
+pub static WRITER: Mutex<DebugWriter> = Mutex::new(DebugWriter {
     frame_buffer_width: 0,
     frame_buffer_height: 0,
-    frame_buffer_addr: null_mut(),
+    frame_buffer_addr: 0,
     terminal_width: 0,
     terminal_height: 0,
     current_row: 0,
     current_col: 0,
-    cur_bg_color: 0x000000,
-    cur_fg_color: 0xFFFFFF,
+    cur_bg_color: 0,
+    cur_fg_color: 0xffffff,
     cursor_row: 0,
     cursor_col: 0,
-    is_cursor_on: true,
-    cursor_blink_interval: 2,
-    color_buffer: [[0xFFFFFF00000000; 160]; 100],
-    text_buffer: [[b'\0'; 160]; 100],
+    is_cursor_on: false,
+    cursor_blink_interval: 0,
+    color_buffer: [[0; 160]; 100],
+    text_buffer: [[0; 160]; 100],
 });
 
 pub enum TerminalErr {
@@ -69,9 +67,12 @@ impl DebugWriter {
         // set default context
         self.frame_buffer_width = buffer.width();
         self.frame_buffer_height = buffer.height();
-        self.frame_buffer_addr = buffer.addr() as *mut u32;
+        self.frame_buffer_addr = buffer.addr() as u64;
         self.terminal_width = res_width / 8;
         self.terminal_height = res_height / 16;
+
+        // self.terminal_width = 32;
+        // self.terminal_height = 32;
 
         self.clear_debug_terminal();
     }
@@ -116,7 +117,8 @@ impl DebugWriter {
                 unsafe {
                     let pixel_offset: u64 = (row * 16 + i) * self.frame_buffer_width + col * 8 + j;
 
-                    *(self.frame_buffer_addr.add(pixel_offset as usize)) = self.cur_bg_color;
+                    *((self.frame_buffer_addr as *mut u32).add(pixel_offset as usize)) =
+                        self.cur_bg_color;
                 }
             }
         }
@@ -128,7 +130,7 @@ impl DebugWriter {
                 unsafe {
                     let pixel_offset: u64 = (row * 16 + i) * self.frame_buffer_width + col * 8 + j;
 
-                    *(self.frame_buffer_addr.add(pixel_offset as usize)) = 0xFFFFFF;
+                    *((self.frame_buffer_addr as *mut u32).add(pixel_offset as usize)) = 0xFFFFFF;
                 }
             }
         }
@@ -160,9 +162,11 @@ impl DebugWriter {
                 unsafe {
                     let pixel_offset = (row * 16 + i) * self.frame_buffer_width + col * 8 + j;
                     if ((BUILTIN_FONT[font_offset + i as usize] >> (7 - j)) & 0x1) == 0x1 {
-                        *(self.frame_buffer_addr.add(pixel_offset as usize)) = self.cur_fg_color;
+                        *((self.frame_buffer_addr as *mut u32).add(pixel_offset as usize)) =
+                            self.cur_fg_color;
                     } else {
-                        *(self.frame_buffer_addr.add(pixel_offset as usize)) = self.cur_bg_color;
+                        *((self.frame_buffer_addr as *mut u32).add(pixel_offset as usize)) =
+                            self.cur_bg_color;
                     }
                 }
             }
@@ -232,11 +236,13 @@ impl DebugWriter {
 
                 if ((BUILTIN_FONT[font_offset + i as usize] >> (7 - j)) & 0x1) == 0x1 {
                     unsafe {
-                        *(self.frame_buffer_addr.add(pixel_offset as usize)) = self.cur_fg_color;
+                        *((self.frame_buffer_addr as *mut u32).add(pixel_offset as usize)) =
+                            self.cur_fg_color;
                     }
                 } else {
                     unsafe {
-                        *(self.frame_buffer_addr.add(pixel_offset as usize)) = self.cur_bg_color;
+                        *((self.frame_buffer_addr as *mut u32).add(pixel_offset as usize)) =
+                            self.cur_bg_color;
                     }
                 }
             }
@@ -269,11 +275,12 @@ impl fmt::Write for DebugWriter {
 }
 
 #[doc(hidden)]
+#[allow(unused_unsafe, unused)]
 pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write;
     use x86_64::instructions::interrupts;
     unsafe {
-        interrupts::without_interrupts(|| DEFAULT_WRITER.lock().write_fmt(args).unwrap());
+        interrupts::without_interrupts(|| WRITER.lock().write_fmt(args).unwrap());
     }
 }
 

@@ -1,8 +1,12 @@
+pub mod bitmap;
 pub mod frame_allocator;
+pub mod heap;
 pub mod memmap;
 pub mod page_table;
 pub mod pmm;
 
+use crate::arch::x86_64::memory::bitmap::BitMap;
+use crate::arch::x86_64::memory::heap::KHeap;
 use crate::dyn_mem::KHEAP_PAGE_COUNT;
 use crate::{print, println};
 use frame_allocator::MinimalAllocator;
@@ -19,6 +23,11 @@ pub const PAGE_SIZE: u32 = 4096;
 pub const BYTE_SIZE: u32 = 8;
 pub const VIRTMEM_OFFSET: u64 = 0x1000;
 
+pub struct MemoryMappings {
+    pub bit_map: BitMap,
+    pub kheap: KHeap,
+}
+
 pub fn get_hhdm_offset() -> VirtAddr {
     VirtAddr::new(
         HHDM_REQUEST
@@ -28,7 +37,7 @@ pub fn get_hhdm_offset() -> VirtAddr {
     )
 }
 
-pub fn init() -> (u64, u64) {
+pub fn init() -> MemoryMappings {
     // get 16 pages of memory as kernel heap
 
     let mut page_table = unsafe { read_offset_table() };
@@ -51,7 +60,18 @@ pub fn init() -> (u64, u64) {
     let usable_mem = read_memmap_usable();
 
     let bitmap_start: u64 = VIRTMEM_OFFSET;
+
+    let bit_map = BitMap {
+        start: bitmap_start as *mut u8,
+        length: bitmap_length,
+        page_length: bitmap_page_length,
+    };
+
     let kheap_start: u64 = VIRTMEM_OFFSET + bitmap_page_length;
+
+    let kheap: KHeap = KHeap {
+        kheap_start: kheap_start as *mut u8,
+    };
 
     println!("[Mapped pages (b for bitmap, k for kernel heap)]:");
 
@@ -79,5 +99,5 @@ pub fn init() -> (u64, u64) {
         }
     }
 
-    (bitmap_start, kheap_start)
+    MemoryMappings { bit_map, kheap }
 }

@@ -1,16 +1,6 @@
 #![no_std]
 
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+extern crate alloc;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub mod executor;
+pub mod sync;
