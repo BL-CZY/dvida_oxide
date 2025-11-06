@@ -50,11 +50,12 @@ dependencies = [
  "dvida_serialize",
  "ejcineque",
  "lazy_static",
- "limine",
+ "limine 0.2.0",
  "linked_list_allocator",
  "pc-keyboard",
  "pic8259",
  "spin 0.9.8",
+ "terminal",
  "thiserror-core",
  "x86_64",
 ]
@@ -73,6 +74,15 @@ name = "limine"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "846c87e24d089e8717a61098cba72b378e3525c46a87cf75b71352dcf668e68c"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
+name = "limine"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af6d2ee42712e7bd2c787365cd1dab06ef59a61becbf87bec7b32b970bd2594b"
 dependencies = [
  "bitflags",
 ]
@@ -177,6 +187,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "terminal"
+version = "0.1.0"
+dependencies = [
+ "limine 0.5.0",
+ "spin 0.10.0",
+ "x86_64",
 ]
 
 [[package]]

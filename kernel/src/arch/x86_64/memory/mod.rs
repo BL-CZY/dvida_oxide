@@ -8,11 +8,11 @@ pub mod pmm;
 use crate::arch::x86_64::memory::bitmap::BitMap;
 use crate::arch::x86_64::memory::heap::KHeap;
 use crate::dyn_mem::KHEAP_PAGE_COUNT;
-use crate::{iprint, iprintln};
 use frame_allocator::MinimalAllocator;
 use limine::request::HhdmRequest;
 use memmap::read_memmap_usable;
 use page_table::read_offset_table;
+use terminal::{iprint, iprintln};
 use x86_64::VirtAddr;
 use x86_64::structures::paging::{Mapper, Page, PageTableFlags};
 

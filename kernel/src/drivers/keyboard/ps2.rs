@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use pc_keyboard::{DecodedKey, HandleControl, Keyboard, ScancodeSet1, layouts};
 use spin::Mutex;
 
-use crate::iprint;
+use terminal::iprint;
 
 lazy_static! {
     static ref KEYBOARD: Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>> =

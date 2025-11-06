@@ -5,6 +5,9 @@
 #![test_runner(crate::debug::test::run_tests)]
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
+
+use terminal::iprintln;
+
 extern crate alloc;
 
 use arch::x86_64::{
@@ -15,7 +18,10 @@ use arch::x86_64::{
 };
 #[allow(unused_imports)]
 use dyn_mem::{KHEAP_PAGE_COUNT, allocator::init_kheap};
-use ejcineque::executor::Executor;
+use ejcineque::{
+    executor::Executor,
+    sync::mpsc::unbounded::{UnboundedReceiver, unbounded_channel},
+};
 use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::{BaseRevision, request::StackSizeRequest};
 
@@ -31,14 +37,25 @@ pub mod utils;
 pub const STACK_SIZE: u64 = 0x100000;
 pub static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_size(STACK_SIZE);
 
+async fn test_recv(rx: UnboundedReceiver<u32>) {
+    while let Some(msg) = rx.recv().await {
+        iprintln!("I received: {}", msg);
+    }
+}
+
 // this is the kernel entry point
 async fn kernel_main(executor: Executor) {
     #[cfg(test)]
     test_main();
 
-    loop {
-        x86_64::instructions::hlt();
-    }
+    let (tx, rx) = unbounded_channel::<u32>();
+
+    executor.spawn(test_recv(rx));
+
+    tx.send(32);
+    tx.send(32);
+    tx.send(32);
+    tx.send(32);
 }
 
 /// Sets the base revision to the latest revision supported by the crate.

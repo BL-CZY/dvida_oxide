@@ -13,6 +13,7 @@ linked_list_allocator = "0.10.5"
 thiserror = { version = "1.0", package = "thiserror-core", default-features = false }
 dvida_serialize = { path = "../dvida_serialize/" }
 ejcineque = { path = "../ejcineque/" }
+terminal = { path = "../terminal/" }
 
 [dependencies.lazy_static]
 version = "1.0"
