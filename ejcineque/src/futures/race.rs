@@ -32,3 +32,15 @@ impl<T, D> Future for Race<T, D> {
         core::task::Poll::Pending
     }
 }
+
+pub async fn race<T, D>(
+    left: impl Future<Output = T> + 'static,
+    right: impl Future<Output = D> + 'static,
+) -> Either<T, D> {
+    let race = Race {
+        left_future: Box::pin(left),
+        right_future: Box::pin(right),
+    };
+
+    race.await
+}
