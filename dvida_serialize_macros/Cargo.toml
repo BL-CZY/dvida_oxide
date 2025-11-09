@@ -2,6 +2,9 @@
 name = "dvida_serialize_macros"
 version = "0.1.0"
 edition = "2024"
+authors = ["David Huang jiguangllsw@gmail.com"]
+license = "MIT"
+description = "no_std serialization and deserialization proc-macros"
 
 [lib]
 proc-macro = true

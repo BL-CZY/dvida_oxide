@@ -2,7 +2,7 @@ use x86_64::{instructions::port::Port, structures::idt::InterruptStackFrame};
 
 use crate::{
     arch::x86_64::pic::{PRIMARY_PIC_OFFSET, get_pic},
-    debug::terminal::WRITER,
+    debug::terminal::{WRITER, iprintln},
     hal::keyboard::process_scancode,
 };
 

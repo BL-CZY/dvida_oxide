@@ -39,7 +39,6 @@ impl<T> UnboundedSender<T> {
 
         // wake up the waker and do nothing if there isn't any
         if let Some(waker) = channel_guard.rx_wakers.pop_front() {
-            iprintln!("wake up!!");
             waker.wake();
         }
     }

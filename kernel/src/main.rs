@@ -37,12 +37,10 @@ pub mod utils;
 pub const STACK_SIZE: u64 = 0x100000;
 pub static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_size(STACK_SIZE);
 
-async fn test_send(tx: UnboundedSender<u32>) {
-    iprintln!("i am called");
-    tx.send(32);
-    tx.send(32);
-    tx.send(32);
-    tx.send(32);
+async fn test_send(rx: UnboundedReceiver<u32>) {
+    while let Some(msg) = rx.recv().await {
+        iprintln!("I received: {}", msg);
+    }
 }
 
 // this is the kernel entry point
@@ -54,11 +52,12 @@ async fn kernel_main(executor: Executor) {
 
     // x86_64::instructions::interrupts::disable();
 
-    executor.spawn(test_send(tx));
+    executor.spawn(test_send(rx));
 
-    while let Some(msg) = rx.recv().await {
-        iprintln!("I received: {}", msg);
-    }
+    tx.send(32);
+    tx.send(32);
+    tx.send(32);
+    tx.send(32);
 }
 
 /// Sets the base revision to the latest revision supported by the crate.

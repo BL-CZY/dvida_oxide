@@ -2,6 +2,9 @@
 name = "dvida_serialize"
 version = "0.1.0"
 edition = "2024"
+authors = ["David Huang jiguangllsw@gmail.com"]
+license = "MIT"
+description = "no_std serialization and deserialization"
 
 [dependencies]
-dvida_serialize_macros = { path = "../dvida_serialize_macros/" }
+dvida_serialize_macros = { path = "../dvida_serialize_macros/", version = "0.1.0" }
