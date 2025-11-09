@@ -1,12 +1,15 @@
-use crate::drivers::ata::pata::{PataDevice, PATA_PRIMARY_BASE, PATA_SECONDARY_BASE};
+use core::sync::atomic::AtomicU64;
+
+use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE, PataDevice};
 use alloc::boxed::Box;
+use alloc::collections::vec_deque::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;
 use lazy_static::lazy_static;
 use spin::Mutex;
 use thiserror::Error;
 
-enum DeviceType {
+pub enum DeviceType {
     Unidentified,
     /// I only know this lol
     PataPio(PataDevice),
@@ -40,10 +43,14 @@ pub enum IoErr {
 }
 
 pub struct HalStorageDevice {
-    device_io_type: DeviceType,
-    device_loc: usize,
-    available: bool,
-    pata_port: u16,
+    pub device_io_type: DeviceType,
+    pub device_loc: usize,
+    pub available: bool,
+    pub pata_port: u16,
+
+    pub current_task_id: Option<AtomicU64>,
+    pub task_id_counter: AtomicU64,
+    pub task_id_queue: alloc::collections::VecDeque<u64>,
 }
 
 lazy_static! {
@@ -60,6 +67,9 @@ impl HalStorageDevice {
             device_loc: loc,
             available: false,
             pata_port,
+            current_task_id: None,
+            task_id_counter: AtomicU64::new(0),
+            task_id_queue: VecDeque::new(),
         }
     }
 

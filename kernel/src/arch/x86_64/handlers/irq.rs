@@ -2,7 +2,7 @@ use x86_64::{instructions::port::Port, structures::idt::InterruptStackFrame};
 
 use crate::{
     arch::x86_64::pic::{PRIMARY_PIC_OFFSET, get_pic},
-    debug::terminal::{WRITER, iprintln},
+    debug::terminal::WRITER,
     hal::keyboard::process_scancode,
 };
 
@@ -46,7 +46,6 @@ pub extern "x86-interrupt" fn keyboard_handler(_stack_frame: InterruptStackFrame
 }
 
 pub extern "x86-interrupt" fn primary_ide_handler(_stack_frame: InterruptStackFrame) {
-    //TODO stop polling ig
     unsafe {
         get_pic().notify_end_of_interrupt(IrqIndex::PrimaryIDE as u8);
     }

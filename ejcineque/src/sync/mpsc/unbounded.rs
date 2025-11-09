@@ -2,7 +2,6 @@ use core::task::Waker;
 
 use alloc::{collections::vec_deque::VecDeque, sync::Arc};
 use spin::Mutex;
-use terminal::iprintln;
 
 #[derive(Default)]
 struct UnboundedChannel<T> {

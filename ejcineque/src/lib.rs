@@ -4,3 +4,4 @@ extern crate alloc;
 
 pub mod executor;
 pub mod sync;
+pub mod wakers;

@@ -4,7 +4,8 @@
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::debug::test::run_tests)]
 #![reexport_test_harness_main = "test_main"]
-use core::arch::asm;
+use alloc::vec;
+use core::{arch::asm, ops::DerefMut};
 
 use terminal::iprintln;
 
@@ -20,7 +21,7 @@ use arch::x86_64::{
 use dyn_mem::{KHEAP_PAGE_COUNT, allocator::init_kheap};
 use ejcineque::{
     executor::Executor,
-    sync::mpsc::unbounded::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+    sync::mpsc::unbounded::{UnboundedReceiver, unbounded_channel},
 };
 use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::{BaseRevision, request::StackSizeRequest};

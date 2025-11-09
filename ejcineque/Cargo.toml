@@ -6,3 +6,11 @@ edition = "2024"
 [dependencies]
 spin = "0.10.0"
 terminal = { path = "../terminal/" }
+
+[features]
+default = ["x86_64"]
+x86_64 = []
+
+[dependencies.lazy_static]
+version = "1.0"
+features = ["spin_no_std"]
