@@ -63,16 +63,22 @@ async fn kernel_main(executor: Executor) {
     executor.spawn(run_storage_device(SECONDARY, secondary_storage_rx));
 
     let sender = PRIMARY_STORAGE_SENDER.get().unwrap().clone();
-    let buffer = [0u8; 512];
+    let buffer = [1u8; 512];
     let (tx, rx) = unbounded_channel::<HalStorageOperationResult>();
 
-    sender.send(HalStorageOperation::Read {
+    sender.send(HalStorageOperation::Write {
         buffer: Box::new(buffer),
         lba: 0,
         sender: tx.clone(),
     });
 
-    if let Some(a) = rx.recv().await {
+    sender.send(HalStorageOperation::Write {
+        buffer: Box::new(buffer),
+        lba: 0,
+        sender: tx.clone(),
+    });
+
+    while let Some(a) = rx.recv().await {
         iprintln!("read stuff: {:?}", a);
     }
 }

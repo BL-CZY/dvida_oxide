@@ -65,6 +65,12 @@ pub enum HalStorageOperation {
         lba: i64,
         sender: UnboundedSender<HalStorageOperationResult>,
     },
+
+    Write {
+        buffer: Box<[u8]>,
+        lba: i64,
+        sender: UnboundedSender<HalStorageOperationResult>,
+    },
 }
 
 #[derive(Debug)]
@@ -121,11 +127,32 @@ impl HalStorageDevice {
                         .await
                     {
                         Ok(_) => {
-                            iprintln!("Operation succeeded!: {:?}", buffer);
+                            iprintln!("Read Operation succeeded!: {:?}", buffer);
                             sender.send(HalStorageOperationResult::Success);
                         }
                         Err(e) => {
                             iprintln!("Operation failed..: {:?}", e);
+                            sender.send(HalStorageOperationResult::Failure(e.to_string()));
+                        }
+                    }
+                }
+
+                HalStorageOperation::Write {
+                    buffer,
+                    lba,
+                    sender,
+                } => {
+                    match self
+                        .write_sectors_async(lba, (buffer.len() / BLOCK_SIZE) as u16, &buffer)
+                        .await
+                    {
+                        Ok(_) => {
+                            iprintln!("Write operation succeeded!: {:?}", buffer);
+                            sender.send(HalStorageOperationResult::Success);
+                        }
+
+                        Err(e) => {
+                            iprintln!("Write operation failed..: {:?}", e);
                             sender.send(HalStorageOperationResult::Failure(e.to_string()));
                         }
                     }
@@ -204,6 +231,24 @@ impl HalStorageDevice {
 
         match self.device_io_type {
             DeviceType::PataPio(ref mut pata) => Ok(pata.pio_write_sectors(index, count, input)?),
+            _ => Err(Box::new(IoErr::Unimplemented)),
+        }
+    }
+
+    pub async fn write_sectors_async(
+        &mut self,
+        index: i64,
+        count: u16,
+        input: &[u8],
+    ) -> Result<(), Box<dyn core::error::Error>> {
+        if !self.available {
+            return Err(Box::new(IoErr::Unavailable));
+        }
+
+        match self.device_io_type {
+            DeviceType::PataPio(ref mut pata) => {
+                Ok(pata.pio_write_sectors_async(index, count, input).await?)
+            }
             _ => Err(Box::new(IoErr::Unimplemented)),
         }
     }

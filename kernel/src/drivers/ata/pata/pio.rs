@@ -265,6 +265,27 @@ impl PataDevice {
         Ok(())
     }
 
+    async fn write_data_async(
+        &mut self,
+        count: u16,
+        input: &[u8],
+    ) -> Result<(), Box<dyn core::error::Error>> {
+        for sector in 0..count as usize {
+            self.wait_io_async().await?;
+
+            for byte in 0..256usize {
+                unsafe {
+                    self.data_port.write(
+                        (input[sector * 512 + (byte * 2) + 1] as u16) << 8
+                            | input[sector * 512 + byte * 2] as u16,
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn pio_read_sectors(
         &mut self,
         index: i64,
@@ -331,6 +352,34 @@ impl PataDevice {
         }
 
         self.write_data(count, input)?;
+
+        self.flush_cache()?;
+
+        Ok(())
+    }
+
+    pub async fn pio_write_sectors_async(
+        &mut self,
+        index: i64,
+        count: u16,
+        input: &[u8],
+    ) -> Result<(), Box<dyn core::error::Error>> {
+        if input.len() < (count * SECTOR_SIZE).into() {
+            return Err(Box::new(IoErr::InputTooSmall));
+        }
+
+        let lba = match self.io_init(index, count) {
+            Ok(val) => val,
+            Err(e) => return Err(e),
+        };
+
+        if self.lba48_supported {
+            self.send_write_lba48(count, lba);
+        } else {
+            self.send_write_lba28(count, lba);
+        }
+
+        self.write_data_async(count, input).await?;
 
         self.flush_cache()?;
 
