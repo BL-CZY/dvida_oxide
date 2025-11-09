@@ -1,4 +1,5 @@
-use x86_64::instructions::port::{Port, PortGeneric, PortWriteOnly, ReadWriteAccess};
+use terminal::log;
+use x86_64::instructions::port::{Port, PortWriteOnly};
 
 pub const DATA_PORT: u16 = 0x40;
 pub const CMD_REGISTER: u16 = 0x43;
@@ -15,4 +16,6 @@ pub fn configure_pit() {
             data_port.write(((divisor >> 8) & 0xFF) as u8);
         });
     }
+
+    log!("PIT configured to have a divisor of 0")
 }

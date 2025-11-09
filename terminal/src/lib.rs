@@ -297,3 +297,8 @@ macro_rules! iprintln {
     () => ($crate::print!("\n"));
     ($($arg:tt)*) => ($crate::iprint!("{}\n", format_args!($($arg)*)));
 }
+
+#[macro_export]
+macro_rules! log {
+    ($($arg:tt)*) => ($crate::iprint!("{} - {}\n", file!(), format_args!($($arg)*)));
+}

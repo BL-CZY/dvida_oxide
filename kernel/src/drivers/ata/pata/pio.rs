@@ -1,14 +1,11 @@
 use alloc::boxed::Box;
-use alloc::vec;
-use alloc::vec::Vec;
-use ejcineque::time::wait;
 use ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS};
-use terminal::iprintln;
 
 use crate::drivers::ata::cmd;
 use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE};
 use crate::hal::storage::IoErr;
 use crate::utils::binary_test;
+use terminal::log;
 
 use super::PataDevice;
 
@@ -18,47 +15,71 @@ const SECTOR_SIZE: u16 = 512;
 
 impl PataDevice {
     fn get_lba(&self, index: i64) -> u64 {
-        if index < 0 {
+        let lba = if index < 0 {
             if self.lba48_supported {
                 (self.lba28_sector_count - (index.abs() as u32)).into()
             } else {
                 self.lba48_sector_count - (index.abs() as u64)
             }
         } else {
-            // dosn't matter as index is guaranteed to be bigger than 0
             index.try_into().unwrap()
-        }
+        };
+
+        log!("get_lba: index={}, resolved_lba={}", index, lba);
+        lba
     }
 
     fn verify_lba(&self, lba: u64, count: u16) -> Result<(), Box<dyn core::error::Error>> {
+        log!(
+            "verify_lba: lba={}, count={}, lba48={}",
+            lba,
+            count,
+            self.lba48_supported
+        );
+
         if self.lba48_supported {
             if lba + count as u64 > self.lba48_sector_count {
+                log!(
+                    "verify_lba: FAILED - LBA48 out of range (max={})",
+                    self.lba48_sector_count
+                );
                 return Err(Box::new(IoErr::SectorOutOfRange));
             }
         } else {
             if lba + count as u64 > self.lba28_sector_count as u64 {
+                log!(
+                    "verify_lba: FAILED - LBA28 out of range (max={})",
+                    self.lba28_sector_count
+                );
                 return Err(Box::new(IoErr::SectorOutOfRange));
             }
         }
 
+        log!("verify_lba: OK");
         Ok(())
     }
 
     fn wait_init(&mut self) -> Result<(), Box<dyn core::error::Error>> {
+        log!("wait_init: starting");
         let mut timer = 0;
         while binary_test(unsafe { self.status_port.read() } as u64, 7) {
             timer += 1;
 
             if timer > WAIT_TIME {
+                log!("wait_init: TIMEOUT after {} iterations", timer);
                 return Err(Box::new(IoErr::InitTimeout));
             }
         }
 
+        log!("wait_init: completed after {} iterations", timer);
         Ok(())
     }
 
     fn io_init(&mut self, index: i64, count: u16) -> Result<u64, Box<dyn core::error::Error>> {
+        log!("io_init: index={}, count={}", index, count);
+
         if !self.identified {
+            log!("io_init: FAILED - device not identified");
             return Err(Box::new(IoErr::Unavailable));
         }
 
@@ -68,10 +89,12 @@ impl PataDevice {
 
         self.wait_init()?;
 
+        log!("io_init: completed successfully, lba={}", lba);
         Ok(lba)
     }
 
     fn send_lba28(&mut self, count: u16, lba: u64) {
+        log!("send_lba28: count={}, lba={:#x}", count, lba);
         unsafe {
             self.drive_port
                 .write(cmd::LBA28 | ((lba >> 24) | &0xFF) as u8);
@@ -84,6 +107,7 @@ impl PataDevice {
     }
 
     fn send_read_lba28(&mut self, count: u16, lba: u64) {
+        log!("send_read_lba28: initiating read");
         self.send_lba28(count, lba);
         unsafe {
             self.cmd_port.write(cmd::READ_SECTORS);
@@ -91,6 +115,7 @@ impl PataDevice {
     }
 
     fn send_write_lba28(&mut self, count: u16, lba: u64) {
+        log!("send_write_lba28: initiating write");
         self.send_lba28(count, lba);
         unsafe {
             self.cmd_port.write(cmd::WRITE_SECTORS);
@@ -98,6 +123,7 @@ impl PataDevice {
     }
 
     fn send_lba48(&mut self, count: u16, lba: u64) {
+        log!("send_lba48: count={}, lba={:#x}", count, lba);
         unsafe {
             self.drive_port.write(cmd::LBA48);
 
@@ -114,6 +140,7 @@ impl PataDevice {
     }
 
     fn send_read_lba48(&mut self, count: u16, lba: u64) {
+        log!("send_read_lba48: initiating read");
         self.send_lba48(count, lba);
         unsafe {
             self.cmd_port.write(cmd::READ_SECTORS_EXT);
@@ -121,6 +148,7 @@ impl PataDevice {
     }
 
     fn send_write_lba48(&mut self, count: u16, lba: u64) {
+        log!("send_write_lba48: initiating write");
         self.send_lba48(count, lba);
         unsafe {
             self.cmd_port.write(cmd::WRITE_SECTORS_EXT);
@@ -140,6 +168,7 @@ impl PataDevice {
         {
             timer += 1;
             if timer > WAIT_TIME {
+                log!("wait_io: TIMEOUT after {} iterations", timer);
                 return Err(Box::new(IoErr::IOTimeout));
             }
         }
@@ -167,7 +196,10 @@ impl PataDevice {
         .await;
 
         match res {
-            ejcineque::futures::race::Either::Left(_) => Err(Box::new(IoErr::IOTimeout)),
+            ejcineque::futures::race::Either::Left(_) => {
+                log!("wait_io_async: TIMEOUT");
+                Err(Box::new(IoErr::IOTimeout))
+            }
             ejcineque::futures::race::Either::Right(_) => Ok(()),
         }
     }
@@ -179,7 +211,18 @@ impl PataDevice {
     ) -> Result<(), Box<dyn core::error::Error>> {
         let bytes_needed = count as usize * 512;
 
+        log!(
+            "read_data: reading {} sectors ({} bytes)",
+            count,
+            bytes_needed
+        );
+
         if result.len() < bytes_needed {
+            log!(
+                "read_data: FAILED - buffer too small (need {}, have {})",
+                bytes_needed,
+                result.len()
+            );
             return Err(Box::new(IoErr::InputTooSmall));
         }
 
@@ -198,6 +241,7 @@ impl PataDevice {
             }
         }
 
+        log!("read_data: successfully read {} sectors", count);
         Ok(())
     }
 
@@ -209,18 +253,23 @@ impl PataDevice {
         let bytes_needed = count as usize * 512;
 
         if result.len() < bytes_needed {
+            log!(
+                "read_data_async: FAILED - buffer too small (need {}, have {})",
+                bytes_needed,
+                result.len()
+            );
             return Err(Box::new(IoErr::InputTooSmall));
         }
 
-        iprintln!(
-            "Prepared to read {} sectors ({} bytes)",
+        log!(
+            "read_data_async: prepared to read {} sectors ({} bytes)",
             count,
             bytes_needed
         );
 
         for sector in 0..count {
             self.wait_io_async().await?;
-            iprintln!("Reading sector {}/{}", sector + 1, count);
+            log!("read_data_async: reading sector {}/{}", sector + 1, count);
 
             // Calculate offset for this sector
             let offset = sector as usize * 512;
@@ -234,21 +283,29 @@ impl PataDevice {
             }
         }
 
-        iprintln!("Successfully read {} sectors", count);
+        log!("read_data_async: successfully read {} sectors", count);
         Ok(())
     }
 
     fn flush_cache(&mut self) -> Result<(), Box<dyn core::error::Error>> {
+        log!("flush_cache: flushing drive cache");
         unsafe {
             self.cmd_port.write(cmd::FLUSH_CACHE);
         }
 
         self.wait_init()?;
 
+        log!("flush_cache: completed");
         Ok(())
     }
 
     fn write_data(&mut self, count: u16, input: &[u8]) -> Result<(), Box<dyn core::error::Error>> {
+        log!(
+            "write_data: writing {} sectors ({} bytes)",
+            count,
+            count as usize * 512
+        );
+
         for sector in 0..count as usize {
             self.wait_io()?;
 
@@ -262,6 +319,7 @@ impl PataDevice {
             }
         }
 
+        log!("write_data: successfully wrote {} sectors", count);
         Ok(())
     }
 
@@ -270,8 +328,15 @@ impl PataDevice {
         count: u16,
         input: &[u8],
     ) -> Result<(), Box<dyn core::error::Error>> {
+        log!(
+            "write_data_async: writing {} sectors ({} bytes)",
+            count,
+            count as usize * 512
+        );
+
         for sector in 0..count as usize {
             self.wait_io_async().await?;
+            log!("write_data_async: writing sector {}/{}", sector + 1, count);
 
             for byte in 0..256usize {
                 unsafe {
@@ -283,6 +348,7 @@ impl PataDevice {
             }
         }
 
+        log!("write_data_async: successfully wrote {} sectors", count);
         Ok(())
     }
 
@@ -292,9 +358,18 @@ impl PataDevice {
         count: u16,
         output: &mut [u8],
     ) -> Result<(), Box<dyn core::error::Error>> {
+        log!(
+            "pio_read_sectors: starting read at index={}, count={}",
+            index,
+            count
+        );
+
         let lba = match self.io_init(index, count) {
             Ok(val) => val,
-            Err(e) => return Err(e),
+            Err(e) => {
+                log!("pio_read_sectors: FAILED during io_init");
+                return Err(e);
+            }
         };
 
         if self.lba48_supported {
@@ -305,6 +380,7 @@ impl PataDevice {
 
         self.read_data(count, output)?;
 
+        log!("pio_read_sectors: completed successfully");
         Ok(())
     }
 
@@ -314,9 +390,18 @@ impl PataDevice {
         count: u16,
         output: &mut [u8],
     ) -> Result<(), Box<dyn core::error::Error>> {
+        log!(
+            "pio_read_sectors_async: starting read at index={}, count={}",
+            index,
+            count
+        );
+
         let lba = match self.io_init(index, count) {
             Ok(val) => val,
-            Err(e) => return Err(e),
+            Err(e) => {
+                log!("pio_read_sectors_async: FAILED during io_init");
+                return Err(e);
+            }
         };
 
         if self.lba48_supported {
@@ -327,6 +412,7 @@ impl PataDevice {
 
         self.read_data_async(count, output).await?;
 
+        log!("pio_read_sectors_async: completed successfully");
         Ok(())
     }
 
@@ -336,13 +422,27 @@ impl PataDevice {
         count: u16,
         input: &[u8],
     ) -> Result<(), Box<dyn core::error::Error>> {
+        log!(
+            "pio_write_sectors: starting write at index={}, count={}",
+            index,
+            count
+        );
+
         if input.len() < (count * SECTOR_SIZE).into() {
+            log!(
+                "pio_write_sectors: FAILED - input too small (need {}, have {})",
+                count * SECTOR_SIZE,
+                input.len()
+            );
             return Err(Box::new(IoErr::InputTooSmall));
         }
 
         let lba = match self.io_init(index, count) {
             Ok(val) => val,
-            Err(e) => return Err(e),
+            Err(e) => {
+                log!("pio_write_sectors: FAILED during io_init");
+                return Err(e);
+            }
         };
 
         if self.lba48_supported {
@@ -355,6 +455,7 @@ impl PataDevice {
 
         self.flush_cache()?;
 
+        log!("pio_write_sectors: completed successfully");
         Ok(())
     }
 
@@ -364,13 +465,27 @@ impl PataDevice {
         count: u16,
         input: &[u8],
     ) -> Result<(), Box<dyn core::error::Error>> {
+        log!(
+            "pio_write_sectors_async: starting write at index={}, count={}",
+            index,
+            count
+        );
+
         if input.len() < (count * SECTOR_SIZE).into() {
+            log!(
+                "pio_write_sectors_async: FAILED - input too small (need {}, have {})",
+                count * SECTOR_SIZE,
+                input.len()
+            );
             return Err(Box::new(IoErr::InputTooSmall));
         }
 
         let lba = match self.io_init(index, count) {
             Ok(val) => val,
-            Err(e) => return Err(e),
+            Err(e) => {
+                log!("pio_write_sectors_async: FAILED during io_init");
+                return Err(e);
+            }
         };
 
         if self.lba48_supported {
@@ -383,6 +498,7 @@ impl PataDevice {
 
         self.flush_cache()?;
 
+        log!("pio_write_sectors_async: completed successfully");
         Ok(())
     }
 }
@@ -414,6 +530,7 @@ impl Future for WaitIOFuture {
                 SECONDARY_IDE_WAKERS.lock().push(cx.waker().clone());
             });
         } else {
+            log!("WaitIOFuture::poll: PANIC - invalid port {:#x}", self.port);
             panic!("Drive doesn't exist");
         }
 

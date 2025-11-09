@@ -1,11 +1,12 @@
 use core::ptr::addr_of_mut;
 use lazy_static::lazy_static;
+use terminal::log;
+use x86_64::VirtAddr;
 use x86_64::instructions::segmentation;
 use x86_64::instructions::tables::load_tss;
 use x86_64::registers::segmentation::{Segment, SegmentSelector};
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable};
 use x86_64::structures::tss::TaskStateSegment;
-use x86_64::VirtAddr;
 
 /// the stack doesn't work, it's just here. in the future ill allocate the stack rather than
 /// hardcoding it, and hopefully it would work
@@ -67,4 +68,6 @@ pub fn init_gdt() {
         segmentation::GS::set_reg(GDT.1.kernel_data_selector);
         load_tss(GDT.1.tss_selector);
     }
+
+    log!("GDT initialization finished")
 }

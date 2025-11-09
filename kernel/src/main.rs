@@ -6,8 +6,7 @@
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 
-use alloc::boxed::Box;
-use terminal::iprintln;
+use terminal::{iprintln, log};
 
 extern crate alloc;
 
@@ -19,10 +18,7 @@ use arch::x86_64::{
 };
 #[allow(unused_imports)]
 use dyn_mem::{KHEAP_PAGE_COUNT, allocator::init_kheap};
-use ejcineque::{
-    executor::Executor,
-    sync::mpsc::unbounded::{UnboundedReceiver, unbounded_channel},
-};
+use ejcineque::{executor::Executor, sync::mpsc::unbounded::unbounded_channel};
 use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::{BaseRevision, request::StackSizeRequest};
 
@@ -30,8 +26,8 @@ use crate::{
     arch::x86_64::{memory::MemoryMappings, pit::configure_pit},
     debug::terminal::WRITER,
     hal::storage::{
-        HalStorageOperation, HalStorageOperationResult, PRIMARY, PRIMARY_STORAGE_SENDER, SECONDARY,
-        SECONDARY_STORAGE_SENDER, run_storage_device,
+        HalStorageOperation, PRIMARY, PRIMARY_STORAGE_SENDER, SECONDARY, SECONDARY_STORAGE_SENDER,
+        run_storage_device,
     },
 };
 
@@ -50,6 +46,8 @@ async fn kernel_main(executor: Executor) {
     #[cfg(test)]
     test_main();
 
+    log!("Kernel main launched");
+
     let (primary_storage_tx, primary_storage_rx) = unbounded_channel::<HalStorageOperation>();
     let _ = PRIMARY_STORAGE_SENDER
         .set(primary_storage_tx)
@@ -62,25 +60,7 @@ async fn kernel_main(executor: Executor) {
         .expect("Failed to put the secondary storage sender");
     executor.spawn(run_storage_device(SECONDARY, secondary_storage_rx));
 
-    let sender = PRIMARY_STORAGE_SENDER.get().unwrap().clone();
-    let buffer = [1u8; 512];
-    let (tx, rx) = unbounded_channel::<HalStorageOperationResult>();
-
-    sender.send(HalStorageOperation::Write {
-        buffer: Box::new(buffer),
-        lba: 0,
-        sender: tx.clone(),
-    });
-
-    sender.send(HalStorageOperation::Write {
-        buffer: Box::new(buffer),
-        lba: 0,
-        sender: tx.clone(),
-    });
-
-    while let Some(a) = rx.recv().await {
-        iprintln!("read stuff: {:?}", a);
-    }
+    log!("Storage drive tasks launched");
 }
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
@@ -103,6 +83,7 @@ unsafe extern "C" fn _start() -> ! {
     init_idt();
     init_pic();
     x86_64::instructions::interrupts::enable();
+    log!("Interrupts enabled!");
     configure_pit();
 
     log_memmap();
@@ -114,6 +95,7 @@ unsafe extern "C" fn _start() -> ! {
 
     STORAGE_CONTEXT_ARR[hal::storage::PRIMARY].lock().init();
     STORAGE_CONTEXT_ARR[hal::storage::SECONDARY].lock().init();
+    log!("Initialized the storage drives");
 
     let executor: Executor = Executor::new();
     executor.spawn(kernel_main(executor.clone()));

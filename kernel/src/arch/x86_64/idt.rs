@@ -1,6 +1,7 @@
 use super::gdt;
 use super::handlers::{irq, isr};
 use lazy_static::lazy_static;
+use terminal::log;
 use x86_64::structures::idt::InterruptDescriptorTable;
 
 lazy_static! {
@@ -23,4 +24,6 @@ lazy_static! {
 
 pub fn init_idt() {
     IDT.load();
+
+    log!("IDT initialization finished");
 }

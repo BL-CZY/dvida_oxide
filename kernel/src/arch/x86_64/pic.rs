@@ -1,4 +1,5 @@
 use pic8259::ChainedPics;
+use terminal::log;
 
 use crate::drivers::keyboard::read_remain_val;
 
@@ -18,4 +19,6 @@ pub fn init_pic() {
         pics.write_masks(0, 0);
         read_remain_val();
     }
+
+    log!("PIC initialization finished");
 }
