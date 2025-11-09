@@ -54,6 +54,7 @@ dependencies = [
  "lazy_static",
  "limine 0.2.0",
  "linked_list_allocator",
+ "once_cell_no_std",
  "pc-keyboard",
  "pic8259",
  "spin 0.9.8",
@@ -107,6 +108,12 @@ dependencies = [
  "autocfg",
  "scopeguard",
 ]
+
+[[package]]
+name = "once_cell_no_std"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa32e177c2b2d33c279f41b74828c00edf20a00fefca2cb73afe61c95f1a0c68"
 
 [[package]]
 name = "pc-keyboard"

@@ -40,7 +40,7 @@ pub static WRITER: Mutex<DebugWriter> = Mutex::new(DebugWriter {
     cursor_row: 0,
     cursor_col: 0,
     is_cursor_on: false,
-    cursor_blink_interval: 0,
+    cursor_blink_interval: 10,
     color_buffer: [[0; 160]; 100],
     text_buffer: [[0; 160]; 100],
 });
@@ -99,7 +99,7 @@ impl DebugWriter {
             if self.cursor_blink_interval == 0 {
                 self.update_debug_cursor(true);
                 self.is_cursor_on = false;
-                self.cursor_blink_interval = 2;
+                self.cursor_blink_interval = 200;
             } else {
                 self.cursor_blink_interval -= 1;
             }
@@ -107,7 +107,7 @@ impl DebugWriter {
             if self.cursor_blink_interval == 0 {
                 self.update_debug_cursor(false);
                 self.is_cursor_on = true;
-                self.cursor_blink_interval = 2;
+                self.cursor_blink_interval = 200;
             } else {
                 self.cursor_blink_interval -= 1;
             }

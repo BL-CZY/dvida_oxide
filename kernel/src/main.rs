@@ -4,9 +4,9 @@
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::debug::test::run_tests)]
 #![reexport_test_harness_main = "test_main"]
-use alloc::vec;
-use core::{arch::asm, ops::DerefMut};
+use core::arch::asm;
 
+use alloc::boxed::Box;
 use terminal::iprintln;
 
 extern crate alloc;
@@ -26,7 +26,14 @@ use ejcineque::{
 use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::{BaseRevision, request::StackSizeRequest};
 
-use crate::{arch::x86_64::memory::MemoryMappings, debug::terminal::WRITER};
+use crate::{
+    arch::x86_64::{memory::MemoryMappings, pit::configure_pit},
+    debug::terminal::WRITER,
+    hal::storage::{
+        HalStorageOperation, HalStorageOperationResult, PRIMARY, PRIMARY_STORAGE_SENDER, SECONDARY,
+        SECONDARY_STORAGE_SENDER, run_storage_device,
+    },
+};
 
 pub mod arch;
 pub mod debug;
@@ -38,29 +45,37 @@ pub mod utils;
 pub const STACK_SIZE: u64 = 0x100000;
 pub static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_size(STACK_SIZE);
 
-async fn test_send(rx: UnboundedReceiver<u32>) {
-    while let Some(msg) = rx.recv().await {
-        iprintln!("I received: {}", msg);
-    }
-}
-
 // this is the kernel entry point
 async fn kernel_main(executor: Executor) {
     #[cfg(test)]
     test_main();
 
-    let (tx, rx) = unbounded_channel::<u32>();
+    let (primary_storage_tx, primary_storage_rx) = unbounded_channel::<HalStorageOperation>();
+    let _ = PRIMARY_STORAGE_SENDER
+        .set(primary_storage_tx)
+        .expect("Failed to put the primary storage sender");
+    iprintln!("{:?}", PRIMARY_STORAGE_SENDER);
+    executor.spawn(run_storage_device(PRIMARY, primary_storage_rx));
 
-    // x86_64::instructions::interrupts::disable();
+    let (secondary_storage_tx, secondary_storage_rx) = unbounded_channel::<HalStorageOperation>();
+    let _ = SECONDARY_STORAGE_SENDER
+        .set(secondary_storage_tx)
+        .expect("Failed to put the secondary storage sender");
+    executor.spawn(run_storage_device(SECONDARY, secondary_storage_rx));
 
-    executor.spawn(test_send(rx));
+    let sender = PRIMARY_STORAGE_SENDER.get().unwrap().clone();
+    let buffer = [0u8; 512];
+    let (tx, rx) = unbounded_channel::<HalStorageOperationResult>();
+    sender.send(HalStorageOperation::Read {
+        buffer: Box::new(buffer),
+        lba: 0,
+        sender: tx,
+    });
 
-    tx.send(32);
-    tx.send(32);
-    tx.send(32);
-    tx.send(32);
+    if let Some(a) = rx.recv().await {
+        iprintln!("read stuff: {:?}", a);
+    }
 }
-
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
 // Be sure to mark all limine requests with #[used], otherwise they may be removed by the compiler.
@@ -82,6 +97,7 @@ unsafe extern "C" fn _start() -> ! {
     init_idt();
     init_pic();
     x86_64::instructions::interrupts::enable();
+    configure_pit();
 
     log_memmap();
     let MemoryMappings { kheap, .. } = memory::init();

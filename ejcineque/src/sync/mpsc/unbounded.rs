@@ -3,13 +3,14 @@ use core::task::Waker;
 use alloc::{collections::vec_deque::VecDeque, sync::Arc};
 use spin::Mutex;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct UnboundedChannel<T> {
     buffer: VecDeque<T>,
     rx_wakers: VecDeque<Waker>,
     sender_count: u64,
 }
 
+#[derive(Debug)]
 pub struct UnboundedSender<T> {
     channel: Arc<Mutex<UnboundedChannel<T>>>,
 }
@@ -43,6 +44,7 @@ impl<T> UnboundedSender<T> {
     }
 }
 
+#[derive(Debug)]
 pub struct UnboundedReceiver<T> {
     channel: Arc<Mutex<UnboundedChannel<T>>>,
 }

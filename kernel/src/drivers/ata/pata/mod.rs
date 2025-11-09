@@ -20,6 +20,7 @@ pub enum PataIdentErr {
     Error,
 }
 
+#[derive(Debug)]
 pub struct PataDevice {
     identified: bool,
     lba48_supported: bool,

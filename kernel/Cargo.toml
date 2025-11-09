@@ -14,6 +14,7 @@ thiserror = { version = "1.0", package = "thiserror-core", default-features = fa
 dvida_serialize = { path = "../dvida_serialize/" }
 ejcineque = { path = "../ejcineque/" }
 terminal = { path = "../terminal/" }
+once_cell_no_std = "0.1.1"
 
 [dependencies.lazy_static]
 version = "1.0"

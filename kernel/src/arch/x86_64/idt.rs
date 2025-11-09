@@ -16,6 +16,7 @@ lazy_static! {
         idt[irq::IrqIndex::Keyboard as u8].set_handler_fn(irq::keyboard_handler);
         idt[irq::IrqIndex::PrimaryIDE as u8].set_handler_fn(irq::primary_ide_handler);
         idt[irq::IrqIndex::SecondaryIDE as u8].set_handler_fn(irq::secondary_ide_handler);
+        idt.page_fault.set_handler_fn(isr::pagefault_handler);
         idt
     };
 }

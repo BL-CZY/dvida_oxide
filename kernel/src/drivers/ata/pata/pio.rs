@@ -1,15 +1,18 @@
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
-use ejcineque::wakers::PRIMARY_IDE_WAKERS;
+use ejcineque::time::wait;
+use ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS};
 
 use crate::drivers::ata::cmd;
+use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE};
 use crate::hal::storage::IoErr;
 use crate::utils::binary_test;
 
 use super::PataDevice;
 
 const WAIT_TIME: u32 = 100000;
+const WAIT_TICK_TIME: u32 = 10;
 const SECTOR_SIZE: u16 = 512;
 
 impl PataDevice {
@@ -142,27 +145,30 @@ impl PataDevice {
         Ok(())
     }
 
-    async fn wait_io_async(
-        &mut self,
-        operation_id: u64,
-    ) -> Result<(), Box<dyn core::error::Error>> {
+    fn wait_io_async_future(port: u16) -> WaitIOFuture {
+        WaitIOFuture {
+            port,
+            is_done: false,
+        }
+    }
+
+    async fn wait_io_async(&mut self) -> Result<(), Box<dyn core::error::Error>> {
         for _ in 0..14 {
             unsafe {
                 self.status_port.read();
             }
         }
 
-        let mut timer = 0;
-        while !binary_test(unsafe { self.status_port.read().into() }, 3)
-            || binary_test(unsafe { self.status_port.read().into() }, 7)
-        {
-            timer += 1;
-            if timer > WAIT_TIME {
-                return Err(Box::new(IoErr::IOTimeout));
-            }
-        }
+        let res = ejcineque::futures::race::race(
+            ejcineque::time::wait(WAIT_TICK_TIME),
+            Self::wait_io_async_future(self.port),
+        )
+        .await;
 
-        Ok(())
+        match res {
+            ejcineque::futures::race::Either::Left(_) => Err(Box::new(IoErr::IOTimeout)),
+            ejcineque::futures::race::Either::Right(_) => Ok(()),
+        }
     }
 
     fn read_data(
@@ -189,7 +195,6 @@ impl PataDevice {
 
     async fn read_data_async(
         &mut self,
-        operation_id: u64,
         count: u16,
         result: &mut [u8],
     ) -> Result<(), Box<dyn core::error::Error>> {
@@ -198,7 +203,7 @@ impl PataDevice {
         }
 
         for _ in 0..count {
-            self.wait_io_async(operation_id).await?;
+            self.wait_io_async().await?;
 
             for i in 0..256 {
                 let temp = unsafe { self.data_port.read() };
@@ -261,7 +266,6 @@ impl PataDevice {
 
     pub async fn pio_read_sectors_async(
         &mut self,
-        operation_id: u64,
         index: i64,
         count: u16,
         output: &mut [u8],
@@ -277,7 +281,7 @@ impl PataDevice {
             self.send_read_lba28(count, lba);
         }
 
-        self.read_data_async(operation_id, count, output).await?;
+        self.read_data_async(count, output).await?;
 
         Ok(())
     }
@@ -312,17 +316,30 @@ impl PataDevice {
 }
 
 pub struct WaitIOFuture {
-    operation_id: u64,
+    is_done: bool,
+    port: u16,
 }
 
 impl Future for WaitIOFuture {
-    type Output = Result<(), Box<dyn core::error::Error>>;
+    type Output = ();
 
     fn poll(
-        self: core::pin::Pin<&mut Self>,
+        mut self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        PRIMARY_IDE_WAKERS.lock().push(cx.waker().clone());
+        if self.is_done {
+            return core::task::Poll::Ready(());
+        }
+
+        self.is_done = true;
+
+        if self.port == PATA_PRIMARY_BASE {
+            PRIMARY_IDE_WAKERS.lock().push(cx.waker().clone());
+        } else if self.port == PATA_SECONDARY_BASE {
+            SECONDARY_IDE_WAKERS.lock().push(cx.waker().clone());
+        } else {
+            panic!("Drive doesn't exist");
+        }
 
         core::task::Poll::Pending
     }

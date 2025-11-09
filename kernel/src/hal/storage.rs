@@ -1,17 +1,20 @@
-use core::sync::atomic::AtomicU64;
-use core::task::Waker;
-
 use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE, PataDevice};
-use alloc::boxed::Box;
-use alloc::collections::btree_map::BTreeMap;
-use alloc::collections::vec_deque::VecDeque;
+use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
-use ejcineque::sync::mpsc::unbounded::UnboundedReceiver;
+use alloc::{boxed::Box, string::String};
+use ejcineque::sync::mpsc::unbounded::{UnboundedReceiver, UnboundedSender};
 use lazy_static::lazy_static;
+use once_cell_no_std::OnceCell;
 use spin::Mutex;
+use terminal::iprintln;
 use thiserror::Error;
 
+pub static PRIMARY_STORAGE_SENDER: OnceCell<UnboundedSender<HalStorageOperation>> = OnceCell::new();
+pub static SECONDARY_STORAGE_SENDER: OnceCell<UnboundedSender<HalStorageOperation>> =
+    OnceCell::new();
+
+#[derive(Debug)]
 pub enum DeviceType {
     Unidentified,
     /// I only know this lol
@@ -47,24 +50,27 @@ pub enum IoErr {
     InputTooSmall,
 }
 
+#[derive(Debug)]
 pub struct HalStorageDevice {
     pub device_io_type: DeviceType,
     pub device_loc: usize,
     pub available: bool,
     pub pata_port: u16,
-
-    pub current_task_id: Option<AtomicU64>,
-    pub task_id_counter: AtomicU64,
-    pub task_id_queue: alloc::collections::VecDeque<u64>,
-    pub task_map: BTreeMap<u64, HalStorageOperation>,
 }
 
+#[derive(Debug)]
 pub enum HalStorageOperation {
     Read {
-        buffer: Box<[[u8; BLOCK_SIZE]]>,
+        buffer: Box<[u8]>,
         lba: i64,
-        waker: Option<Waker>,
+        sender: UnboundedSender<HalStorageOperationResult>,
     },
+}
+
+#[derive(Debug)]
+pub enum HalStorageOperationResult {
+    Success,
+    Failure(String),
 }
 
 lazy_static! {
@@ -74,6 +80,11 @@ lazy_static! {
     ];
 }
 
+/// After this is executed nothing should directly access those structs
+pub async fn run_storage_device(index: usize, rx: UnboundedReceiver<HalStorageOperation>) {
+    STORAGE_CONTEXT_ARR[index].lock().run(rx).await;
+}
+
 impl HalStorageDevice {
     pub fn new(loc: usize, pata_port: u16) -> Self {
         HalStorageDevice {
@@ -81,17 +92,37 @@ impl HalStorageDevice {
             device_loc: loc,
             available: false,
             pata_port,
-            current_task_id: None,
-            task_id_counter: AtomicU64::new(0),
-            task_id_queue: VecDeque::new(),
-            task_map: BTreeMap::new(),
         }
     }
 
     pub async fn run(&mut self, rx: UnboundedReceiver<HalStorageOperation>) {
+        if !self.available {
+            iprintln!(
+                "Failed to run the storage device at {:x} because it is not available",
+                self.pata_port
+            );
+            return;
+        }
+
         while let Some(op) = rx.recv().await {
             match op {
-                HalStorageOperation::Read { buffer, lba, waker } => {}
+                HalStorageOperation::Read {
+                    mut buffer,
+                    lba,
+                    sender,
+                } => {
+                    match self
+                        .read_sectors_async(lba, buffer.len() as u16, buffer.as_mut())
+                        .await
+                    {
+                        Ok(_) => {
+                            sender.send(HalStorageOperationResult::Success);
+                        }
+                        Err(e) => {
+                            sender.send(HalStorageOperationResult::Failure(e.to_string()));
+                        }
+                    }
+                }
             }
         }
     }
@@ -138,7 +169,6 @@ impl HalStorageDevice {
 
     pub async fn read_sectors_async(
         &mut self,
-        operation_id: u64,
         index: i64,
         count: u16,
         output: &mut [u8],
@@ -148,9 +178,9 @@ impl HalStorageDevice {
         }
 
         match self.device_io_type {
-            DeviceType::PataPio(ref mut pata) => Ok(pata
-                .pio_read_sectors_async(operation_id, index, count, output)
-                .await?),
+            DeviceType::PataPio(ref mut pata) => {
+                Ok(pata.pio_read_sectors_async(index, count, output).await?)
+            }
             _ => Err(Box::new(IoErr::Unimplemented)),
         }
     }

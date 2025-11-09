@@ -1,5 +1,7 @@
+use ejcineque::wakers::{PRIMARY_IDE_WAKERS, TIMER_WAKERS};
 use x86_64::{instructions::port::Port, structures::idt::InterruptStackFrame};
 
+use crate::iprintln;
 use crate::{
     arch::x86_64::pic::{PRIMARY_PIC_OFFSET, get_pic},
     debug::terminal::WRITER,
@@ -29,6 +31,10 @@ pub enum IrqIndex {
 }
 
 pub extern "x86-interrupt" fn timer_handler(_stack_frame: InterruptStackFrame) {
+    for w in TIMER_WAKERS.lock().drain(..) {
+        w.wake();
+    }
+
     unsafe {
         WRITER.lock().blink_debug_cursor();
         get_pic().notify_end_of_interrupt(IrqIndex::Timer as u8);
@@ -46,12 +52,20 @@ pub extern "x86-interrupt" fn keyboard_handler(_stack_frame: InterruptStackFrame
 }
 
 pub extern "x86-interrupt" fn primary_ide_handler(_stack_frame: InterruptStackFrame) {
+    for w in PRIMARY_IDE_WAKERS.lock().drain(..) {
+        w.wake();
+    }
+
     unsafe {
         get_pic().notify_end_of_interrupt(IrqIndex::PrimaryIDE as u8);
     }
 }
 
 pub extern "x86-interrupt" fn secondary_ide_handler(_stack_frame: InterruptStackFrame) {
+    for w in PRIMARY_IDE_WAKERS.lock().drain(..) {
+        w.wake();
+    }
+
     unsafe {
         get_pic().notify_end_of_interrupt(IrqIndex::SecondaryIDE as u8);
     }
