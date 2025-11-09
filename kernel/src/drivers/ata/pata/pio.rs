@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
+use ejcineque::wakers::PRIMARY_IDE_WAKERS;
 
 use crate::drivers::ata::cmd;
 use crate::hal::storage::IoErr;
@@ -141,6 +142,29 @@ impl PataDevice {
         Ok(())
     }
 
+    async fn wait_io_async(
+        &mut self,
+        operation_id: u64,
+    ) -> Result<(), Box<dyn core::error::Error>> {
+        for _ in 0..14 {
+            unsafe {
+                self.status_port.read();
+            }
+        }
+
+        let mut timer = 0;
+        while !binary_test(unsafe { self.status_port.read().into() }, 3)
+            || binary_test(unsafe { self.status_port.read().into() }, 7)
+        {
+            timer += 1;
+            if timer > WAIT_TIME {
+                return Err(Box::new(IoErr::IOTimeout));
+            }
+        }
+
+        Ok(())
+    }
+
     fn read_data(
         &mut self,
         count: u16,
@@ -152,6 +176,29 @@ impl PataDevice {
 
         for _ in 0..count {
             self.wait_io()?;
+
+            for i in 0..256 {
+                let temp = unsafe { self.data_port.read() };
+                result[i * 2] = (temp & 0xFF) as u8;
+                result[i * 2 + 1] = ((temp >> 8) & 0xFF) as u8;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn read_data_async(
+        &mut self,
+        operation_id: u64,
+        count: u16,
+        result: &mut [u8],
+    ) -> Result<(), Box<dyn core::error::Error>> {
+        if result.len() < 512 {
+            return Err(Box::new(IoErr::InputTooSmall));
+        }
+
+        for _ in 0..count {
+            self.wait_io_async(operation_id).await?;
 
             for i in 0..256 {
                 let temp = unsafe { self.data_port.read() };
@@ -212,6 +259,29 @@ impl PataDevice {
         Ok(())
     }
 
+    pub async fn pio_read_sectors_async(
+        &mut self,
+        operation_id: u64,
+        index: i64,
+        count: u16,
+        output: &mut [u8],
+    ) -> Result<(), Box<dyn core::error::Error>> {
+        let lba = match self.io_init(index, count) {
+            Ok(val) => val,
+            Err(e) => return Err(e),
+        };
+
+        if self.lba48_supported {
+            self.send_read_lba48(count, lba);
+        } else {
+            self.send_read_lba28(count, lba);
+        }
+
+        self.read_data_async(operation_id, count, output).await?;
+
+        Ok(())
+    }
+
     pub fn pio_write_sectors(
         &mut self,
         index: i64,
@@ -238,5 +308,22 @@ impl PataDevice {
         self.flush_cache()?;
 
         Ok(())
+    }
+}
+
+pub struct WaitIOFuture {
+    operation_id: u64,
+}
+
+impl Future for WaitIOFuture {
+    type Output = Result<(), Box<dyn core::error::Error>>;
+
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        PRIMARY_IDE_WAKERS.lock().push(cx.waker().clone());
+
+        core::task::Poll::Pending
     }
 }

@@ -136,6 +136,25 @@ impl HalStorageDevice {
         }
     }
 
+    pub async fn read_sectors_async(
+        &mut self,
+        operation_id: u64,
+        index: i64,
+        count: u16,
+        output: &mut [u8],
+    ) -> Result<(), Box<dyn core::error::Error>> {
+        if !self.available {
+            return Err(Box::new(IoErr::Unavailable));
+        }
+
+        match self.device_io_type {
+            DeviceType::PataPio(ref mut pata) => Ok(pata
+                .pio_read_sectors_async(operation_id, index, count, output)
+                .await?),
+            _ => Err(Box::new(IoErr::Unimplemented)),
+        }
+    }
+
     pub fn write_sectors(
         &mut self,
         index: i64,
