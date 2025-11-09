@@ -49,7 +49,7 @@ pub fn is_verified_crc32(arr: &Vec<u8>, crc32: u32) -> bool {
     false
 }
 
-pub fn full_crc(s_data: &Vec<u8>) -> u32 {
+pub fn full_crc(s_data: &[u8]) -> u32 {
     let mut ul_crc: u32 = 0xFFFFFFFF;
     for data in s_data.iter() {
         ul_crc = (ul_crc >> 8) ^ I_TABLE.lock()[((ul_crc ^ (*data) as u32) & 0xFF) as usize];

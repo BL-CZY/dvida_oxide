@@ -10,7 +10,7 @@ macro_rules! ignore {
 #[macro_export]
 macro_rules! test_name {
     ($name: expr) => {
-        $crate::println!("running test: {}", $name);
+        $crate::iprintln!("running test: {}", $name);
     };
 }
 
@@ -18,7 +18,7 @@ macro_rules! test_name {
 #[macro_export]
 macro_rules! end_test {
     () => {
-        $crate::println!("test succeeded!");
+        $crate::iprintln!("test succeeded!");
     };
 }
 

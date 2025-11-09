@@ -144,15 +144,19 @@ impl PataDevice {
     fn read_data(
         &mut self,
         count: u16,
-        result: &mut Vec<u8>,
+        result: &mut [u8],
     ) -> Result<(), Box<dyn core::error::Error>> {
+        if result.len() < 512 {
+            return Err(Box::new(IoErr::InputTooSmall));
+        }
+
         for _ in 0..count {
             self.wait_io()?;
 
-            for _ in 0..256 {
+            for i in 0..256 {
                 let temp = unsafe { self.data_port.read() };
-                result.push((temp & 0xFF) as u8);
-                result.push(((temp >> 8) & 0xFF) as u8);
+                result[i * 2] = (temp & 0xFF) as u8;
+                result[i * 2 + 1] = ((temp >> 8) & 0xFF) as u8;
             }
         }
 
@@ -190,7 +194,8 @@ impl PataDevice {
         &mut self,
         index: i64,
         count: u16,
-    ) -> Result<Vec<u8>, Box<dyn core::error::Error>> {
+        output: &mut [u8],
+    ) -> Result<(), Box<dyn core::error::Error>> {
         let lba = match self.io_init(index, count) {
             Ok(val) => val,
             Err(e) => return Err(e),
@@ -202,11 +207,9 @@ impl PataDevice {
             self.send_read_lba28(count, lba);
         }
 
-        let mut result: Vec<u8> = vec![];
+        self.read_data(count, output)?;
 
-        self.read_data(count, &mut result)?;
-
-        Ok(result)
+        Ok(())
     }
 
     pub fn pio_write_sectors(

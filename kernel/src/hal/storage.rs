@@ -1,10 +1,13 @@
 use core::sync::atomic::AtomicU64;
+use core::task::Waker;
 
 use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE, PataDevice};
 use alloc::boxed::Box;
+use alloc::collections::btree_map::BTreeMap;
 use alloc::collections::vec_deque::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;
+use ejcineque::sync::mpsc::unbounded::UnboundedReceiver;
 use lazy_static::lazy_static;
 use spin::Mutex;
 use thiserror::Error;
@@ -23,6 +26,8 @@ pub enum DeviceType {
 
 pub const PRIMARY: usize = 0;
 pub const SECONDARY: usize = 1;
+
+pub const BLOCK_SIZE: usize = 512;
 
 #[derive(Debug, Error)]
 pub enum IoErr {
@@ -51,6 +56,15 @@ pub struct HalStorageDevice {
     pub current_task_id: Option<AtomicU64>,
     pub task_id_counter: AtomicU64,
     pub task_id_queue: alloc::collections::VecDeque<u64>,
+    pub task_map: BTreeMap<u64, HalStorageOperation>,
+}
+
+pub enum HalStorageOperation {
+    Read {
+        buffer: Box<[[u8; BLOCK_SIZE]]>,
+        lba: i64,
+        waker: Option<Waker>,
+    },
 }
 
 lazy_static! {
@@ -70,6 +84,15 @@ impl HalStorageDevice {
             current_task_id: None,
             task_id_counter: AtomicU64::new(0),
             task_id_queue: VecDeque::new(),
+            task_map: BTreeMap::new(),
+        }
+    }
+
+    pub async fn run(&mut self, rx: UnboundedReceiver<HalStorageOperation>) {
+        while let Some(op) = rx.recv().await {
+            match op {
+                HalStorageOperation::Read { buffer, lba, waker } => {}
+            }
         }
     }
 
@@ -101,13 +124,14 @@ impl HalStorageDevice {
         &mut self,
         index: i64,
         count: u16,
-    ) -> Result<Vec<u8>, Box<dyn core::error::Error>> {
+        output: &mut [u8],
+    ) -> Result<(), Box<dyn core::error::Error>> {
         if !self.available {
             return Err(Box::new(IoErr::Unavailable));
         }
 
         match self.device_io_type {
-            DeviceType::PataPio(ref mut pata) => Ok(pata.pio_read_sectors(index, count)?),
+            DeviceType::PataPio(ref mut pata) => Ok(pata.pio_read_sectors(index, count, output)?),
             _ => Err(Box::new(IoErr::Unimplemented)),
         }
     }

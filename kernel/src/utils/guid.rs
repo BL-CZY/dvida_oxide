@@ -1,12 +1,12 @@
 #[derive(PartialEq, Eq, Clone, Copy, Default)]
 pub struct Guid {
     /// the entire guid in little endian
-    whole: u128,
-    first: u32,
-    second: u16,
-    third: u16,
+    pub whole: u128,
+    pub first: u32,
+    pub second: u16,
+    pub third: u16,
     // the last two chunks of it in big endian
-    last: u64, // u16 & u48
+    pub last: u64, // u16 & u48
 }
 
 impl Guid {

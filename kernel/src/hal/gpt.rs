@@ -1,5 +1,5 @@
 use crate::iprintln;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::{boxed::Box, vec};
 use thiserror::Error;
@@ -158,6 +158,21 @@ impl Into<Vec<u8>> for GPTEntry {
 }
 
 impl GPTEntry {
+    pub fn is_empty(&self) -> bool {
+        self.type_guid.whole == 0
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            type_guid: Guid::new(),
+            unique_guid: Guid::new(),
+            start_lba: 0,
+            end_lba: 0,
+            flags: 0,
+            name: String::new(),
+        }
+    }
+
     pub fn try_from_buf(buf: &[u8]) -> Result<Self, Box<dyn core::error::Error>> {
         buf.try_into()
     }
@@ -194,44 +209,46 @@ pub enum GPTErr {
     GPTCorrupted,
     #[error("The Array size is bad")]
     BadArrayEntrySize,
+    #[error("There is no free slot")]
+    NoFreeSlot,
+    #[error("Partition overlapped")]
+    OverlappingPartition,
+    #[error("LBA range is invalid")]
+    InvalidLBARange,
+    #[error("Entry index is invalid")]
+    InvalidEntryIndex,
+    #[error("Entry is already empty")]
+    EntryAlreadyEmpty,
+    #[error("The name is too long")]
+    NameTooLong,
 }
 
 impl HalStorageDevice {
     fn is_normal_present(&mut self) -> bool {
-        let buf: Vec<u8> = if let Ok(res) = self.read_sectors(1, 1) {
-            res
-        } else {
+        let mut buf = [0u8; 512];
+        if self.read_sectors(1, 1, &mut buf).is_err() {
             return false;
-        };
-
-        if buf.starts_with(b"EFI PART") {
-            true
-        } else {
-            false
         }
+
+        buf.starts_with(b"EFI PART")
     }
 
     fn is_backup_present(&mut self) -> bool {
-        let buf: Vec<u8> = if let Ok(res) = self.read_sectors(-1, 1) {
-            res
-        } else {
+        let mut buf = [0u8; 512];
+        if self.read_sectors(-1, 1, &mut buf).is_err() {
             return false;
-        };
-
-        if buf.starts_with(b"EFI PART") {
-            true
-        } else {
-            false
         }
+
+        buf.starts_with(b"EFI PART")
     }
 
     pub fn is_gpt_present(&mut self) -> bool {
         self.is_normal_present() || self.is_backup_present()
     }
 
-    fn create_pmbr_buf(&self) -> Vec<u8> {
+    fn create_pmbr_buf(&self) -> [u8; 512] {
         const PMBR_OFFSET: usize = 446;
-        let mut result = Vec::from([0; 512]);
+        let mut result = [0u8; 512];
 
         result[PMBR_OFFSET + 1] = 0x0;
         result[PMBR_OFFSET + 2] = 0x2;
@@ -283,9 +300,8 @@ impl HalStorageDevice {
         }
     }
 
-    fn write_pmbr(&mut self, pmbr: &Vec<u8>) -> Result<(), Box<dyn core::error::Error>> {
+    fn write_pmbr(&mut self, pmbr: &[u8; 512]) -> Result<(), Box<dyn core::error::Error>> {
         self.write_sectors(0, 1, pmbr)?;
-
         Ok(())
     }
 
@@ -295,13 +311,9 @@ impl HalStorageDevice {
         array: &[u8],
     ) -> Result<(), Box<dyn core::error::Error>> {
         self.write_sectors(1, 1, header)?;
-
         self.write_sectors(2, 32, array)?;
-
         self.write_sectors(-1, 1, header)?;
-
         self.write_sectors(-33, 32, array)?;
-
         Ok(())
     }
 
@@ -310,9 +322,9 @@ impl HalStorageDevice {
             return Err(Box::new(GPTErr::GPTAlreadyExist));
         }
 
-        let pmbr: Vec<u8> = self.create_pmbr_buf();
+        let pmbr = self.create_pmbr_buf();
         let mut header = self.create_unhashed_header();
-        let array: Vec<u8> = Vec::from([0; 32 * 512]);
+        let array = [0u8; 32 * 512];
         header.array_crc32 = utils::crc32::full_crc(&array);
         header.header_crc32 = utils::crc32::full_crc(&header.to_buf());
 
@@ -340,10 +352,11 @@ impl HalStorageDevice {
         lba: i64,
         is_backup: bool,
     ) -> Result<(GPTHeader, Vec<GPTEntry>), Box<dyn core::error::Error>> {
-        // read buffer
-        let mut header_buf = self.read_sectors(lba, 1)?;
+        // Read header
+        let mut header_buf = [0u8; 512];
+        self.read_sectors(lba, 1, &mut header_buf)?;
 
-        if !self.is_valid_header(&mut header_buf) {
+        if !self.is_valid_header(&header_buf) {
             return Err(Box::new(GPTErr::GPTCorrupted));
         }
 
@@ -354,8 +367,7 @@ impl HalStorageDevice {
         }
 
         let arr_block_count: i64 = ((result_header.entry_num * result_header.entry_size / 512)
-            + ((result_header.entry_num * result_header.entry_size) % 512)
-            == 0)
+            + ((result_header.entry_num * result_header.entry_size) % 512 != 0) as u32)
             .into();
 
         let arr_lba: i64 = if is_backup {
@@ -364,21 +376,18 @@ impl HalStorageDevice {
             result_header.array_start as i64
         };
 
-        let arr_buf = self.read_sectors(
-            arr_lba,
-            (result_header.entry_num * result_header.entry_size / 512) as u16,
-        )?;
+        let arr_sectors = (result_header.entry_num * result_header.entry_size / 512) as u16;
+        let mut arr_buf = vec![0u8; arr_sectors as usize * 512];
+        self.read_sectors(arr_lba, arr_sectors, &mut arr_buf)?;
 
         if !utils::crc32::is_verified_crc32(&arr_buf, result_header.array_crc32) {
             return Err(Box::new(GPTErr::GPTCorrupted));
         }
 
         let result_array: Vec<GPTEntry> = arr_buf
-            .windows(result_header.entry_size as usize)
-            // unwrap because we are sure that this function will not throw an error
-            // entry size is a 128 * 2^n
+            .chunks(result_header.entry_size as usize)
             .map(|slice| GPTEntry::try_from_buf(slice).unwrap())
-            .collect::<Vec<GPTEntry>>();
+            .collect();
 
         Ok((result_header, result_array))
     }
@@ -389,7 +398,7 @@ impl HalStorageDevice {
         }
 
         let primary_result = self.get_table(1, false);
-        let backup_result = self.get_table(-1, false);
+        let backup_result = self.get_table(-1, true);
 
         if let Ok((primary_header, primary_array)) = primary_result.as_ref()
             && let Ok((backup_header, backup_array)) = backup_result.as_ref()
@@ -426,9 +435,136 @@ impl HalStorageDevice {
         }
     }
 
-    pub fn add_entry(&mut self) {}
+    pub fn add_entry(
+        &mut self,
+        name: &str,
+        start_lba: u64,
+        end_lba: u64,
+        type_guid: Guid,
+        flags: u64,
+    ) -> Result<u32, Box<dyn core::error::Error>> {
+        if !self.is_gpt_present() {
+            return Err(Box::new(GPTErr::GPTNonExist));
+        }
 
-    pub fn delete_entry(&mut self, _index: u32) {}
+        let (mut header, mut entries) = self.read_gpt()?;
+
+        // Find first empty slot
+        let empty_index = entries
+            .iter()
+            .position(|entry| entry.is_empty())
+            .ok_or(Box::new(GPTErr::NoFreeSlot))?;
+
+        // Check for overlapping partitions
+        for (i, entry) in entries.iter().enumerate() {
+            if i == empty_index || entry.is_empty() {
+                continue;
+            }
+
+            let entry_start = entry.start_lba;
+            let entry_end = entry.end_lba;
+
+            // Check if ranges overlap
+            if (start_lba >= entry_start && start_lba <= entry_end)
+                || (end_lba >= entry_start && end_lba <= entry_end)
+                || (start_lba <= entry_start && end_lba >= entry_end)
+            {
+                return Err(Box::new(GPTErr::OverlappingPartition));
+            }
+        }
+
+        // Validate LBA range
+        if start_lba < header.first_usable_block || end_lba > header.last_usable_block {
+            return Err(Box::new(GPTErr::InvalidLBARange));
+        }
+
+        if start_lba >= end_lba {
+            return Err(Box::new(GPTErr::InvalidLBARange));
+        }
+
+        // Validate name length (max 36 UTF-16 characters = 72 bytes)
+        if name.encode_utf16().count() > 36 {
+            return Err(Box::new(GPTErr::NameTooLong));
+        }
+
+        // Generate unique partition GUID
+        let unique_guid = Guid::new();
+
+        // Create new entry
+        let new_entry = GPTEntry {
+            type_guid,
+            unique_guid,
+            start_lba,
+            end_lba,
+            flags,
+            name: name.to_string(),
+        };
+
+        entries[empty_index] = new_entry;
+
+        // Serialize entries to buffer (each entry is 128 bytes)
+        let mut array_buf = vec![0u8; (header.entry_num * header.entry_size) as usize];
+        for (i, entry) in entries.iter().enumerate() {
+            let entry_buf = entry.to_buf();
+            let start = i * header.entry_size as usize;
+            let copy_len = entry_buf.len().min(header.entry_size as usize);
+            array_buf[start..start + copy_len].copy_from_slice(&entry_buf[..copy_len]);
+            // Remaining bytes stay as zeros (padding)
+        }
+
+        // Update header CRCs
+        header.array_crc32 = utils::crc32::full_crc(&array_buf);
+        header.header_crc32 = 0; // Must be zero before calculating
+        header.header_crc32 = utils::crc32::full_crc(&header.to_buf());
+
+        // Write updated table
+        self.write_table(&header.to_buf_full(), &array_buf)?;
+
+        Ok(empty_index as u32)
+    }
+
+    pub fn delete_entry(&mut self, index: u32) -> Result<(), Box<dyn core::error::Error>> {
+        if !self.is_gpt_present() {
+            return Err(Box::new(GPTErr::GPTNonExist));
+        }
+
+        let (mut header, mut entries) = self.read_gpt()?;
+
+        // Validate index
+        if index >= header.entry_num {
+            return Err(Box::new(GPTErr::InvalidEntryIndex));
+        }
+
+        let entry = &entries[index as usize];
+
+        // Check if entry is already empty
+        if entry.is_empty() {
+            return Err(Box::new(GPTErr::EntryAlreadyEmpty));
+        }
+
+        // Clear the entry
+        entries[index as usize] = GPTEntry::empty();
+
+        // Serialize entries to buffer (each entry is 128 bytes)
+        let mut array_buf = vec![0u8; (header.entry_num * header.entry_size) as usize];
+        for (i, entry) in entries.iter().enumerate() {
+            let entry_buf = entry.to_buf();
+            let start = i * header.entry_size as usize;
+            let copy_len = entry_buf.len().min(header.entry_size as usize);
+            array_buf[start..start + copy_len].copy_from_slice(&entry_buf[..copy_len]);
+            // Remaining bytes stay as zeros (padding)
+        }
+
+        // Update header CRCs
+        header.array_crc32 = utils::crc32::full_crc(&array_buf);
+        header.header_crc32 = 0; // Must be zero before calculating
+        header.header_crc32 = utils::crc32::full_crc(&header.to_buf());
+
+        // Write updated table
+        self.write_table(&header.to_buf_full(), &array_buf)?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
