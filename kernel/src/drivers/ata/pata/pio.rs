@@ -3,6 +3,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use ejcineque::time::wait;
 use ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS};
+use terminal::iprintln;
 
 use crate::drivers::ata::cmd;
 use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE};
@@ -176,17 +177,24 @@ impl PataDevice {
         count: u16,
         result: &mut [u8],
     ) -> Result<(), Box<dyn core::error::Error>> {
-        if result.len() < 512 {
+        let bytes_needed = count as usize * 512;
+
+        if result.len() < bytes_needed {
             return Err(Box::new(IoErr::InputTooSmall));
         }
 
-        for _ in 0..count {
+        for sector in 0..count {
             self.wait_io()?;
 
+            // Calculate offset for this sector
+            let offset = sector as usize * 512;
+
+            // Read 256 words (512 bytes) for this sector
             for i in 0..256 {
-                let temp = unsafe { self.data_port.read() };
-                result[i * 2] = (temp & 0xFF) as u8;
-                result[i * 2 + 1] = ((temp >> 8) & 0xFF) as u8;
+                let word = unsafe { self.data_port.read() };
+                let base = offset + i * 2;
+                result[base] = (word & 0xFF) as u8;
+                result[base + 1] = ((word >> 8) & 0xFF) as u8;
             }
         }
 
@@ -198,20 +206,35 @@ impl PataDevice {
         count: u16,
         result: &mut [u8],
     ) -> Result<(), Box<dyn core::error::Error>> {
-        if result.len() < 512 {
+        let bytes_needed = count as usize * 512;
+
+        if result.len() < bytes_needed {
             return Err(Box::new(IoErr::InputTooSmall));
         }
 
-        for _ in 0..count {
-            self.wait_io_async().await?;
+        iprintln!(
+            "Prepared to read {} sectors ({} bytes)",
+            count,
+            bytes_needed
+        );
 
+        for sector in 0..count {
+            self.wait_io_async().await?;
+            iprintln!("Reading sector {}/{}", sector + 1, count);
+
+            // Calculate offset for this sector
+            let offset = sector as usize * 512;
+
+            // Read 256 words (512 bytes) for this sector
             for i in 0..256 {
-                let temp = unsafe { self.data_port.read() };
-                result[i * 2] = (temp & 0xFF) as u8;
-                result[i * 2 + 1] = ((temp >> 8) & 0xFF) as u8;
+                let word = unsafe { self.data_port.read() };
+                let base = offset + i * 2;
+                result[base] = (word & 0xFF) as u8;
+                result[base + 1] = ((word >> 8) & 0xFF) as u8;
             }
         }
 
+        iprintln!("Successfully read {} sectors", count);
         Ok(())
     }
 

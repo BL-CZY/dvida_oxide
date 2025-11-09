@@ -81,7 +81,6 @@ impl Executor {
             // halt when nothing happens
             while self.tasks.lock().is_empty() {
                 unsafe {
-                    iprint!("c");
                     asm!("hlt");
                 }
             }

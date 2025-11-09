@@ -65,10 +65,11 @@ async fn kernel_main(executor: Executor) {
     let sender = PRIMARY_STORAGE_SENDER.get().unwrap().clone();
     let buffer = [0u8; 512];
     let (tx, rx) = unbounded_channel::<HalStorageOperationResult>();
+
     sender.send(HalStorageOperation::Read {
         buffer: Box::new(buffer),
         lba: 0,
-        sender: tx,
+        sender: tx.clone(),
     });
 
     if let Some(a) = rx.recv().await {

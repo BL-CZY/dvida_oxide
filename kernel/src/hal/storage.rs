@@ -105,6 +105,7 @@ impl HalStorageDevice {
         }
 
         while let Some(op) = rx.recv().await {
+            iprintln!("Received storage operation: {:?}", op);
             match op {
                 HalStorageOperation::Read {
                     mut buffer,
@@ -112,13 +113,19 @@ impl HalStorageDevice {
                     sender,
                 } => {
                     match self
-                        .read_sectors_async(lba, buffer.len() as u16, buffer.as_mut())
+                        .read_sectors_async(
+                            lba,
+                            (buffer.len() / BLOCK_SIZE) as u16,
+                            buffer.as_mut(),
+                        )
                         .await
                     {
                         Ok(_) => {
+                            iprintln!("Operation succeeded!: {:?}", buffer);
                             sender.send(HalStorageOperationResult::Success);
                         }
                         Err(e) => {
+                            iprintln!("Operation failed..: {:?}", e);
                             sender.send(HalStorageOperationResult::Failure(e.to_string()));
                         }
                     }
