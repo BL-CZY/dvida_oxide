@@ -18,7 +18,9 @@ impl Future for SleepFuture {
         if self.tick_count <= 0 {
             Poll::Ready(())
         } else {
-            TIMER_WAKERS.lock().push(cx.waker().clone());
+            x86_64::instructions::interrupts::without_interrupts(|| {
+                TIMER_WAKERS.lock().push(cx.waker().clone());
+            });
             Poll::Pending
         }
     }

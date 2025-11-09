@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, vec_deque::VecDeque};
 use alloc::sync::Arc;
 use alloc::task::Wake;
-use terminal::iprintln;
+use terminal::{iprint, iprintln};
 
 use core::arch::asm;
 use core::future::Future;
@@ -81,6 +81,7 @@ impl Executor {
             // halt when nothing happens
             while self.tasks.lock().is_empty() {
                 unsafe {
+                    iprint!("c");
                     asm!("hlt");
                 }
             }

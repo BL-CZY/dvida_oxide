@@ -21,6 +21,7 @@ dependencies = [
  "lazy_static",
  "spin 0.10.0",
  "terminal",
+ "x86_64",
 ]
 
 [[package]]

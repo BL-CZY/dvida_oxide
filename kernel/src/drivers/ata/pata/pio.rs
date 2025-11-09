@@ -334,9 +334,13 @@ impl Future for WaitIOFuture {
         self.is_done = true;
 
         if self.port == PATA_PRIMARY_BASE {
-            PRIMARY_IDE_WAKERS.lock().push(cx.waker().clone());
+            x86_64::instructions::interrupts::without_interrupts(|| {
+                PRIMARY_IDE_WAKERS.lock().push(cx.waker().clone());
+            });
         } else if self.port == PATA_SECONDARY_BASE {
-            SECONDARY_IDE_WAKERS.lock().push(cx.waker().clone());
+            x86_64::instructions::interrupts::without_interrupts(|| {
+                SECONDARY_IDE_WAKERS.lock().push(cx.waker().clone());
+            });
         } else {
             panic!("Drive doesn't exist");
         }

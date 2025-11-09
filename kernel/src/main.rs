@@ -54,7 +54,6 @@ async fn kernel_main(executor: Executor) {
     let _ = PRIMARY_STORAGE_SENDER
         .set(primary_storage_tx)
         .expect("Failed to put the primary storage sender");
-    iprintln!("{:?}", PRIMARY_STORAGE_SENDER);
     executor.spawn(run_storage_device(PRIMARY, primary_storage_rx));
 
     let (secondary_storage_tx, secondary_storage_rx) = unbounded_channel::<HalStorageOperation>();
