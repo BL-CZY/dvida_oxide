@@ -1,6 +1,8 @@
 use terminal::log;
 use x86_64::instructions::port::Port;
 
+pub mod formats;
+
 /// CMOS/RTC register addresses
 const RTC_SECONDS: u8 = 0x00;
 const RTC_MINUTES: u8 = 0x02;
