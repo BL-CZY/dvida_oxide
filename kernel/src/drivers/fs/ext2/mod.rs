@@ -1,3 +1,5 @@
+pub mod init;
+
 use dvida_serialize::*;
 
 /// The ext2 superblock structure - located at byte offset 1024 from start
@@ -57,8 +59,7 @@ pub struct SuperBlock {
     // Directory indexing support (HTREE)
     s_hash_seed: [u32; 4],  // Seeds used for hash algorithm
     s_def_hash_version: u8, // Default hash version
-    s_jnl_backup_type: u8,  // Journal backup type
-    s_desc_size: u16,       // Size of group descriptors
+    reserved: [u8; 3],
 
     // Default mount options
     s_default_mount_opts: u32, // Default mount options
@@ -116,6 +117,11 @@ pub struct DirEntry {
     file_type: u8, // File type
                   // name: [u8; name_len]     // File name (variable length, not null-terminated)
 }
+
+pub const BLOCK_SIZE: u32 = 1024;
+pub const LOG_BLOCK_SIZE: u32 = 1;
+pub const S_R_BLOCKS_COUNT: u32 = 1024;
+pub const FIRST_DATA_BLOCK: u32 = 1;
 
 // Filesystem state values for s_state
 pub const EXT2_VALID_FS: u16 = 0x0001; // Unmounted cleanly

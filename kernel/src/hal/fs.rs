@@ -11,6 +11,7 @@ pub struct MountPoint {
 #[derive(Debug, Clone)]
 pub struct FileSystem {
     pub drive_id: usize,
+    pub entry_idx: usize,
     pub entry: GPTEntry,
 
     pub file_system_type: FileSystemType,

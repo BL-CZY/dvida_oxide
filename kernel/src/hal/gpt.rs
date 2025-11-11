@@ -118,12 +118,12 @@ impl GPTHeader {
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct GPTEntry {
-    type_guid: Guid,
-    unique_guid: Guid,
-    start_lba: u64,
-    end_lba: u64,
-    flags: u64,
-    name: String,
+    pub type_guid: Guid,
+    pub unique_guid: Guid,
+    pub start_lba: u64,
+    pub end_lba: u64,
+    pub flags: u64,
+    pub name: String,
 }
 
 impl TryFrom<&[u8]> for GPTEntry {
@@ -568,6 +568,8 @@ impl HalStorageDevice {
 
         Ok(())
     }
+
+    // TODO: edit entry
 }
 
 #[cfg(test)]
