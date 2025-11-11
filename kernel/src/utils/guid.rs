@@ -1,4 +1,4 @@
-#[derive(PartialEq, Eq, Clone, Copy, Default)]
+#[derive(PartialEq, Eq, Clone, Copy, Default, Debug)]
 pub struct Guid {
     /// the entire guid in little endian
     pub whole: u128,

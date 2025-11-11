@@ -116,7 +116,7 @@ impl GPTHeader {
     }
 }
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct GPTEntry {
     type_guid: Guid,
     unique_guid: Guid,
