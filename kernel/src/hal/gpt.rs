@@ -224,26 +224,26 @@ pub enum GPTErr {
 }
 
 impl HalStorageDevice {
-    fn is_normal_present(&mut self) -> bool {
+    async fn is_normal_present(&mut self) -> bool {
         let mut buf = [0u8; 512];
-        if self.read_sectors(1, 1, &mut buf).is_err() {
+        if self.read_sectors_async(1, 1, &mut buf).await.is_err() {
             return false;
         }
 
         buf.starts_with(b"EFI PART")
     }
 
-    fn is_backup_present(&mut self) -> bool {
+    async fn is_backup_present(&mut self) -> bool {
         let mut buf = [0u8; 512];
-        if self.read_sectors(-1, 1, &mut buf).is_err() {
+        if self.read_sectors_async(-1, 1, &mut buf).await.is_err() {
             return false;
         }
 
         buf.starts_with(b"EFI PART")
     }
 
-    pub fn is_gpt_present(&mut self) -> bool {
-        self.is_normal_present() || self.is_backup_present()
+    pub async fn is_gpt_present(&mut self) -> bool {
+        self.is_normal_present().await || self.is_backup_present().await
     }
 
     fn create_pmbr_buf(&self) -> [u8; 512] {
@@ -300,25 +300,25 @@ impl HalStorageDevice {
         }
     }
 
-    fn write_pmbr(&mut self, pmbr: &[u8; 512]) -> Result<(), Box<dyn core::error::Error>> {
-        self.write_sectors(0, 1, pmbr)?;
+    async fn write_pmbr(&mut self, pmbr: &[u8; 512]) -> Result<(), Box<dyn core::error::Error>> {
+        self.write_sectors_async(0, 1, pmbr).await?;
         Ok(())
     }
 
-    fn write_table(
+    async fn write_table(
         &mut self,
         header: &[u8],
         array: &[u8],
     ) -> Result<(), Box<dyn core::error::Error>> {
-        self.write_sectors(1, 1, header)?;
-        self.write_sectors(2, 32, array)?;
-        self.write_sectors(-1, 1, header)?;
-        self.write_sectors(-33, 32, array)?;
+        self.write_sectors_async(1, 1, header).await?;
+        self.write_sectors_async(2, 32, array).await?;
+        self.write_sectors_async(-1, 1, header).await?;
+        self.write_sectors_async(-33, 32, array).await?;
         Ok(())
     }
 
-    pub fn create_gpt(&mut self, force: bool) -> Result<(), Box<dyn core::error::Error>> {
-        if !force && self.is_gpt_present() {
+    pub async fn create_gpt(&mut self, force: bool) -> Result<(), Box<dyn core::error::Error>> {
+        if !force && self.is_gpt_present().await {
             return Err(Box::new(GPTErr::GPTAlreadyExist));
         }
 
@@ -328,8 +328,8 @@ impl HalStorageDevice {
         header.array_crc32 = utils::crc32::full_crc(&array);
         header.header_crc32 = utils::crc32::full_crc(&header.to_buf());
 
-        self.write_pmbr(&pmbr)?;
-        self.write_table(&header.to_buf_full(), &array)?;
+        self.write_pmbr(&pmbr).await?;
+        self.write_table(&header.to_buf_full(), &array).await?;
 
         Ok(())
     }
@@ -347,14 +347,14 @@ impl HalStorageDevice {
         utils::crc32::is_verified_crc32(&header.to_buf(), crc)
     }
 
-    pub fn get_table(
+    pub async fn get_table(
         &mut self,
         lba: i64,
         is_backup: bool,
     ) -> Result<(GPTHeader, Vec<GPTEntry>), Box<dyn core::error::Error>> {
         // Read header
         let mut header_buf = [0u8; 512];
-        self.read_sectors(lba, 1, &mut header_buf)?;
+        self.read_sectors_async(lba, 1, &mut header_buf).await?;
 
         if !self.is_valid_header(&header_buf) {
             return Err(Box::new(GPTErr::GPTCorrupted));
@@ -378,7 +378,8 @@ impl HalStorageDevice {
 
         let arr_sectors = (result_header.entry_num * result_header.entry_size / 512) as u16;
         let mut arr_buf = vec![0u8; arr_sectors as usize * 512];
-        self.read_sectors(arr_lba, arr_sectors, &mut arr_buf)?;
+        self.read_sectors_async(arr_lba, arr_sectors, &mut arr_buf)
+            .await?;
 
         if !utils::crc32::is_verified_crc32(&arr_buf, result_header.array_crc32) {
             return Err(Box::new(GPTErr::GPTCorrupted));
@@ -392,13 +393,15 @@ impl HalStorageDevice {
         Ok((result_header, result_array))
     }
 
-    pub fn read_gpt(&mut self) -> Result<(GPTHeader, Vec<GPTEntry>), Box<dyn core::error::Error>> {
-        if !self.is_gpt_present() {
+    pub async fn read_gpt(
+        &mut self,
+    ) -> Result<(GPTHeader, Vec<GPTEntry>), Box<dyn core::error::Error>> {
+        if !self.is_gpt_present().await {
             return Err(Box::new(GPTErr::GPTNonExist));
         }
 
-        let primary_result = self.get_table(1, false);
-        let backup_result = self.get_table(-1, true);
+        let primary_result = self.get_table(1, false).await;
+        let backup_result = self.get_table(-1, true).await;
 
         if let Ok((primary_header, primary_array)) = primary_result.as_ref()
             && let Ok((backup_header, backup_array)) = backup_result.as_ref()
@@ -435,7 +438,7 @@ impl HalStorageDevice {
         }
     }
 
-    pub fn add_entry(
+    pub async fn add_entry(
         &mut self,
         name: &str,
         start_lba: u64,
@@ -443,11 +446,11 @@ impl HalStorageDevice {
         type_guid: Guid,
         flags: u64,
     ) -> Result<u32, Box<dyn core::error::Error>> {
-        if !self.is_gpt_present() {
+        if !self.is_gpt_present().await {
             return Err(Box::new(GPTErr::GPTNonExist));
         }
 
-        let (mut header, mut entries) = self.read_gpt()?;
+        let (mut header, mut entries) = self.read_gpt().await?;
 
         // Find first empty slot
         let empty_index = entries
@@ -518,17 +521,17 @@ impl HalStorageDevice {
         header.header_crc32 = utils::crc32::full_crc(&header.to_buf());
 
         // Write updated table
-        self.write_table(&header.to_buf_full(), &array_buf)?;
+        self.write_table(&header.to_buf_full(), &array_buf).await?;
 
         Ok(empty_index as u32)
     }
 
-    pub fn delete_entry(&mut self, index: u32) -> Result<(), Box<dyn core::error::Error>> {
-        if !self.is_gpt_present() {
+    pub async fn delete_entry(&mut self, index: u32) -> Result<(), Box<dyn core::error::Error>> {
+        if !self.is_gpt_present().await {
             return Err(Box::new(GPTErr::GPTNonExist));
         }
 
-        let (mut header, mut entries) = self.read_gpt()?;
+        let (mut header, mut entries) = self.read_gpt().await?;
 
         // Validate index
         if index >= header.entry_num {
@@ -561,7 +564,7 @@ impl HalStorageDevice {
         header.header_crc32 = utils::crc32::full_crc(&header.to_buf());
 
         // Write updated table
-        self.write_table(&header.to_buf_full(), &array_buf)?;
+        self.write_table(&header.to_buf_full(), &array_buf).await?;
 
         Ok(())
     }

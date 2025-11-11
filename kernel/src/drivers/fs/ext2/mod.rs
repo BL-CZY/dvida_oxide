@@ -64,7 +64,7 @@ pub struct SuperBlock {
     s_default_mount_opts: u32, // Default mount options
     s_first_meta_bg: u32,      // First metablock block group
 
-    reserved: [u8; 760],
+                               // reserved: [u8; 760],
 }
 
 /// Block Group Descriptor structure

@@ -3,7 +3,7 @@ use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 use alloc::{boxed::Box, string::String};
-use ejcineque::sync::mpsc::unbounded::{UnboundedReceiver, UnboundedSender};
+use ejcineque::sync::mpsc::unbounded::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use lazy_static::lazy_static;
 use once_cell_no_std::OnceCell;
 use spin::Mutex;
@@ -251,5 +251,49 @@ impl HalStorageDevice {
             }
             _ => Err(Box::new(IoErr::Unimplemented)),
         }
+    }
+}
+
+pub async fn read_sectors(index: usize, buffer: Box<[u8]>, lba: i64) -> HalStorageOperationResult {
+    let sender = if index == PRIMARY {
+        PRIMARY_STORAGE_SENDER.get().unwrap().clone()
+    } else {
+        SECONDARY_STORAGE_SENDER.get().unwrap().clone()
+    };
+
+    let (tx, rx) = unbounded_channel::<HalStorageOperationResult>();
+
+    sender.send(HalStorageOperation::Read {
+        buffer,
+        lba,
+        sender: tx,
+    });
+
+    if let Some(res) = rx.recv().await {
+        res
+    } else {
+        HalStorageOperationResult::Failure("Drive didn't respond".into())
+    }
+}
+
+pub async fn write_sectors(index: usize, buffer: Box<[u8]>, lba: i64) -> HalStorageOperationResult {
+    let sender = if index == PRIMARY {
+        PRIMARY_STORAGE_SENDER.get().unwrap().clone()
+    } else {
+        SECONDARY_STORAGE_SENDER.get().unwrap().clone()
+    };
+
+    let (tx, rx) = unbounded_channel::<HalStorageOperationResult>();
+
+    sender.send(HalStorageOperation::Write {
+        buffer,
+        lba,
+        sender: tx,
+    });
+
+    if let Some(res) = rx.recv().await {
+        res
+    } else {
+        HalStorageOperationResult::Failure("Drive didn't respond".into())
     }
 }

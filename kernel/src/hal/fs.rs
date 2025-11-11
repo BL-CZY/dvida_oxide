@@ -1,6 +1,12 @@
 use alloc::vec::Vec;
 
-use crate::hal::gpt::GPTEntry;
+use crate::hal::{gpt::GPTEntry, path::Path};
+
+#[derive(Debug, Clone)]
+pub struct MountPoint {
+    pub fs: FileSystem,
+    pub path: Path,
+}
 
 #[derive(Debug, Clone)]
 pub struct FileSystem {
@@ -8,7 +14,7 @@ pub struct FileSystem {
     pub entry: GPTEntry,
 
     pub file_system_type: FileSystemType,
-    pub mnt_points: Vec<FileSystem>,
+    pub mnt_points: Vec<MountPoint>,
 }
 
 #[derive(Debug, Clone)]
