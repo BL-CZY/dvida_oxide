@@ -53,17 +53,17 @@ fn calculate_blocks_count(size: u64) -> u32 {
     0
 }
 
-pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) {
-    let inodes_count = calculate_inodes_count(entry.end_lba - entry.start_lba + 1);
-    let blocks_count = calculate_blocks_count(entry.end_lba - entry.start_lba + 1);
-
-    let super_block = SuperBlock {
-        s_inodes_count: inodes_count,
-        s_blocks_count: blocks_count,
-        s_r_blocks_count: S_R_BLOCKS_COUNT,
-        s_free_blocks_count: blocks_count,
-        s_free_inodes_count: inodes_count,
-        s_first_data_block: FIRST_DATA_BLOCK,
-        s_log_block_size: LOG_BLOCK_SIZE,
-    };
-}
+// pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) {
+//     let inodes_count = calculate_inodes_count(entry.end_lba - entry.start_lba + 1);
+//     let blocks_count = calculate_blocks_count(entry.end_lba - entry.start_lba + 1);
+//
+//     let super_block = SuperBlock {
+//         s_inodes_count: inodes_count,
+//         s_blocks_count: blocks_count,
+//         s_r_blocks_count: S_R_BLOCKS_COUNT,
+//         s_free_blocks_count: blocks_count,
+//         s_free_inodes_count: inodes_count,
+//         s_first_data_block: FIRST_DATA_BLOCK,
+//         s_log_block_size: LOG_BLOCK_SIZE,
+//     };
+// }

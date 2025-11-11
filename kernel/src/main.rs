@@ -21,6 +21,7 @@ use dyn_mem::{KHEAP_PAGE_COUNT, allocator::init_kheap};
 use ejcineque::{executor::Executor, sync::mpsc::unbounded::unbounded_channel};
 use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::{BaseRevision, request::StackSizeRequest};
+pub mod time;
 
 use crate::{
     arch::x86_64::{memory::MemoryMappings, pit::configure_pit},
@@ -59,6 +60,8 @@ async fn kernel_main(executor: Executor) {
         .set(secondary_storage_tx)
         .expect("Failed to put the secondary storage sender");
     executor.spawn(run_storage_device(SECONDARY, secondary_storage_rx));
+
+    log!("{:?}", time::Rtc::new().read_datetime());
 
     log!("Storage drive tasks launched");
 }
