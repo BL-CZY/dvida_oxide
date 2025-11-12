@@ -223,7 +223,7 @@ impl Rtc {
         // Days in each month (non-leap year)
         const DAYS_IN_MONTH: [u16; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
-        let mut year = dt.year as i64;
+        let year = dt.year as i64;
         let month = dt.month as i64;
         let day = dt.day as i64;
 

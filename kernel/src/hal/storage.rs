@@ -7,7 +7,7 @@ use ejcineque::sync::mpsc::unbounded::{UnboundedReceiver, UnboundedSender, unbou
 use lazy_static::lazy_static;
 use once_cell_no_std::OnceCell;
 use spin::Mutex;
-use terminal::iprintln;
+use terminal::{iprintln, log};
 use thiserror::Error;
 
 pub static PRIMARY_STORAGE_SENDER: OnceCell<UnboundedSender<HalStorageOperation>> = OnceCell::new();
@@ -87,7 +87,24 @@ lazy_static! {
 }
 
 /// After this is executed nothing should directly access those structs
-pub async fn run_storage_device(index: usize, rx: UnboundedReceiver<HalStorageOperation>) {
+pub async fn run_storage_device(index: usize) {
+    let rx = if index == PRIMARY {
+        let (primary_storage_tx, rx) = unbounded_channel::<HalStorageOperation>();
+        let _ = PRIMARY_STORAGE_SENDER
+            .set(primary_storage_tx)
+            .expect("Failed to put the primary storage sender");
+
+        rx
+    } else {
+        let (secondary_storage_tx, rx) = unbounded_channel::<HalStorageOperation>();
+        let _ = SECONDARY_STORAGE_SENDER
+            .set(secondary_storage_tx)
+            .expect("Failed to put the secondary storage sender");
+
+        rx
+    };
+
+    log!("Sender initialization complete!");
     STORAGE_CONTEXT_ARR[index].lock().run(rx).await;
 }
 

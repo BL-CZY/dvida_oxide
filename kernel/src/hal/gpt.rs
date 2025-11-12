@@ -4,8 +4,8 @@ use alloc::vec::Vec;
 use alloc::{boxed::Box, vec};
 use thiserror::Error;
 
-use crate::utils;
-use crate::utils::guid::Guid;
+use crate::crypto;
+use crate::crypto::guid::Guid;
 
 use super::storage::HalStorageDevice;
 
@@ -256,7 +256,7 @@ impl HalStorageDevice {
         result[PMBR_OFFSET + 4] = 0xEE;
 
         let (cylinder, head, sector) =
-            utils::lba_to_chs(self.sectors_per_track(), self.sector_count());
+            crypto::lba_to_chs(self.sectors_per_track(), self.sector_count());
 
         if cylinder > 0xFF || head > 0xFF || sector > 0xFF {
             result[PMBR_OFFSET + 5] = 0xFF;
@@ -325,8 +325,8 @@ impl HalStorageDevice {
         let pmbr = self.create_pmbr_buf();
         let mut header = self.create_unhashed_header();
         let array = [0u8; 32 * 512];
-        header.array_crc32 = utils::crc32::full_crc(&array);
-        header.header_crc32 = utils::crc32::full_crc(&header.to_buf());
+        header.array_crc32 = crypto::crc32::full_crc(&array);
+        header.header_crc32 = crypto::crc32::full_crc(&header.to_buf());
 
         self.write_pmbr(&pmbr).await?;
         self.write_table(&header.to_buf_full(), &array).await?;
@@ -344,7 +344,7 @@ impl HalStorageDevice {
         let crc = header.header_crc32;
         header.header_crc32 = 0;
 
-        utils::crc32::is_verified_crc32(&header.to_buf(), crc)
+        crypto::crc32::is_verified_crc32(&header.to_buf(), crc)
     }
 
     pub async fn get_table(
@@ -381,7 +381,7 @@ impl HalStorageDevice {
         self.read_sectors_async(arr_lba, arr_sectors, &mut arr_buf)
             .await?;
 
-        if !utils::crc32::is_verified_crc32(&arr_buf, result_header.array_crc32) {
+        if !crypto::crc32::is_verified_crc32(&arr_buf, result_header.array_crc32) {
             return Err(Box::new(GPTErr::GPTCorrupted));
         }
 
@@ -516,9 +516,9 @@ impl HalStorageDevice {
         }
 
         // Update header CRCs
-        header.array_crc32 = utils::crc32::full_crc(&array_buf);
+        header.array_crc32 = crypto::crc32::full_crc(&array_buf);
         header.header_crc32 = 0; // Must be zero before calculating
-        header.header_crc32 = utils::crc32::full_crc(&header.to_buf());
+        header.header_crc32 = crypto::crc32::full_crc(&header.to_buf());
 
         // Write updated table
         self.write_table(&header.to_buf_full(), &array_buf).await?;
@@ -559,9 +559,9 @@ impl HalStorageDevice {
         }
 
         // Update header CRCs
-        header.array_crc32 = utils::crc32::full_crc(&array_buf);
+        header.array_crc32 = crypto::crc32::full_crc(&array_buf);
         header.header_crc32 = 0; // Must be zero before calculating
-        header.header_crc32 = utils::crc32::full_crc(&header.to_buf());
+        header.header_crc32 = crypto::crc32::full_crc(&header.to_buf());
 
         // Write updated table
         self.write_table(&header.to_buf_full(), &array_buf).await?;

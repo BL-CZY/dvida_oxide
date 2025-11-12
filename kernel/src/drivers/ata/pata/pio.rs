@@ -1,10 +1,10 @@
 use alloc::boxed::Box;
 use ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS};
 
+use crate::crypto::binary_test;
 use crate::drivers::ata::cmd;
 use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE};
 use crate::hal::storage::IoErr;
-use crate::utils::binary_test;
 use terminal::log;
 
 use super::PataDevice;

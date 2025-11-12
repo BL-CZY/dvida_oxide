@@ -1,5 +1,6 @@
 pub mod crc32;
 pub mod guid;
+pub mod random;
 
 #[cfg(test)]
 mod tests {
@@ -13,8 +14,8 @@ mod tests {
         ignore!();
         test_name!("binary test function");
 
-        assert!(crate::utils::binary_test(0b001000u64, 3));
-        assert!(!crate::utils::binary_test(0b010000u64, 3));
+        assert!(crate::crypto::binary_test(0b001000u64, 3));
+        assert!(!crate::crypto::binary_test(0b010000u64, 3));
 
         end_test!();
     }

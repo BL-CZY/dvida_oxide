@@ -6,6 +6,7 @@
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 
+use alloc::boxed::Box;
 use terminal::{iprintln, log};
 
 extern crate alloc;
@@ -18,7 +19,7 @@ use arch::x86_64::{
 };
 #[allow(unused_imports)]
 use dyn_mem::{KHEAP_PAGE_COUNT, allocator::init_kheap};
-use ejcineque::{executor::Executor, sync::mpsc::unbounded::unbounded_channel};
+use ejcineque::{executor::Executor, futures::yield_now, sync::mpsc::unbounded::unbounded_channel};
 use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::{BaseRevision, request::StackSizeRequest};
 pub mod args;
@@ -27,19 +28,20 @@ pub mod time;
 use crate::{
     arch::x86_64::{memory::MemoryMappings, pit::configure_pit},
     args::parse_args,
+    crypto::random::{random_number, run_random},
     debug::terminal::WRITER,
     hal::storage::{
         HalStorageOperation, PRIMARY, PRIMARY_STORAGE_SENDER, SECONDARY, SECONDARY_STORAGE_SENDER,
-        run_storage_device,
+        read_sectors, run_storage_device,
     },
 };
 
 pub mod arch;
+pub mod crypto;
 pub mod debug;
 pub mod drivers;
 pub mod dyn_mem;
 pub mod hal;
-pub mod utils;
 
 pub const STACK_SIZE: u64 = 0x100000;
 pub static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_size(STACK_SIZE);
@@ -51,21 +53,21 @@ async fn kernel_main(executor: Executor) {
 
     log!("Kernel main launched");
 
-    let (primary_storage_tx, primary_storage_rx) = unbounded_channel::<HalStorageOperation>();
-    let _ = PRIMARY_STORAGE_SENDER
-        .set(primary_storage_tx)
-        .expect("Failed to put the primary storage sender");
-    executor.spawn(run_storage_device(PRIMARY, primary_storage_rx));
+    executor.spawn(run_storage_device(PRIMARY));
+    // we yield now to let the tasks actually initialize
+    yield_now().await;
 
-    let (secondary_storage_tx, secondary_storage_rx) = unbounded_channel::<HalStorageOperation>();
-    let _ = SECONDARY_STORAGE_SENDER
-        .set(secondary_storage_tx)
-        .expect("Failed to put the secondary storage sender");
-    executor.spawn(run_storage_device(SECONDARY, secondary_storage_rx));
-
-    parse_args();
+    executor.spawn(run_storage_device(SECONDARY));
+    yield_now().await;
 
     log!("Storage drive tasks launched");
+
+    executor.spawn(run_random());
+    yield_now().await;
+
+    log!("{:?}", random_number().await);
+
+    parse_args();
 }
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
