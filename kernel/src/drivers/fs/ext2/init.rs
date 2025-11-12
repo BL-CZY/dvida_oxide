@@ -1,12 +1,11 @@
 use alloc::boxed::Box;
 use alloc::vec;
-use core::mem::size_of;
-use dvida_serialize::DvDeserialize;
+use dvida_serialize::{DvDeserialize, DvSerialize, Endianness};
 use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
-        DirEntry, EXT2_DYNAMIC_REV, EXT2_ERRORS_CONTINUE, EXT2_FEATURE_COMPAT_EXT_ATTR,
+        BLOCK_SIZE, DirEntry, EXT2_DYNAMIC_REV, EXT2_ERRORS_CONTINUE, EXT2_FEATURE_COMPAT_EXT_ATTR,
         EXT2_FEATURE_INCOMPAT_FILETYPE, EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER, EXT2_FT_DIR,
         EXT2_OS_LINUX, EXT2_ROOT_INO, EXT2_S_IFDIR, EXT2_SUPER_MAGIC, EXT2_VALID_FS,
         FIRST_DATA_BLOCK, GroupDescriptor, Inode, LOG_BLOCK_SIZE, S_R_BLOCKS_COUNT, SuperBlock,
@@ -54,6 +53,12 @@ pub async fn identify_ext2(drive_id: usize, entry: &GPTEntry) -> bool {
     }
 }
 
+// ext2 structure sizes (in bytes) according to spec
+const SUPERBLOCK_SIZE: usize = 1024;
+const GROUP_DESCRIPTOR_SIZE: usize = 32;
+const INODE_SIZE: usize = 128;
+const DIR_ENTRY_HEADER_SIZE: usize = 8;
+
 fn calculate_inodes_count(size_in_blocks: u64) -> u32 {
     // Standard ratio: one inode per 16KB (16 blocks in ext2 with 1KB blocks)
     // Minimum 1 inode per 16 blocks, maximum based on blocks
@@ -69,15 +74,30 @@ fn calculate_blocks_count(size_in_lba_blocks: u64) -> u32 {
 }
 
 pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) {
+    terminal::log!("Initializing ext2 filesystem on drive {}", drive_id);
+
     let partition_size_lba = entry.end_lba - entry.start_lba + 1;
     let inodes_count = calculate_inodes_count(partition_size_lba);
     let blocks_count = calculate_blocks_count(partition_size_lba);
 
+    terminal::log!(
+        "Partition size: {} LBA blocks, {} ext2 blocks, {} inodes",
+        partition_size_lba,
+        blocks_count,
+        inodes_count
+    );
+
     // Calculate filesystem geometry
     let blocks_per_group: u32 = 8192; // Standard: 8192 blocks per group
-    let inodes_per_group: u32 =
-        inodes_count / ((blocks_count + blocks_per_group - 1) / blocks_per_group).max(1);
     let block_groups_count = (blocks_count + blocks_per_group - 1) / blocks_per_group;
+    let inodes_per_group: u32 = (inodes_count + block_groups_count - 1) / block_groups_count;
+
+    terminal::log!(
+        "Block groups: {}, blocks per group: {}, inodes per group: {}",
+        block_groups_count,
+        blocks_per_group,
+        inodes_per_group
+    );
 
     // Get current time
     let current_time = time::Rtc::new()
@@ -136,27 +156,39 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) {
         s_first_meta_bg: 0,
     };
 
-    // Write superblock at offset 1024 (2 LBA sectors)
-    let mut sb_buffer = vec![0u8; 1024].into_boxed_slice();
-    unsafe {
-        let sb_ptr = &super_block as *const SuperBlock as *const u8;
-        core::ptr::copy_nonoverlapping(sb_ptr, sb_buffer.as_mut_ptr(), size_of::<SuperBlock>());
+    // Serialize and write superblock at offset 1024 (2 LBA sectors)
+    terminal::log!("Writing superblock at LBA {}", entry.start_lba + 2);
+    let mut sb_buffer = vec![0u8; SUPERBLOCK_SIZE].into_boxed_slice();
+    if let Ok(_) = super_block.serialize(Endianness::Little, &mut sb_buffer) {
+        let _ = hal::storage::write_sectors(drive_id, sb_buffer, entry.start_lba as i64 + 2).await;
     }
-    let _ = hal::storage::write_sectors(drive_id, sb_buffer, entry.start_lba as i64 + 2i64).await;
+
+    // Calculate GDT size based on spec
+    let gdt_total_size = block_groups_count as usize * GROUP_DESCRIPTOR_SIZE;
+    let gdt_blocks = ((gdt_total_size + BLOCK_SIZE as usize - 1) / BLOCK_SIZE as usize) as u32;
+
+    terminal::log!(
+        "Writing {} block group descriptors ({} blocks) at LBA {}",
+        block_groups_count,
+        gdt_blocks,
+        entry.start_lba + 4
+    );
 
     // Initialize block group descriptors
-    let gdt_blocks = ((block_groups_count * size_of::<GroupDescriptor>() as u32) + 1023) / 1024;
-    let mut gdt_buffer = vec![0u8; (gdt_blocks * 1024) as usize].into_boxed_slice();
+    let mut gdt_buffer = vec![0u8; (gdt_blocks * BLOCK_SIZE) as usize].into_boxed_slice();
 
     for bg in 0..block_groups_count {
+        let inode_table_blocks =
+            (inodes_per_group * INODE_SIZE as u32 + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
         let gd = GroupDescriptor {
             bg_block_bitmap: FIRST_DATA_BLOCK + 1 + gdt_blocks + bg * blocks_per_group,
             bg_inode_bitmap: FIRST_DATA_BLOCK + 2 + gdt_blocks + bg * blocks_per_group,
             bg_inode_table: FIRST_DATA_BLOCK + 3 + gdt_blocks + bg * blocks_per_group,
             bg_free_blocks_count: if bg == 0 {
-                (blocks_per_group - 5 - gdt_blocks - (inodes_per_group * 128 + 1023) / 1024) as u16
+                (blocks_per_group - 5 - gdt_blocks - inode_table_blocks) as u16
             } else {
-                (blocks_per_group - 3 - (inodes_per_group * 128 + 1023) / 1024) as u16
+                (blocks_per_group - 3 - inode_table_blocks) as u16
             },
             bg_free_inodes_count: if bg == 0 {
                 (inodes_per_group - 10) as u16
@@ -172,15 +204,8 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) {
             bg_checksum: 0,
         };
 
-        unsafe {
-            let gd_ptr = &gd as *const GroupDescriptor as *const u8;
-            let offset = (bg * size_of::<GroupDescriptor>() as u32) as usize;
-            core::ptr::copy_nonoverlapping(
-                gd_ptr,
-                gdt_buffer.as_mut_ptr().add(offset),
-                size_of::<GroupDescriptor>(),
-            );
-        }
+        let offset = (bg as usize) * GROUP_DESCRIPTOR_SIZE;
+        let _ = gd.serialize(Endianness::Little, &mut gdt_buffer[offset..]);
     }
 
     // Write GDT after superblock
@@ -212,21 +237,16 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) {
         i_osd2: [0u8; 12],
     };
 
-    // Write root inode to inode table
+    // Serialize root inode
+    // Write root inode to inode table (inode 2 is at offset INODE_SIZE in the table)
     let inode_table_lba = entry.start_lba as i64 + ((FIRST_DATA_BLOCK + 3 + gdt_blocks) * 2) as i64;
-    let mut inode_buffer = vec![0u8; 1024].into_boxed_slice();
-    unsafe {
-        let inode_ptr = &root_inode as *const Inode as *const u8;
-        core::ptr::copy_nonoverlapping(
-            inode_ptr,
-            inode_buffer.as_mut_ptr().add(128),
-            size_of::<Inode>(),
-        );
-    }
+    terminal::log!("Writing root inode (inode 2) at LBA {}", inode_table_lba);
+    let mut inode_buffer = vec![0u8; BLOCK_SIZE as usize].into_boxed_slice();
+    let _ = root_inode.serialize(Endianness::Little, &mut inode_buffer[INODE_SIZE..]);
     let _ = hal::storage::write_sectors(drive_id, inode_buffer, inode_table_lba).await;
 
     // Create root directory entries
-    let mut root_dir_buffer = vec![0u8; 1024].into_boxed_slice();
+    let mut root_dir_buffer = vec![0u8; BLOCK_SIZE as usize].into_boxed_slice();
 
     // Entry for "." (current directory)
     let dot_entry = DirEntry {
@@ -239,40 +259,36 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) {
     // Entry for ".." (parent directory, also root)
     let dotdot_entry = DirEntry {
         inode: EXT2_ROOT_INO,
-        rec_len: 1012, // Rest of block
+        rec_len: (BLOCK_SIZE as u16) - 12, // Rest of block
         name_len: 2,
         file_type: EXT2_FT_DIR,
     };
 
-    unsafe {
-        // Write "." entry
-        let dot_ptr = &dot_entry as *const DirEntry as *const u8;
-        core::ptr::copy_nonoverlapping(
-            dot_ptr,
-            root_dir_buffer.as_mut_ptr(),
-            size_of::<DirEntry>(),
-        );
-        root_dir_buffer[size_of::<DirEntry>()] = b'.';
+    // Serialize directory entries
+    let mut offset = 0;
+    if let Ok(_) = dot_entry.serialize(Endianness::Little, &mut root_dir_buffer[offset..]) {
+        root_dir_buffer[offset + DIR_ENTRY_HEADER_SIZE] = b'.';
+        offset += 12; // rec_len
+    }
 
-        // Write ".." entry
-        let dotdot_ptr = &dotdot_entry as *const DirEntry as *const u8;
-        core::ptr::copy_nonoverlapping(
-            dotdot_ptr,
-            root_dir_buffer.as_mut_ptr().add(12),
-            size_of::<DirEntry>(),
-        );
-        root_dir_buffer[12 + size_of::<DirEntry>()] = b'.';
-        root_dir_buffer[12 + size_of::<DirEntry>() + 1] = b'.';
+    if let Ok(_) = dotdot_entry.serialize(Endianness::Little, &mut root_dir_buffer[offset..]) {
+        root_dir_buffer[offset + DIR_ENTRY_HEADER_SIZE] = b'.';
+        root_dir_buffer[offset + DIR_ENTRY_HEADER_SIZE + 1] = b'.';
     }
 
     // Write root directory data
     let root_data_lba = entry.start_lba as i64 + ((FIRST_DATA_BLOCK + 4 + gdt_blocks) * 2) as i64;
+    terminal::log!("Writing root directory data at LBA {}", root_data_lba);
     let _ = hal::storage::write_sectors(drive_id, root_dir_buffer, root_data_lba).await;
 
     // Initialize block bitmap (mark used blocks)
-    let mut block_bitmap = vec![0u8; 1024].into_boxed_slice();
-    // Mark first few blocks as used (superblock, GDT, bitmaps, inode table, root data)
-    let used_blocks = 5 + gdt_blocks + (inodes_per_group * 128 + 1023) / 1024;
+    let mut block_bitmap = vec![0u8; BLOCK_SIZE as usize].into_boxed_slice();
+    let inode_table_blocks = (inodes_per_group * INODE_SIZE as u32 + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    let used_blocks = 5 + gdt_blocks + inode_table_blocks;
+    terminal::log!(
+        "Initializing block bitmap, marking {} blocks as used",
+        used_blocks
+    );
     for i in 0..used_blocks {
         let byte_idx = (i / 8) as usize;
         let bit_idx = (i % 8) as u8;
@@ -283,11 +299,13 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) {
     let _ = hal::storage::write_sectors(drive_id, block_bitmap, block_bitmap_lba).await;
 
     // Initialize inode bitmap (mark reserved inodes as used)
-    let mut inode_bitmap = vec![0u8; 1024].into_boxed_slice();
+    let mut inode_bitmap = vec![0u8; BLOCK_SIZE as usize].into_boxed_slice();
     // Mark first 10 inodes as used (reserved inodes)
     inode_bitmap[0] = 0xFF; // Inodes 1-8
     inode_bitmap[1] = 0x03; // Inodes 9-10
     let inode_bitmap_lba =
         entry.start_lba as i64 + ((FIRST_DATA_BLOCK + 2 + gdt_blocks) * 2) as i64;
     let _ = hal::storage::write_sectors(drive_id, inode_bitmap, inode_bitmap_lba).await;
+
+    terminal::log!("ext2 filesystem initialization complete!");
 }

@@ -6,6 +6,7 @@
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 
+use alloc::string::String;
 use terminal::{iprintln, log};
 
 extern crate alloc;
@@ -20,7 +21,11 @@ use arch::x86_64::{
 use dyn_mem::{KHEAP_PAGE_COUNT, allocator::init_kheap};
 use ejcineque::{executor::Executor, sync::mpsc::unbounded::unbounded_channel};
 use hal::storage::STORAGE_CONTEXT_ARR;
-use limine::{BaseRevision, request::StackSizeRequest};
+use limine::{
+    BaseRevision,
+    request::{KernelFileRequest, StackSizeRequest},
+    response::KernelFileResponse,
+};
 pub mod time;
 
 use crate::{
@@ -42,6 +47,8 @@ pub mod utils;
 pub const STACK_SIZE: u64 = 0x100000;
 pub static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_size(STACK_SIZE);
 
+pub static KERNEL_FILE_REQUEST: KernelFileRequest = KernelFileRequest::new();
+
 // this is the kernel entry point
 async fn kernel_main(executor: Executor) {
     #[cfg(test)]
@@ -61,7 +68,8 @@ async fn kernel_main(executor: Executor) {
         .expect("Failed to put the secondary storage sender");
     executor.spawn(run_storage_device(SECONDARY, secondary_storage_rx));
 
-    log!("{:?}", time::Rtc::new().read_datetime());
+    let response: &KernelFileResponse = KERNEL_FILE_REQUEST.get_response().unwrap();
+    log!("{:?}", String::from_utf8_lossy(response.file().cmdline()));
 
     log!("Storage drive tasks launched");
 }
