@@ -15,6 +15,8 @@ dvida_serialize = { path = "../dvida_serialize/" }
 ejcineque = { path = "../ejcineque/" }
 terminal = { path = "../terminal/" }
 once_cell_no_std = "0.1.1"
+uuid = { version = "1.18.1", default-features = false }
+getrandom = "0.3.4"
 
 [dependencies.lazy_static]
 version = "1.0"

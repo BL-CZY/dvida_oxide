@@ -1,10 +1,13 @@
 pub mod init;
+pub mod open;
 
 use dvida_serialize::*;
 
+use crate::hal::fs::HalInode;
+
 /// The ext2 superblock structure - located at byte offset 1024 from start
 /// All fields stored in little-endian format on disk
-#[derive(DvDeSer)]
+#[derive(DvDeSer, Debug, Clone)]
 pub struct SuperBlock {
     // Base fields (revision 0 and 1)
     s_inodes_count: u32,      // Total number of inodes
@@ -69,7 +72,7 @@ pub struct SuperBlock {
 }
 
 /// Block Group Descriptor structure
-#[derive(DvDeSer)]
+#[derive(DvDeSer, Debug, Clone)]
 pub struct GroupDescriptor {
     bg_block_bitmap: u32,         // Block number of block bitmap
     bg_inode_bitmap: u32,         // Block number of inode bitmap
@@ -86,7 +89,7 @@ pub struct GroupDescriptor {
 }
 
 /// Inode structure - represents a file, directory, or other filesystem object
-#[derive(DvDeSer)]
+#[derive(DvDeSer, Debug, Clone)]
 pub struct Inode {
     i_mode: u16,        // File mode (type and permissions)
     i_uid: u16,         // Low 16 bits of owner UID
@@ -108,8 +111,10 @@ pub struct Inode {
     i_osd2: [u8; 12],   // OS dependent field 2
 }
 
+impl HalInode for Inode {}
+
 /// Directory entry structure (variable length)
-#[derive(DvDeSer)]
+#[derive(DvDeSer, Debug, Clone)]
 pub struct DirEntry {
     inode: u32,   // Inode number (0 if entry is unused)
     rec_len: u16, // Distance to next directory entry

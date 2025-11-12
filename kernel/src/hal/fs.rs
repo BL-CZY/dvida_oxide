@@ -22,3 +22,5 @@ pub struct FileSystem {
 pub enum FileSystemType {
     Ext2,
 }
+
+pub trait HalInode {}
