@@ -1,6 +1,7 @@
 pub mod crc32;
 pub mod guid;
 pub mod random;
+pub mod uuid;
 
 #[cfg(test)]
 mod tests {

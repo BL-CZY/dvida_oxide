@@ -127,6 +127,11 @@ pub const BLOCK_SIZE: u32 = 1024;
 pub const LOG_BLOCK_SIZE: u32 = 1;
 pub const S_R_BLOCKS_COUNT: u32 = 1024;
 pub const FIRST_DATA_BLOCK: u32 = 1;
+pub const MAX_MOUNT_COUNT: u16 = 64;
+pub const CREATOR_OS_DVIDA: u32 = 5;
+pub const ROOT_ID: u16 = 0;
+pub const ALGO_BITMAP: u32 = 2;
+pub const BLOCKS_PER_GROUP: u32 = BLOCK_SIZE * 8;
 
 // Filesystem state values for s_state
 pub const EXT2_VALID_FS: u16 = 0x0001; // Unmounted cleanly

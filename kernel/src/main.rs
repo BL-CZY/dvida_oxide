@@ -64,8 +64,7 @@ async fn kernel_main(executor: Executor) {
 
     executor.spawn(run_random());
     yield_now().await;
-
-    log!("{:?}", random_number().await);
+    log!("Random number task launched");
 
     parse_args();
 }
