@@ -4,6 +4,7 @@ use dvida_serialize::{DvDeserialize, DvSerialize, Endianness};
 use terminal::log;
 
 use crate::{
+    crypto::uuid::uuid_v4,
     drivers::fs::ext2::{
         ALGO_BITMAP, BLOCK_SIZE, BLOCKS_PER_GROUP, CREATOR_OS_DVIDA, DirEntry, EXT2_DYNAMIC_REV,
         EXT2_ERRORS_CONTINUE, EXT2_FEATURE_COMPAT_EXT_ATTR, EXT2_FEATURE_INCOMPAT_FILETYPE,
@@ -77,6 +78,7 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) {
         s_log_block_size: LOG_BLOCK_SIZE,
         s_log_frag_size: LOG_BLOCK_SIZE, // this is not supported
         s_blocks_per_group: BLOCKS_PER_GROUP,
+        s_frags_per_group: BLOCKS_PER_GROUP,
         s_inodes_per_group: BLOCKS_PER_GROUP,
         s_mtime: time,
         s_wtime: time,
@@ -103,13 +105,50 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) {
 
         s_first_ino: todo!(),
         s_inode_size: INODE_SIZE,
+        s_block_group_nr: todo!(),
 
         s_feature_compat: 0,
         s_feature_incompat: 0,
         s_feature_ro_compat: 0,
 
+        s_uuid: *uuid_v4().await.as_bytes(),
+        s_volume_name: [0x41; 16],
+        s_last_mounted: [0u8; 64],
         s_algo_bitmap: ALGO_BITMAP,
 
+        s_prealloc_blocks: 1,
+        s_prealloc_dir_blocks: 1,
+        s_padding1: 0,
+
+        // TODO: pretty much everything below
+        s_journal_uuid: [0; 16],
+        s_journal_inum: 0,
+        s_journal_dev: 0,
+        s_last_orphan: 0,
+
+        s_hash_seed: [0; 4],
+        s_def_hash_version: 0,
         reserved: [0u8; 3],
+
+        s_default_mount_opts: 0,
+        s_first_meta_bg: 0,
     };
+
+    let num_lba = entry.end_lba - entry.start_lba + 1;
+    let num_block = num_lba / (BLOCK_SIZE as u64 / 512);
+    let num_block_groups = (((num_lba as i64 / (BLOCK_SIZE / 512) as i64)
+        / BLOCKS_PER_GROUP as i64)
+        + ((num_lba as i64 / (BLOCK_SIZE / 512) as i64) % BLOCKS_PER_GROUP as i64)
+        != 0) as u32;
+
+    for i in 0..num_block_groups {
+        let bg_descriptor = GroupDescriptor {
+            bg_block_bitmap: todo!(),
+            bg_inode_bitmap: todo!(),
+            bg_inode_table: todo!(),
+            bg_free_blocks_count: todo!(),
+            bg_free_inodes_count: todo!(),
+            bg_used_dirs_count: todo!(),
+        };
+    }
 }

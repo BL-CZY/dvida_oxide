@@ -74,18 +74,12 @@ pub struct SuperBlock {
 /// Block Group Descriptor structure
 #[derive(DvDeSer, Debug, Clone)]
 pub struct GroupDescriptor {
-    bg_block_bitmap: u32,         // Block number of block bitmap
-    bg_inode_bitmap: u32,         // Block number of inode bitmap
-    bg_inode_table: u32,          // Block number of inode table
-    bg_free_blocks_count: u16,    // Number of free blocks
-    bg_free_inodes_count: u16,    // Number of free inodes
-    bg_used_dirs_count: u16,      // Number of directories
-    bg_flags: u16,                // Flags
-    bg_exclude_bitmap_lo: u32,    // Exclude bitmap for snapshots
-    bg_block_bitmap_csum_lo: u16, // Block bitmap checksum
-    bg_inode_bitmap_csum_lo: u16, // Inode bitmap checksum
-    bg_itable_unused: u16,        // Unused inodes count
-    bg_checksum: u16,             // Group descriptor checksum
+    bg_block_bitmap: u32,      // Block number of block bitmap
+    bg_inode_bitmap: u32,      // Block number of inode bitmap
+    bg_inode_table: u32,       // Block number of inode table
+    bg_free_blocks_count: u16, // Number of free blocks
+    bg_free_inodes_count: u16, // Number of free inodes
+    bg_used_dirs_count: u16,   // Number of directories
 }
 
 /// Inode structure - represents a file, directory, or other filesystem object
