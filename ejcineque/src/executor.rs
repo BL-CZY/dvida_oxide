@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, vec_deque::VecDeque};
 use alloc::sync::Arc;
 use alloc::task::Wake;
-use terminal::{iprint, iprintln, log};
+// use terminal::{iprint, iprintln, log};
 
 use core::arch::asm;
 use core::future::Future;
@@ -74,7 +74,6 @@ impl Executor {
 
         self.tasks.lock().push_back(id);
         self.tasks_map.lock().insert(id, Arc::new(Mutex::new(task)));
-        log!("Added new task");
     }
 
     pub fn run(&self) {
@@ -90,8 +89,6 @@ impl Executor {
                 Some(i) => i,
                 None => continue,
             };
-
-            log!("task id: {:?}", id);
 
             let task = match self.tasks_map.lock().get_mut(&id) {
                 Some(t) => t.clone(),

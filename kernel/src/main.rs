@@ -6,7 +6,6 @@
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 
-use alloc::boxed::Box;
 use terminal::{iprintln, log};
 
 extern crate alloc;
@@ -19,7 +18,7 @@ use arch::x86_64::{
 };
 #[allow(unused_imports)]
 use dyn_mem::{KHEAP_PAGE_COUNT, allocator::init_kheap};
-use ejcineque::{executor::Executor, futures::yield_now, sync::mpsc::unbounded::unbounded_channel};
+use ejcineque::{executor::Executor, futures::yield_now};
 use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::{BaseRevision, request::StackSizeRequest};
 pub mod args;
@@ -28,11 +27,11 @@ pub mod time;
 use crate::{
     arch::x86_64::{memory::MemoryMappings, pit::configure_pit},
     args::parse_args,
-    crypto::random::{random_number, run_random},
+    crypto::random::run_random,
     debug::terminal::WRITER,
     hal::storage::{
         HalStorageOperation, PRIMARY, PRIMARY_STORAGE_SENDER, SECONDARY, SECONDARY_STORAGE_SENDER,
-        read_sectors, run_storage_device,
+        add_entry, delete_entry, init_gpt, read_gpt, read_sectors, run_storage_device,
     },
 };
 

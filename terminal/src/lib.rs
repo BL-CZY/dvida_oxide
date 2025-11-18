@@ -302,3 +302,11 @@ macro_rules! iprintln {
 macro_rules! log {
     ($($arg:tt)*) => ($crate::iprint!("{} - {}\n", file!(), format_args!($($arg)*)));
 }
+
+#[macro_export]
+macro_rules! dbg {
+    ($($arg:tt)*) => (
+        #[cfg(debug_assertions)]
+        $crate::iprint!("{} - {}\n", file!(), format_args!($($arg)*))
+    );
+}

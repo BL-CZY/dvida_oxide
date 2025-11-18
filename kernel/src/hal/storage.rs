@@ -404,6 +404,99 @@ pub async fn write_sectors(
     }
 }
 
+pub async fn init_gpt(index: usize, force: bool) -> Result<(), GPTErr> {
+    let sender = if index == PRIMARY {
+        PRIMARY_STORAGE_SENDER.get().unwrap().clone()
+    } else {
+        SECONDARY_STORAGE_SENDER.get().unwrap().clone()
+    };
+
+    let (tx, rx) = unbounded_channel::<Result<(), GPTErr>>();
+
+    sender.send(HalStorageOperation::InitGpt { force, sender: tx });
+
+    if let Some(res) = rx.recv().await {
+        res
+    } else {
+        Err(GPTErr::DriveDidntRespond)
+    }
+}
+
+pub async fn read_gpt(index: usize) -> Result<(GPTHeader, Vec<GPTEntry>), GPTErr> {
+    let sender = if index == PRIMARY {
+        PRIMARY_STORAGE_SENDER.get().unwrap().clone()
+    } else {
+        SECONDARY_STORAGE_SENDER.get().unwrap().clone()
+    };
+
+    let (tx, rx) = unbounded_channel::<Result<(GPTHeader, Vec<GPTEntry>), GPTErr>>();
+
+    sender.send(HalStorageOperation::ReadGpt { sender: tx });
+
+    if let Some(res) = rx.recv().await {
+        res
+    } else {
+        Err(GPTErr::DriveDidntRespond)
+    }
+}
+
+pub async fn add_entry(
+    index: usize,
+    name: &[u16; 36],
+    start_lba: u64,
+    end_lba: u64,
+    type_guid: Guid,
+    flags: u64,
+) -> Result<(), GPTErr> {
+    let sender = if index == PRIMARY {
+        PRIMARY_STORAGE_SENDER.get().unwrap().clone()
+    } else {
+        SECONDARY_STORAGE_SENDER.get().unwrap().clone()
+    };
+
+    let (tx, rx) = unbounded_channel::<Result<(), GPTErr>>();
+
+    // Copy the provided name into a heap allocation and leak it so the
+    // reference we send through the channel has a 'static lifetime.
+    let mut name_arr: [u16; 36] = [0u16; 36];
+    name_arr.copy_from_slice(name);
+    let boxed_name = Box::new(name_arr);
+    let leaked_name: &'static [u16; 36] = Box::leak(boxed_name);
+
+    sender.send(HalStorageOperation::AddEntry {
+        name: leaked_name,
+        start_lba,
+        end_lba,
+        type_guid,
+        flags,
+        sender: tx,
+    });
+
+    if let Some(res) = rx.recv().await {
+        res
+    } else {
+        Err(GPTErr::DriveDidntRespond)
+    }
+}
+
+pub async fn delete_entry(index: usize, idx: u32) -> Result<(), GPTErr> {
+    let sender = if index == PRIMARY {
+        PRIMARY_STORAGE_SENDER.get().unwrap().clone()
+    } else {
+        SECONDARY_STORAGE_SENDER.get().unwrap().clone()
+    };
+
+    let (tx, rx) = unbounded_channel::<Result<(), GPTErr>>();
+
+    sender.send(HalStorageOperation::DeleteEntry { idx, sender: tx });
+
+    if let Some(res) = rx.recv().await {
+        res
+    } else {
+        Err(GPTErr::DriveDidntRespond)
+    }
+}
+
 #[derive(Debug, Clone, Error)]
 pub enum HalStorageOperationErr {
     #[error("Drive didn't respond")]

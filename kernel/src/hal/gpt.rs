@@ -1,7 +1,7 @@
-use crate::iprintln;
 use alloc::string::{FromUtf16Error, String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
+use terminal::log;
 use thiserror::Error;
 
 use crate::crypto;
@@ -58,7 +58,7 @@ impl TryFrom<&[u8]> for GPTHeader {
     type Error = GPTErr;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if value.len() > 92 {
+        if value.len() < 92 {
             return Err(GPTErr::BufferTooSmall);
         }
 
@@ -128,7 +128,7 @@ pub struct GPTEntry {
 
 impl TryFrom<&[u8]> for GPTEntry {
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if (value.len() / 128) % 2 != 0 {
+        if !(value.len() / 128).is_power_of_two() {
             return Err(GPTErr::BadArrayEntrySize);
         }
 
@@ -159,7 +159,7 @@ impl Into<Vec<u8>> for GPTEntry {
 
 impl GPTEntry {
     pub fn is_empty(&self) -> bool {
-        self.type_guid.whole == 0
+        self.start_lba == 0
     }
 
     pub fn empty() -> Self {
@@ -223,32 +223,67 @@ pub enum GPTErr {
     SerializationErr(FromUtf16Error),
     #[error("Read/Write failed: {0}")]
     Io(String),
+    #[error("Drive didn't respond")]
+    DriveDidntRespond,
 }
 
 impl HalStorageDevice {
     async fn is_normal_present(&mut self) -> bool {
+        log!("Checking primary GPT presence at LBA 1");
         let mut buf = [0u8; 512];
         if self.read_sectors_async(1, 1, &mut buf).await.is_err() {
+            log!("Failed to read primary GPT sector");
             return false;
         }
 
-        buf.starts_with(b"EFI PART")
+        let present = buf.starts_with(b"EFI PART");
+        if present {
+            log!("Primary GPT signature found");
+        } else {
+            log!("Primary GPT signature not found");
+        }
+
+        present
     }
 
     async fn is_backup_present(&mut self) -> bool {
+        log!("Checking backup GPT presence at LBA -1");
         let mut buf = [0u8; 512];
         if self.read_sectors_async(-1, 1, &mut buf).await.is_err() {
+            log!("Failed to read backup GPT sector");
             return false;
         }
 
-        buf.starts_with(b"EFI PART")
+        let present = buf.starts_with(b"EFI PART");
+        if present {
+            log!("Backup GPT signature found");
+        } else {
+            log!("Backup GPT signature not found");
+        }
+
+        present
     }
 
     pub async fn is_gpt_present(&mut self) -> bool {
-        self.is_normal_present().await || self.is_backup_present().await
+        log!("Checking if GPT is present (primary or backup)");
+        let normal = self.is_normal_present().await;
+        if normal {
+            log!("GPT present on primary");
+            return true;
+        }
+
+        let backup = self.is_backup_present().await;
+        if backup {
+            log!("GPT present on backup");
+        } else {
+            log!("No GPT detected on primary or backup");
+        }
+
+        normal || backup
     }
 
     fn create_pmbr_buf(&self) -> [u8; 512] {
+        log!("Creating PMBR buffer");
         const PMBR_OFFSET: usize = 446;
         let mut result = [0u8; 512];
 
@@ -259,6 +294,12 @@ impl HalStorageDevice {
 
         let (cylinder, head, sector) =
             crypto::lba_to_chs(self.sectors_per_track(), self.sector_count());
+        log!(
+            "PMBR CHS values cylinder={}, head={}, sector={}",
+            cylinder,
+            head,
+            sector
+        );
 
         if cylinder > 0xFF || head > 0xFF || sector > 0xFF {
             result[PMBR_OFFSET + 5] = 0xFF;
@@ -291,42 +332,73 @@ impl HalStorageDevice {
         result[510] = 0x55;
         result[511] = 0xAA;
 
+        log!("PMBR buffer created with signature 0x55AA at end");
+
         result
     }
 
     fn create_unhashed_header(&self) -> GPTHeader {
-        GPTHeader {
+        let hdr = GPTHeader {
             backup_loc: self.sector_count() - 1,
             last_usable_block: self.sector_count() - 34,
             ..Default::default()
-        }
+        };
+
+        log!(
+            "Created unhashed GPT header: backup_loc={}, last_usable_block={}",
+            hdr.backup_loc,
+            hdr.last_usable_block
+        );
+
+        hdr
     }
 
     async fn write_pmbr(&mut self, pmbr: &[u8; 512]) -> Result<(), GPTErr> {
-        self.write_sectors_async(0, 1, pmbr)
-            .await
-            .map_err(|e| GPTErr::Io(e.to_string()))?;
+        log!("Writing PMBR to sector 0");
+        self.write_sectors_async(0, 1, pmbr).await.map_err(|e| {
+            log!("Failed to write PMBR: {}", e.to_string());
+            GPTErr::Io(e.to_string())
+        })?;
+
+        log!("PMBR write completed");
         Ok(())
     }
 
     async fn write_table(&mut self, header: &[u8], array: &[u8]) -> Result<(), GPTErr> {
-        self.write_sectors_async(1, 1, header)
-            .await
-            .map_err(|e| GPTErr::Io(e.to_string()))?;
-        self.write_sectors_async(2, 32, array)
-            .await
-            .map_err(|e| GPTErr::Io(e.to_string()))?;
-        self.write_sectors_async(-1, 1, header)
-            .await
-            .map_err(|e| GPTErr::Io(e.to_string()))?;
+        log!("Writing GPT header to primary (LBA 1)");
+        self.write_sectors_async(1, 1, header).await.map_err(|e| {
+            log!("Failed to write GPT header to primary: {}", e.to_string());
+            GPTErr::Io(e.to_string())
+        })?;
+
+        log!("Writing GPT array to primary (LBA 2..)");
+        self.write_sectors_async(2, 32, array).await.map_err(|e| {
+            log!("Failed to write GPT array to primary: {}", e.to_string());
+            GPTErr::Io(e.to_string())
+        })?;
+
+        log!("Writing GPT header to backup");
+        self.write_sectors_async(-1, 1, header).await.map_err(|e| {
+            log!("Failed to write GPT header to backup: {}", e.to_string());
+            GPTErr::Io(e.to_string())
+        })?;
+
+        log!("Writing GPT array to backup");
         self.write_sectors_async(-33, 32, array)
             .await
-            .map_err(|e| GPTErr::Io(e.to_string()))?;
+            .map_err(|e| {
+                log!("Failed to write GPT array to backup: {}", e.to_string());
+                GPTErr::Io(e.to_string())
+            })?;
+
+        log!("GPT table write completed (primary + backup)");
         Ok(())
     }
 
     pub async fn create_gpt(&mut self, force: bool) -> Result<(), GPTErr> {
+        log!("Creating GPT: force={}", force);
         if !force && self.is_gpt_present().await {
+            log!("GPT already exists and force is false; aborting create_gpt");
             return Err(GPTErr::GPTAlreadyExist);
         }
 
@@ -336,23 +408,34 @@ impl HalStorageDevice {
         header.array_crc32 = crypto::crc32::full_crc(&array);
         header.header_crc32 = crypto::crc32::full_crc(&header.to_buf());
 
+        log!(
+            "PMBR and header CRC computed: array_crc={}, header_crc={}",
+            header.array_crc32,
+            header.header_crc32
+        );
+
         self.write_pmbr(&pmbr).await?;
         self.write_table(&header.to_buf_full(), &array).await?;
 
+        log!("GPT creation completed");
         Ok(())
     }
 
     fn is_valid_header(&self, buf: &[u8]) -> bool {
-        let mut header: GPTHeader = if let Ok(h) = buf.try_into() {
-            h
-        } else {
-            return false;
+        let mut header: GPTHeader = match buf.try_into() {
+            Ok(h) => h,
+            Err(e) => {
+                log!("Failed to parse GPT header from buffer: {}", e);
+                return false;
+            }
         };
 
         let crc = header.header_crc32;
         header.header_crc32 = 0;
 
-        crypto::crc32::is_verified_crc32(&header.to_buf(), crc)
+        let ok = crypto::crc32::is_verified_crc32(&header.to_buf(), crc);
+        log!("Header CRC validation result={}", ok);
+        ok
     }
 
     pub async fn get_table(
@@ -360,19 +443,33 @@ impl HalStorageDevice {
         lba: i64,
         is_backup: bool,
     ) -> Result<(GPTHeader, Vec<GPTEntry>), GPTErr> {
+        log!("Reading GPT table at lba={} (is_backup={})", lba, is_backup);
+
         // Read header
         let mut header_buf = [0u8; 512];
         self.read_sectors_async(lba, 1, &mut header_buf)
             .await
-            .map_err(|e| GPTErr::Io(e.to_string()))?;
+            .map_err(|e| {
+                log!(
+                    "Failed to read GPT header at lba={}: {}",
+                    lba,
+                    e.to_string()
+                );
+                GPTErr::Io(e.to_string())
+            })?;
 
         if !self.is_valid_header(&header_buf) {
+            log!("Invalid GPT header detected at lba={}", lba);
             return Err(GPTErr::GPTCorrupted);
         }
 
         let result_header = GPTHeader::try_from(header_buf.as_slice())?;
 
-        if (result_header.entry_size / 128) % 2 != 0 {
+        if !(result_header.entry_size / 128).is_power_of_two() {
+            log!(
+                "GPT entry size appears invalid: {}",
+                result_header.entry_size
+            );
             return Err(GPTErr::BadArrayEntrySize);
         }
 
@@ -386,13 +483,31 @@ impl HalStorageDevice {
             result_header.array_start as i64
         };
 
+        log!(
+            "Reading GPT array at lba={} (blocks={})",
+            arr_lba,
+            arr_block_count
+        );
+
         let arr_sectors = (result_header.entry_num * result_header.entry_size / 512) as u16;
         let mut arr_buf = vec![0u8; arr_sectors as usize * 512];
         self.read_sectors_async(arr_lba, arr_sectors, &mut arr_buf)
             .await
-            .map_err(|e| GPTErr::Io(e.to_string()))?;
+            .map_err(|e| {
+                log!(
+                    "Failed to read GPT array at lba={}: {}",
+                    arr_lba,
+                    e.to_string()
+                );
+                GPTErr::Io(e.to_string())
+            })?;
 
         if !crypto::crc32::is_verified_crc32(&arr_buf, result_header.array_crc32) {
+            log!(
+                "GPT array CRC mismatch: expected={} (lba={})",
+                result_header.array_crc32,
+                arr_lba
+            );
             return Err(GPTErr::GPTCorrupted);
         }
 
@@ -401,11 +516,17 @@ impl HalStorageDevice {
             .map(|slice| GPTEntry::try_from_buf(slice).unwrap())
             .collect();
 
+        log!(
+            "Successfully read GPT header and array (entries={})",
+            result_header.entry_num
+        );
         Ok((result_header, result_array))
     }
 
     pub async fn read_gpt(&mut self) -> Result<(GPTHeader, Vec<GPTEntry>), GPTErr> {
+        log!("Reading GPT (primary + backup)");
         if !self.is_gpt_present().await {
+            log!("No GPT present when attempting to read");
             return Err(GPTErr::GPTNonExist);
         }
 
@@ -416,33 +537,24 @@ impl HalStorageDevice {
             && let Ok((backup_header, backup_array)) = backup_result.as_ref()
         {
             if primary_header != backup_header || primary_array != backup_array {
-                iprintln!(
-                    "Primary table appears is different from the backup table, sync backup..."
-                );
+                log!("Primary table differs from backup; synchronization needed");
                 // TODO sync this
             }
 
+            log!("Primary and backup GPT match (or acceptable)");
             return Ok((*primary_header, primary_array.to_vec()));
         } else if let Ok((primary_header, primary_array)) = primary_result.as_ref()
             && let Err(e) = backup_result.as_ref()
         {
-            // TODO fix this
-            iprintln!(
-                "Primary table appears ok, but the backup one is corrupted: {:?}",
-                e
-            );
+            log!("Primary ok but backup corrupted: {:?}", e);
             return Ok((*primary_header, primary_array.to_vec()));
         } else if let Err(e) = primary_result
             && let Ok((secondary_header, secondary_array)) = backup_result
         {
-            // TODO fix this
-            iprintln!(
-                "Backup table appears ok, but the primary one is corrupted: {:?}",
-                e
-            );
-
+            log!("Backup ok but primary corrupted: {:?}", e);
             return Ok((secondary_header, secondary_array));
         } else {
+            log!("Both primary and backup GPT are corrupted");
             return Err(GPTErr::GPTCorrupted);
         }
     }
@@ -455,7 +567,14 @@ impl HalStorageDevice {
         type_guid: Guid,
         flags: u64,
     ) -> Result<u32, GPTErr> {
+        log!(
+            "Adding GPT entry: start={}, end={}, flags={}",
+            start_lba,
+            end_lba,
+            flags
+        );
         if !self.is_gpt_present().await {
+            log!("No GPT present when attempting to add entry");
             return Err(GPTErr::GPTNonExist);
         }
 
@@ -466,6 +585,8 @@ impl HalStorageDevice {
             .iter()
             .position(|entry| entry.is_empty())
             .ok_or(GPTErr::NoFreeSlot)?;
+
+        log!("Found empty GPT slot at index={}", empty_index);
 
         // Check for overlapping partitions
         for (i, entry) in entries.iter().enumerate() {
@@ -481,16 +602,34 @@ impl HalStorageDevice {
                 || (end_lba >= entry_start && end_lba <= entry_end)
                 || (start_lba <= entry_start && end_lba >= entry_end)
             {
+                log!(
+                    "Requested partition overlaps existing one at index={}: {}-{}",
+                    i,
+                    entry_start,
+                    entry_end
+                );
                 return Err(GPTErr::OverlappingPartition);
             }
         }
 
         // Validate LBA range
         if start_lba < header.first_usable_block || end_lba > header.last_usable_block {
+            log!(
+                "Requested LBA range {}-{} outside usable range {}-{}",
+                start_lba,
+                end_lba,
+                header.first_usable_block,
+                header.last_usable_block
+            );
             return Err(GPTErr::InvalidLBARange);
         }
 
         if start_lba >= end_lba {
+            log!(
+                "Invalid LBA range: start >= end ({} >= {})",
+                start_lba,
+                end_lba
+            );
             return Err(GPTErr::InvalidLBARange);
         }
 
@@ -524,14 +663,21 @@ impl HalStorageDevice {
         header.header_crc32 = 0; // Must be zero before calculating
         header.header_crc32 = crypto::crc32::full_crc(&header.to_buf());
 
+        log!(
+            "Writing updated GPT table with new entry at index={}",
+            empty_index
+        );
         // Write updated table
         self.write_table(&header.to_buf_full(), &array_buf).await?;
 
+        log!("Successfully added GPT entry at index={}", empty_index);
         Ok(empty_index as u32)
     }
 
     pub async fn delete_entry(&mut self, index: u32) -> Result<(), GPTErr> {
+        log!("Deleting GPT entry at index={}", index);
         if !self.is_gpt_present().await {
+            log!("No GPT present when attempting to delete entry");
             return Err(GPTErr::GPTNonExist);
         }
 
@@ -539,6 +685,7 @@ impl HalStorageDevice {
 
         // Validate index
         if index >= header.entry_num {
+            log!("Invalid entry index: {} >= {}", index, header.entry_num);
             return Err(GPTErr::InvalidEntryIndex);
         }
 
@@ -546,9 +693,11 @@ impl HalStorageDevice {
 
         // Check if entry is already empty
         if entry.is_empty() {
+            log!("Entry at index={} is already empty", index);
             return Err(GPTErr::EntryAlreadyEmpty);
         }
 
+        log!("Clearing GPT entry at index={}", index);
         // Clear the entry
         entries[index as usize] = GPTEntry::empty();
 
@@ -567,9 +716,11 @@ impl HalStorageDevice {
         header.header_crc32 = 0; // Must be zero before calculating
         header.header_crc32 = crypto::crc32::full_crc(&header.to_buf());
 
+        log!("Writing updated GPT table after delete");
         // Write updated table
         self.write_table(&header.to_buf_full(), &array_buf).await?;
 
+        log!("Successfully deleted GPT entry at index={}", index);
         Ok(())
     }
 
