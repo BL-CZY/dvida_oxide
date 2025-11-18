@@ -1,8 +1,12 @@
-use alloc::boxed::Box;
+use core::error::Error;
+
 use alloc::vec;
+use alloc::{boxed::Box, vec::Vec};
 use dvida_serialize::{DvDeserialize, DvSerialize, Endianness};
 use terminal::log;
 
+use crate::drivers::fs::ext2::INODES_PER_GROUP;
+use crate::hal::storage::write_sectors;
 use crate::{
     crypto::uuid::uuid_v4,
     drivers::fs::ext2::{
@@ -61,19 +65,52 @@ const GROUP_DESCRIPTOR_SIZE: usize = 32;
 const INODE_SIZE: u16 = 128;
 const DIR_ENTRY_HEADER_SIZE: usize = 8;
 const FIRST_DATA_BLOCK_ADDR: u32 = 1024 / BLOCK_SIZE;
+const SET_LATER: u32 = 0;
 
 // blocksize is considered to be 1kb
-pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) {
+pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) -> Result<(), Box<dyn Error>> {
     // TODO: check entry eligibility
 
     let time = rtc_to_posix(&Rtc::new().read_datetime().expect("No time acquired"));
 
+    let mut free_blocks_count: u32 = 0;
+    let mut free_inodes_count: u32 = 0;
+
+    let num_lba = entry.end_lba - entry.start_lba + 1;
+    let num_block_groups = (((num_lba as i64 / (BLOCK_SIZE / 512) as i64)
+        / BLOCKS_PER_GROUP as i64)
+        + ((num_lba as i64 / (BLOCK_SIZE / 512) as i64) % BLOCKS_PER_GROUP as i64)
+        != 0) as u32;
+
+    let mut bg_vec: Vec<GroupDescriptor> = vec![];
+
+    for i in 0..num_block_groups {
+        // TODO: handle the case where the last block group is not big enough
+
+        let offset = i * (2_u32.pow(LOG_BLOCK_SIZE)) * BLOCKS_PER_GROUP;
+
+        let bg_descriptor = GroupDescriptor {
+            bg_block_bitmap: offset + 2,
+            bg_inode_bitmap: offset + 3,
+            bg_inode_table: offset + 4,
+            bg_free_blocks_count: (BLOCKS_PER_GROUP
+                - ((INODE_SIZE as u32) * INODES_PER_GROUP / BLOCK_SIZE)
+                - 5) as u16,
+            bg_free_inodes_count: INODES_PER_GROUP as u16,
+            bg_used_dirs_count: 0,
+        };
+
+        free_blocks_count += bg_descriptor.bg_free_blocks_count as u32;
+        free_inodes_count += bg_descriptor.bg_free_inodes_count as u32;
+        bg_vec.push(bg_descriptor);
+    }
+
     let mut super_block: SuperBlock = SuperBlock {
-        s_inodes_count: 0,
-        s_blocks_count: 0,
-        s_r_blocks_count: todo!(),
-        s_free_blocks_count: todo!(),
-        s_free_inodes_count: todo!(),
+        s_inodes_count: free_inodes_count,
+        s_blocks_count: free_blocks_count,
+        s_r_blocks_count: 0,
+        s_free_blocks_count: free_blocks_count,
+        s_free_inodes_count: free_inodes_count,
         s_first_data_block: FIRST_DATA_BLOCK_ADDR,
         s_log_block_size: LOG_BLOCK_SIZE,
         s_log_frag_size: LOG_BLOCK_SIZE, // this is not supported
@@ -103,9 +140,9 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) {
         s_def_resuid: ROOT_ID,
         s_def_resgid: ROOT_ID,
 
-        s_first_ino: todo!(),
+        s_first_ino: 2 + (BLOCK_SIZE / 512) + 4,
         s_inode_size: INODE_SIZE,
-        s_block_group_nr: todo!(),
+        s_block_group_nr: bg_vec.len() as u16,
 
         s_feature_compat: 0,
         s_feature_incompat: 0,
@@ -134,21 +171,10 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) {
         s_first_meta_bg: 0,
     };
 
-    let num_lba = entry.end_lba - entry.start_lba + 1;
-    let num_block = num_lba / (BLOCK_SIZE as u64 / 512);
-    let num_block_groups = (((num_lba as i64 / (BLOCK_SIZE / 512) as i64)
-        / BLOCKS_PER_GROUP as i64)
-        + ((num_lba as i64 / (BLOCK_SIZE / 512) as i64) % BLOCKS_PER_GROUP as i64)
-        != 0) as u32;
+    let mut buffer = [0u8; 1024];
+    super_block.serialize(Endianness::Little, &mut buffer)?;
 
-    for i in 0..num_block_groups {
-        let bg_descriptor = GroupDescriptor {
-            bg_block_bitmap: todo!(),
-            bg_inode_bitmap: todo!(),
-            bg_inode_table: todo!(),
-            bg_free_blocks_count: todo!(),
-            bg_free_inodes_count: todo!(),
-            bg_used_dirs_count: todo!(),
-        };
-    }
+    write_sectors(drive_id, buffer, entry.start_lba + 2).await?;
+
+    Ok(())
 }

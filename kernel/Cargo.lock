@@ -31,6 +31,7 @@ name = "dvida_serialize"
 version = "0.1.0"
 dependencies = [
  "dvida_serialize_macros",
+ "thiserror-core",
 ]
 
 [[package]]

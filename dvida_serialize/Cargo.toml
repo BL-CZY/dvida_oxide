@@ -8,3 +8,4 @@ description = "no_std serialization and deserialization"
 
 [dependencies]
 dvida_serialize_macros = { path = "../dvida_serialize_macros/", version = "0.1.0" }
+thiserror = { version = "1.0", package = "thiserror-core", default-features = false }

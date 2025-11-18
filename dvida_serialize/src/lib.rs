@@ -3,6 +3,7 @@
 mod numbers;
 
 pub use dvida_serialize_macros::DvDeSer;
+use thiserror::Error;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Endianness {
@@ -11,13 +12,15 @@ pub enum Endianness {
     NA,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Error)]
 pub enum DvSerErr {
+    #[error("The buffer is too small")]
     BufferTooSmall,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Error)]
 pub enum DvDeErr {
+    #[error("The buffer's size is wrong")]
     WrongBufferSize,
 }
 
