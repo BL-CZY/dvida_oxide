@@ -105,7 +105,7 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) -> Result<(), Box<dyn 
         bg_vec.push(bg_descriptor);
     }
 
-    let mut super_block: SuperBlock = SuperBlock {
+    let super_block: SuperBlock = SuperBlock {
         s_inodes_count: free_inodes_count,
         s_blocks_count: free_blocks_count,
         s_r_blocks_count: 0,
@@ -172,9 +172,11 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) -> Result<(), Box<dyn 
     };
 
     let mut buffer = [0u8; 1024];
-    super_block.serialize(Endianness::Little, &mut buffer)?;
+    for bg_desc in bg_vec.iter() {
+        super_block.serialize(Endianness::Little, &mut buffer)?;
 
-    write_sectors(drive_id, Box::new(buffer), entry.start_lba as i64 + 2).await?;
+        write_sectors(drive_id, Box::new(buffer), entry.start_lba as i64 + 2).await?;
+    }
 
     Ok(())
 }
