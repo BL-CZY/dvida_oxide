@@ -1,7 +1,7 @@
 use crate::iprintln;
-use alloc::string::{String, ToString};
+use alloc::string::{FromUtf16Error, String, ToString};
+use alloc::vec;
 use alloc::vec::Vec;
-use alloc::{boxed::Box, vec};
 use thiserror::Error;
 
 use crate::crypto;
@@ -9,7 +9,7 @@ use crate::crypto::guid::Guid;
 
 use super::storage::HalStorageDevice;
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub struct GPTHeader {
     sig: [u8; 8],
     revision: u32,
@@ -55,11 +55,11 @@ impl Into<Vec<u8>> for GPTHeader {
 }
 
 impl TryFrom<&[u8]> for GPTHeader {
-    type Error = Box<dyn core::error::Error>;
+    type Error = GPTErr;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if value.len() > 92 {
-            return Err(Box::new(GPTErr::BufferTooSmall));
+            return Err(GPTErr::BufferTooSmall);
         }
 
         Ok(GPTHeader {
@@ -82,7 +82,7 @@ impl TryFrom<&[u8]> for GPTHeader {
 }
 
 impl GPTHeader {
-    pub fn try_from_buf(buf: &[u8]) -> Result<Self, Box<dyn core::error::Error>> {
+    pub fn try_from_buf(buf: &[u8]) -> Result<Self, GPTErr> {
         GPTHeader::try_from(buf)
     }
 
@@ -123,13 +123,13 @@ pub struct GPTEntry {
     pub start_lba: u64,
     pub end_lba: u64,
     pub flags: u64,
-    pub name: String,
+    pub name: [u16; 36],
 }
 
 impl TryFrom<&[u8]> for GPTEntry {
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if (value.len() / 128) % 2 != 0 {
-            return Err(Box::new(GPTErr::BadArrayEntrySize));
+            return Err(GPTErr::BadArrayEntrySize);
         }
 
         Ok(GPTEntry {
@@ -138,17 +138,17 @@ impl TryFrom<&[u8]> for GPTEntry {
             start_lba: u64::from_le_bytes(value[32..40].try_into().unwrap()),
             end_lba: u64::from_le_bytes(value[40..48].try_into().unwrap()),
             flags: u64::from_le_bytes(value[48..56].try_into().unwrap()),
-            name: String::from_utf16(
-                value[56..]
-                    .windows(2)
-                    .map(|slice| u16::from_le_bytes(slice.try_into().unwrap()))
-                    .collect::<Vec<u16>>()
-                    .as_slice(),
-            )?,
+            name: {
+                let mut out = [0u16; 36];
+                for (i, chunk) in value[56..56 + 72].chunks_exact(2).enumerate() {
+                    out[i] = u16::from_be_bytes([chunk[0], chunk[1]]);
+                }
+                out
+            },
         })
     }
 
-    type Error = Box<dyn core::error::Error>;
+    type Error = GPTErr;
 }
 
 impl Into<Vec<u8>> for GPTEntry {
@@ -169,11 +169,15 @@ impl GPTEntry {
             start_lba: 0,
             end_lba: 0,
             flags: 0,
-            name: String::new(),
+            name: [0u16; 36],
         }
     }
 
-    pub fn try_from_buf(buf: &[u8]) -> Result<Self, Box<dyn core::error::Error>> {
+    pub fn get_name(&self) -> String {
+        String::from_utf16_lossy(&self.name)
+    }
+
+    pub fn try_from_buf(buf: &[u8]) -> Result<Self, GPTErr> {
         buf.try_into()
     }
 
@@ -185,13 +189,7 @@ impl GPTEntry {
         result.extend(self.start_lba.to_le_bytes());
         result.extend(self.end_lba.to_le_bytes());
         result.extend(self.flags.to_le_bytes());
-        result.extend(
-            self.name
-                .encode_utf16()
-                .map(|ele| ele.to_le_bytes())
-                .flatten()
-                .collect::<Vec<u8>>(),
-        );
+        result.extend(self.name.iter().map(|a| a.to_le_bytes()).flatten());
 
         result
     }
@@ -221,6 +219,10 @@ pub enum GPTErr {
     EntryAlreadyEmpty,
     #[error("The name is too long")]
     NameTooLong,
+    #[error("Failed to serialize {0}")]
+    SerializationErr(FromUtf16Error),
+    #[error("Read/Write failed: {0}")]
+    Io(String),
 }
 
 impl HalStorageDevice {
@@ -300,26 +302,32 @@ impl HalStorageDevice {
         }
     }
 
-    async fn write_pmbr(&mut self, pmbr: &[u8; 512]) -> Result<(), Box<dyn core::error::Error>> {
-        self.write_sectors_async(0, 1, pmbr).await?;
+    async fn write_pmbr(&mut self, pmbr: &[u8; 512]) -> Result<(), GPTErr> {
+        self.write_sectors_async(0, 1, pmbr)
+            .await
+            .map_err(|e| GPTErr::Io(e.to_string()))?;
         Ok(())
     }
 
-    async fn write_table(
-        &mut self,
-        header: &[u8],
-        array: &[u8],
-    ) -> Result<(), Box<dyn core::error::Error>> {
-        self.write_sectors_async(1, 1, header).await?;
-        self.write_sectors_async(2, 32, array).await?;
-        self.write_sectors_async(-1, 1, header).await?;
-        self.write_sectors_async(-33, 32, array).await?;
+    async fn write_table(&mut self, header: &[u8], array: &[u8]) -> Result<(), GPTErr> {
+        self.write_sectors_async(1, 1, header)
+            .await
+            .map_err(|e| GPTErr::Io(e.to_string()))?;
+        self.write_sectors_async(2, 32, array)
+            .await
+            .map_err(|e| GPTErr::Io(e.to_string()))?;
+        self.write_sectors_async(-1, 1, header)
+            .await
+            .map_err(|e| GPTErr::Io(e.to_string()))?;
+        self.write_sectors_async(-33, 32, array)
+            .await
+            .map_err(|e| GPTErr::Io(e.to_string()))?;
         Ok(())
     }
 
-    pub async fn create_gpt(&mut self, force: bool) -> Result<(), Box<dyn core::error::Error>> {
+    pub async fn create_gpt(&mut self, force: bool) -> Result<(), GPTErr> {
         if !force && self.is_gpt_present().await {
-            return Err(Box::new(GPTErr::GPTAlreadyExist));
+            return Err(GPTErr::GPTAlreadyExist);
         }
 
         let pmbr = self.create_pmbr_buf();
@@ -351,19 +359,21 @@ impl HalStorageDevice {
         &mut self,
         lba: i64,
         is_backup: bool,
-    ) -> Result<(GPTHeader, Vec<GPTEntry>), Box<dyn core::error::Error>> {
+    ) -> Result<(GPTHeader, Vec<GPTEntry>), GPTErr> {
         // Read header
         let mut header_buf = [0u8; 512];
-        self.read_sectors_async(lba, 1, &mut header_buf).await?;
+        self.read_sectors_async(lba, 1, &mut header_buf)
+            .await
+            .map_err(|e| GPTErr::Io(e.to_string()))?;
 
         if !self.is_valid_header(&header_buf) {
-            return Err(Box::new(GPTErr::GPTCorrupted));
+            return Err(GPTErr::GPTCorrupted);
         }
 
         let result_header = GPTHeader::try_from(header_buf.as_slice())?;
 
         if (result_header.entry_size / 128) % 2 != 0 {
-            return Err(Box::new(GPTErr::BadArrayEntrySize));
+            return Err(GPTErr::BadArrayEntrySize);
         }
 
         let arr_block_count: i64 = ((result_header.entry_num * result_header.entry_size / 512)
@@ -379,10 +389,11 @@ impl HalStorageDevice {
         let arr_sectors = (result_header.entry_num * result_header.entry_size / 512) as u16;
         let mut arr_buf = vec![0u8; arr_sectors as usize * 512];
         self.read_sectors_async(arr_lba, arr_sectors, &mut arr_buf)
-            .await?;
+            .await
+            .map_err(|e| GPTErr::Io(e.to_string()))?;
 
         if !crypto::crc32::is_verified_crc32(&arr_buf, result_header.array_crc32) {
-            return Err(Box::new(GPTErr::GPTCorrupted));
+            return Err(GPTErr::GPTCorrupted);
         }
 
         let result_array: Vec<GPTEntry> = arr_buf
@@ -393,11 +404,9 @@ impl HalStorageDevice {
         Ok((result_header, result_array))
     }
 
-    pub async fn read_gpt(
-        &mut self,
-    ) -> Result<(GPTHeader, Vec<GPTEntry>), Box<dyn core::error::Error>> {
+    pub async fn read_gpt(&mut self) -> Result<(GPTHeader, Vec<GPTEntry>), GPTErr> {
         if !self.is_gpt_present().await {
-            return Err(Box::new(GPTErr::GPTNonExist));
+            return Err(GPTErr::GPTNonExist);
         }
 
         let primary_result = self.get_table(1, false).await;
@@ -434,20 +443,20 @@ impl HalStorageDevice {
 
             return Ok((secondary_header, secondary_array));
         } else {
-            return Err(Box::new(GPTErr::GPTCorrupted));
+            return Err(GPTErr::GPTCorrupted);
         }
     }
 
     pub async fn add_entry(
         &mut self,
-        name: &str,
+        name: &[u16; 36],
         start_lba: u64,
         end_lba: u64,
         type_guid: Guid,
         flags: u64,
-    ) -> Result<u32, Box<dyn core::error::Error>> {
+    ) -> Result<u32, GPTErr> {
         if !self.is_gpt_present().await {
-            return Err(Box::new(GPTErr::GPTNonExist));
+            return Err(GPTErr::GPTNonExist);
         }
 
         let (mut header, mut entries) = self.read_gpt().await?;
@@ -456,7 +465,7 @@ impl HalStorageDevice {
         let empty_index = entries
             .iter()
             .position(|entry| entry.is_empty())
-            .ok_or(Box::new(GPTErr::NoFreeSlot))?;
+            .ok_or(GPTErr::NoFreeSlot)?;
 
         // Check for overlapping partitions
         for (i, entry) in entries.iter().enumerate() {
@@ -472,22 +481,17 @@ impl HalStorageDevice {
                 || (end_lba >= entry_start && end_lba <= entry_end)
                 || (start_lba <= entry_start && end_lba >= entry_end)
             {
-                return Err(Box::new(GPTErr::OverlappingPartition));
+                return Err(GPTErr::OverlappingPartition);
             }
         }
 
         // Validate LBA range
         if start_lba < header.first_usable_block || end_lba > header.last_usable_block {
-            return Err(Box::new(GPTErr::InvalidLBARange));
+            return Err(GPTErr::InvalidLBARange);
         }
 
         if start_lba >= end_lba {
-            return Err(Box::new(GPTErr::InvalidLBARange));
-        }
-
-        // Validate name length (max 36 UTF-16 characters = 72 bytes)
-        if name.encode_utf16().count() > 36 {
-            return Err(Box::new(GPTErr::NameTooLong));
+            return Err(GPTErr::InvalidLBARange);
         }
 
         // Generate unique partition GUID
@@ -500,7 +504,7 @@ impl HalStorageDevice {
             start_lba,
             end_lba,
             flags,
-            name: name.to_string(),
+            name: *name,
         };
 
         entries[empty_index] = new_entry;
@@ -526,23 +530,23 @@ impl HalStorageDevice {
         Ok(empty_index as u32)
     }
 
-    pub async fn delete_entry(&mut self, index: u32) -> Result<(), Box<dyn core::error::Error>> {
+    pub async fn delete_entry(&mut self, index: u32) -> Result<(), GPTErr> {
         if !self.is_gpt_present().await {
-            return Err(Box::new(GPTErr::GPTNonExist));
+            return Err(GPTErr::GPTNonExist);
         }
 
         let (mut header, mut entries) = self.read_gpt().await?;
 
         // Validate index
         if index >= header.entry_num {
-            return Err(Box::new(GPTErr::InvalidEntryIndex));
+            return Err(GPTErr::InvalidEntryIndex);
         }
 
         let entry = &entries[index as usize];
 
         // Check if entry is already empty
         if entry.is_empty() {
-            return Err(Box::new(GPTErr::EntryAlreadyEmpty));
+            return Err(GPTErr::EntryAlreadyEmpty);
         }
 
         // Clear the entry

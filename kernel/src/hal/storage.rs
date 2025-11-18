@@ -1,4 +1,6 @@
+use crate::crypto::guid::Guid;
 use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE, PataDevice};
+use crate::hal::gpt::{GPTEntry, GPTErr, GPTHeader};
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -59,24 +61,41 @@ pub struct HalStorageDevice {
 }
 
 #[derive(Debug)]
-pub enum HalStorageOperation {
+pub enum HalStorageOperation<'a> {
     Read {
         buffer: Box<[u8]>,
         lba: i64,
-        sender: UnboundedSender<HalStorageOperationResult>,
+        sender: UnboundedSender<Result<(), HalStorageOperationErr>>,
     },
 
     Write {
         buffer: Box<[u8]>,
         lba: i64,
-        sender: UnboundedSender<HalStorageOperationResult>,
+        sender: UnboundedSender<Result<(), HalStorageOperationErr>>,
     },
-}
 
-#[derive(Debug)]
-pub enum HalStorageOperationResult {
-    Success,
-    Failure(String),
+    InitGpt {
+        force: bool,
+        sender: UnboundedSender<Result<(), GPTErr>>,
+    },
+
+    ReadGpt {
+        sender: UnboundedSender<Result<(GPTHeader, Vec<GPTEntry>), GPTErr>>,
+    },
+
+    AddEntry {
+        name: &'a [u16; 36],
+        start_lba: u64,
+        end_lba: u64,
+        type_guid: Guid,
+        flags: u64,
+        sender: UnboundedSender<Result<(), GPTErr>>,
+    },
+
+    DeleteEntry {
+        idx: u32,
+        sender: UnboundedSender<Result<(), GPTErr>>,
+    },
 }
 
 lazy_static! {
@@ -118,7 +137,7 @@ impl HalStorageDevice {
         }
     }
 
-    pub async fn run(&mut self, rx: UnboundedReceiver<HalStorageOperation>) {
+    pub async fn run<'a>(&mut self, rx: UnboundedReceiver<HalStorageOperation<'a>>) {
         if !self.available {
             iprintln!(
                 "Failed to run the storage device at {:x} because it is not available",
@@ -145,11 +164,11 @@ impl HalStorageDevice {
                     {
                         Ok(_) => {
                             iprintln!("Read Operation succeeded!: {:?}", buffer);
-                            sender.send(HalStorageOperationResult::Success);
+                            sender.send(Ok(()));
                         }
                         Err(e) => {
                             iprintln!("Operation failed..: {:?}", e);
-                            sender.send(HalStorageOperationResult::Failure(e.to_string()));
+                            sender.send(Err(HalStorageOperationErr::DriveErr(e.to_string())));
                         }
                     }
                 }
@@ -165,12 +184,74 @@ impl HalStorageDevice {
                     {
                         Ok(_) => {
                             iprintln!("Write operation succeeded!: {:?}", buffer);
-                            sender.send(HalStorageOperationResult::Success);
+                            sender.send(Ok(()));
                         }
 
                         Err(e) => {
                             iprintln!("Write operation failed..: {:?}", e);
-                            sender.send(HalStorageOperationResult::Failure(e.to_string()));
+                            sender.send(Err(HalStorageOperationErr::DriveErr(e.to_string())));
+                        }
+                    }
+                }
+
+                HalStorageOperation::InitGpt { force, sender } => {
+                    match self.create_gpt(force).await {
+                        Ok(_) => {
+                            log!("Initialized new gpt: forced: {}", force);
+                            sender.send(Ok(()));
+                        }
+
+                        Err(e) => {
+                            log!("GPT failed to initialize: {}", e);
+                            sender.send(Err(e));
+                        }
+                    }
+                }
+
+                HalStorageOperation::ReadGpt { sender } => match self.read_gpt().await {
+                    Ok(res) => {
+                        log!("Read GPT table: {:?}", res);
+                        sender.send(Ok(res));
+                    }
+
+                    Err(e) => {
+                        log!("Failed to read GPT table: {:?}", e);
+                        sender.send(Err(e));
+                    }
+                },
+
+                HalStorageOperation::AddEntry {
+                    name,
+                    start_lba,
+                    end_lba,
+                    type_guid,
+                    flags,
+                    sender,
+                } => match self
+                    .add_entry(name, start_lba, end_lba, type_guid, flags)
+                    .await
+                {
+                    Ok(res) => {
+                        log!("Added GPT entry: {:?}", res);
+                        sender.send(Ok(()));
+                    }
+
+                    Err(e) => {
+                        log!("Failed to add GPT entry: {:?}", e);
+                        sender.send(Err(e));
+                    }
+                },
+
+                HalStorageOperation::DeleteEntry { idx, sender } => {
+                    match self.delete_entry(idx).await {
+                        Ok(res) => {
+                            log!("Deleted GPT entry: {:?}", res);
+                            sender.send(Ok(res));
+                        }
+
+                        Err(e) => {
+                            log!("Failed to delete GPT delete: {:?}", e);
+                            sender.send(Err(e));
                         }
                     }
                 }
@@ -282,7 +363,7 @@ pub async fn read_sectors(
         SECONDARY_STORAGE_SENDER.get().unwrap().clone()
     };
 
-    let (tx, rx) = unbounded_channel::<HalStorageOperationResult>();
+    let (tx, rx) = unbounded_channel::<Result<(), HalStorageOperationErr>>();
 
     sender.send(HalStorageOperation::Read {
         buffer,
@@ -291,11 +372,7 @@ pub async fn read_sectors(
     });
 
     if let Some(res) = rx.recv().await {
-        if let HalStorageOperationResult::Failure(err) = res {
-            Err(HalStorageOperationErr::DriveErr(err))
-        } else {
-            Ok(())
-        }
+        res
     } else {
         Err(HalStorageOperationErr::DriveDidntRespond)
     }
@@ -312,7 +389,7 @@ pub async fn write_sectors(
         SECONDARY_STORAGE_SENDER.get().unwrap().clone()
     };
 
-    let (tx, rx) = unbounded_channel::<HalStorageOperationResult>();
+    let (tx, rx) = unbounded_channel::<Result<(), HalStorageOperationErr>>();
 
     sender.send(HalStorageOperation::Write {
         buffer,
@@ -321,11 +398,7 @@ pub async fn write_sectors(
     });
 
     if let Some(res) = rx.recv().await {
-        if let HalStorageOperationResult::Failure(str) = res {
-            Err(HalStorageOperationErr::DriveErr(str))
-        } else {
-            Ok(())
-        }
+        res
     } else {
         Err(HalStorageOperationErr::DriveDidntRespond)
     }
