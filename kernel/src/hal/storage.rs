@@ -271,7 +271,11 @@ impl HalStorageDevice {
     }
 }
 
-pub async fn read_sectors(index: usize, buffer: Box<[u8]>, lba: i64) -> HalStorageOperationResult {
+pub async fn read_sectors(
+    index: usize,
+    buffer: Box<[u8]>,
+    lba: i64,
+) -> Result<(), HalStorageOperationErr> {
     let sender = if index == PRIMARY {
         PRIMARY_STORAGE_SENDER.get().unwrap().clone()
     } else {
@@ -287,13 +291,21 @@ pub async fn read_sectors(index: usize, buffer: Box<[u8]>, lba: i64) -> HalStora
     });
 
     if let Some(res) = rx.recv().await {
-        res
+        if let HalStorageOperationResult::Failure(err) = res {
+            Err(HalStorageOperationErr::DriveErr(err))
+        } else {
+            Ok(())
+        }
     } else {
-        HalStorageOperationResult::Failure("Drive didn't respond".into())
+        Err(HalStorageOperationErr::DriveDidntRespond)
     }
 }
 
-pub async fn write_sectors(index: usize, buffer: Box<[u8]>, lba: i64) -> HalStorageOperationResult {
+pub async fn write_sectors(
+    index: usize,
+    buffer: Box<[u8]>,
+    lba: i64,
+) -> Result<(), HalStorageOperationErr> {
     let sender = if index == PRIMARY {
         PRIMARY_STORAGE_SENDER.get().unwrap().clone()
     } else {
@@ -309,8 +321,20 @@ pub async fn write_sectors(index: usize, buffer: Box<[u8]>, lba: i64) -> HalStor
     });
 
     if let Some(res) = rx.recv().await {
-        res
+        if let HalStorageOperationResult::Failure(str) = res {
+            Err(HalStorageOperationErr::DriveErr(str))
+        } else {
+            Ok(())
+        }
     } else {
-        HalStorageOperationResult::Failure("Drive didn't respond".into())
+        Err(HalStorageOperationErr::DriveDidntRespond)
     }
+}
+
+#[derive(Debug, Clone, Error)]
+pub enum HalStorageOperationErr {
+    #[error("Drive didn't respond")]
+    DriveDidntRespond,
+    #[error("Drive responded with error: {0}")]
+    DriveErr(String),
 }

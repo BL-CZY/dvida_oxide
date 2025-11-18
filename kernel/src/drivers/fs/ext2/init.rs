@@ -19,7 +19,7 @@ use crate::{
     hal::{
         self,
         gpt::GPTEntry,
-        storage::{HalStorageOperationResult, read_sectors},
+        storage::{HalStorageOperationErr, read_sectors},
     },
     time::{self, Rtc, RtcDateTime, formats::rtc_to_posix},
 };
@@ -33,8 +33,8 @@ pub async fn identify_ext2(drive_id: usize, entry: &GPTEntry) -> bool {
     }
 
     match read_sectors(drive_id, buf.clone(), (entry.start_lba + 1) as i64).await {
-        HalStorageOperationResult::Success => {}
-        HalStorageOperationResult::Failure(err) => {
+        Ok(_) => {}
+        Err(err) => {
             log!("Failed to identify ext2 because of read error: {}", err);
             return false;
         }
@@ -174,7 +174,7 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) -> Result<(), Box<dyn 
     let mut buffer = [0u8; 1024];
     super_block.serialize(Endianness::Little, &mut buffer)?;
 
-    write_sectors(drive_id, buffer, entry.start_lba + 2).await?;
+    write_sectors(drive_id, Box::new(buffer), entry.start_lba as i64 + 2).await?;
 
     Ok(())
 }
