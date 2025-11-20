@@ -68,6 +68,7 @@ const FIRST_DATA_BLOCK_ADDR: u32 = 1024 / BLOCK_SIZE;
 const SET_LATER: u32 = 0;
 
 // blocksize is considered to be 1kb
+// TODO: add root directory
 pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) -> Result<(), Box<dyn Error>> {
     // TODO: check entry eligibility
 
@@ -76,26 +77,39 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) -> Result<(), Box<dyn 
     let mut free_blocks_count: u32 = 0;
     let mut free_inodes_count: u32 = 0;
 
-    let num_lba = entry.end_lba - entry.start_lba + 1;
-    let num_block_groups = (((num_lba as i64 / (BLOCK_SIZE / 512) as i64)
-        / BLOCKS_PER_GROUP as i64)
-        + ((num_lba as i64 / (BLOCK_SIZE / 512) as i64) % BLOCKS_PER_GROUP as i64)
-        != 0) as u32;
+    // Number of sectors in the partition
+    let num_sectors = (entry.end_lba as i64 - entry.start_lba as i64 + 1) as u64;
+    let sectors_per_block = (BLOCK_SIZE / 512) as u64;
+
+    // Number of blocks (ceil)
+    let blocks = (num_sectors + sectors_per_block - 1) / sectors_per_block;
+
+    // Number of block groups (ceil)
+    let num_block_groups =
+        ((blocks + BLOCKS_PER_GROUP as u64 - 1) / BLOCKS_PER_GROUP as u64) as usize;
 
     let mut bg_vec: Vec<GroupDescriptor> = vec![];
 
-    for i in 0..num_block_groups {
-        // TODO: handle the case where the last block group is not big enough
+    // Partition start in blocks
+    let partition_start_block = (entry.start_lba as u64) / sectors_per_block;
 
-        let offset = i * (2_u32.pow(LOG_BLOCK_SIZE)) * BLOCKS_PER_GROUP;
+    for i in 0..num_block_groups {
+        // group start block (absolute, relative to partition)
+        let group_start_block = partition_start_block + i as u64 * BLOCKS_PER_GROUP as u64;
+
+        // inode table size in blocks
+        let inode_table_blocks = (((INODE_SIZE as u32) * INODES_PER_GROUP as u32)
+            + (BLOCK_SIZE as u16 as u32 - 1))
+            / BLOCK_SIZE as u32;
+
+        // blocks reserved for metadata in a group: block bitmap + inode bitmap + inode table
+        let reserved_blocks = 1u32 + 1u32 + inode_table_blocks;
 
         let bg_descriptor = GroupDescriptor {
-            bg_block_bitmap: offset + 2,
-            bg_inode_bitmap: offset + 3,
-            bg_inode_table: offset + 4,
-            bg_free_blocks_count: (BLOCKS_PER_GROUP
-                - ((INODE_SIZE as u32) * INODES_PER_GROUP / BLOCK_SIZE)
-                - 5) as u16,
+            bg_block_bitmap: (group_start_block + 1) as u32,
+            bg_inode_bitmap: (group_start_block + 2) as u32,
+            bg_inode_table: (group_start_block + 3) as u32,
+            bg_free_blocks_count: (BLOCKS_PER_GROUP as u32 - reserved_blocks) as u16,
             bg_free_inodes_count: INODES_PER_GROUP as u16,
             bg_used_dirs_count: 0,
         };
@@ -106,8 +120,9 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) -> Result<(), Box<dyn 
     }
 
     let super_block: SuperBlock = SuperBlock {
-        s_inodes_count: free_inodes_count,
-        s_blocks_count: free_blocks_count,
+        // total inodes and blocks across filesystem
+        s_inodes_count: (INODES_PER_GROUP as u32 * num_block_groups as u32),
+        s_blocks_count: blocks as u32,
         s_r_blocks_count: 0,
         s_free_blocks_count: free_blocks_count,
         s_free_inodes_count: free_inodes_count,
@@ -116,7 +131,7 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) -> Result<(), Box<dyn 
         s_log_frag_size: LOG_BLOCK_SIZE, // this is not supported
         s_blocks_per_group: BLOCKS_PER_GROUP,
         s_frags_per_group: BLOCKS_PER_GROUP,
-        s_inodes_per_group: BLOCKS_PER_GROUP,
+        s_inodes_per_group: INODES_PER_GROUP,
         s_mtime: time,
         s_wtime: time,
         s_mnt_count: 1,
@@ -140,7 +155,7 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) -> Result<(), Box<dyn 
         s_def_resuid: ROOT_ID,
         s_def_resgid: ROOT_ID,
 
-        s_first_ino: 2 + (BLOCK_SIZE / 512) + 4,
+        s_first_ino: 11,
         s_inode_size: INODE_SIZE,
         s_block_group_nr: bg_vec.len() as u16,
 
@@ -171,11 +186,69 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) -> Result<(), Box<dyn 
         s_first_meta_bg: 0,
     };
 
-    let mut buffer = [0u8; 1024];
-    for bg_desc in bg_vec.iter() {
-        super_block.serialize(Endianness::Little, &mut buffer)?;
+    // Prepare buffers and write structures per block group.
+    // Note: this is a simplified layout writer — a production implementation
+    // must follow the ext2 spec closely (sparse superblocks, alignment, etc.).
 
-        write_sectors(drive_id, Box::new(buffer), entry.start_lba as i64 + 2).await?;
+    // serialized superblock buffer (one block)
+    let mut sb_buf = vec![0u8; BLOCK_SIZE as usize];
+
+    // group descriptor table buffer (rounded up to block size)
+    let gd_bytes = (bg_vec.len() * GROUP_DESCRIPTOR_SIZE) as usize;
+    let gd_blocks = (gd_bytes + BLOCK_SIZE as usize - 1) / BLOCK_SIZE as usize;
+    let mut gd_buf = vec![0u8; gd_blocks * BLOCK_SIZE as usize];
+
+    // inode table zero buffer (we'll write per-group inode table blocks)
+
+    for (bg_idx, _bg_desc) in bg_vec.iter().enumerate() {
+        sb_buf.fill(0);
+        super_block.serialize(Endianness::Little, &mut sb_buf)?;
+
+        // compute absolute sector for this group's superblock copy
+        let superblock_sector = entry.start_lba as u64
+            + ((bg_idx as u64 * BLOCKS_PER_GROUP as u64 + 1) * sectors_per_block);
+
+        write_sectors(
+            drive_id,
+            sb_buf.clone().into_boxed_slice(),
+            superblock_sector as i64,
+        )
+        .await?;
+
+        // prepare and write full group descriptor table at the group's descriptor location
+        gd_buf.fill(0);
+        for (idx, bgd) in bg_vec.iter().enumerate() {
+            bgd.serialize(
+                Endianness::Little,
+                &mut gd_buf[idx * GROUP_DESCRIPTOR_SIZE..],
+            )?;
+        }
+
+        let gd_sector = entry.start_lba as u64
+            + ((bg_idx as u64 * BLOCKS_PER_GROUP as u64 + 2) * sectors_per_block);
+
+        write_sectors(
+            drive_id,
+            gd_buf.clone().into_boxed_slice(),
+            gd_sector as i64,
+        )
+        .await?;
+
+        // write zeroed inode table blocks for this group
+        let inode_table_blocks = (((INODE_SIZE as u32) * INODES_PER_GROUP as u32)
+            + (BLOCK_SIZE as u16 as u32 - 1))
+            / BLOCK_SIZE as u32;
+
+        let inode_buf = vec![0u8; (inode_table_blocks as usize) * BLOCK_SIZE as usize];
+        let inode_table_sector = entry.start_lba as u64
+            + ((bg_idx as u64 * BLOCKS_PER_GROUP as u64 + 3) * sectors_per_block);
+
+        write_sectors(
+            drive_id,
+            inode_buf.into_boxed_slice(),
+            inode_table_sector as i64,
+        )
+        .await?;
     }
 
     Ok(())

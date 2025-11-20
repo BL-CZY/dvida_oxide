@@ -20,6 +20,63 @@ pub struct FileSystem {
     pub fs_impl: Box<dyn HalFs>,
 }
 
+pub enum OpenAccessMode {
+    ReadOnly,
+    WriteOnly,
+    ReadNWrite,
+    Search,
+    ExecuteOnly,
+}
+
+#[repr(i32)]
+pub enum OpenFlagsValue {
+    // O_NONBLOCK      do not block on open or for data to become available
+    NonBlock = 0x1,
+    // O_APPEND        append on each write
+    Append = 0x1 << 1,
+    // O_CREAT         create file if it does not exist
+    CreateIfNotExist = 0x1 << 2,
+    // O_TRUNC         truncate size to 0
+    Truncate = 0x1 << 3,
+    // O_EXCL          error if O_CREAT and the file exists
+    ErrorIfCreateFileExists = 0x1 << 4,
+    // O_SHLOCK        atomically obtain a shared lock
+    SharedLock = 0x1 << 5,
+    // O_EXLOCK        atomically obtain an exclusive lock
+    ExclusiveLock = 0x1 << 6,
+    // O_DIRECTORY     restrict open to a directory
+    OpenDirectoryOnly = 0x1 << 7,
+    // O_NOFOLLOW      do not follow symlinks
+    NoSymlink = 0x1 << 8,
+    // O_SYMLINK       allow open of symlinks
+    AllowSymlink = 0x1 << 9,
+    // O_EVTONLY       descriptor requested for event notifications only
+    EventDescriptor = 0x1 << 10,
+    // O_CLOEXEC       mark as close-on-exec
+    MarkCloseOnExec = 0x1 << 11,
+    // O_NOFOLLOW_ANY  do not follow symlinks in the entire path
+    NoSymlinkAny = 0x1 << 12,
+    // O_RESOLVE_BENEATH       path resolution must not escape the directory associated with the file descriptor
+    ResolveBeneath = 0x1 << 13,
+    // O_UNIQUE        ensure a file is opened only if it has a single hard link
+    Unique = 0x1 << 14,
+}
+
+pub struct OpenFlags {
+    pub access_mode: OpenAccessMode,
+    pub flags: i32,
+}
+
 pub trait HalInode {}
 
-pub trait HalFs: Debug {}
+#[derive(Debug)]
+pub enum HalFsMountErr {}
+#[derive(Debug)]
+pub enum HalFsOpenErr {}
+
+pub trait HalFs: Debug {
+    fn mount(drive_id: usize, entry: GPTEntry) -> Result<Self, HalFsMountErr>
+    where
+        Self: Sized;
+    fn open(&mut self, path: Path, flags: OpenFlags) -> Result<Box<dyn HalInode>, HalFsOpenErr>;
+}

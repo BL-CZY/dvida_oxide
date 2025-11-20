@@ -1,5 +1,7 @@
 pub mod init;
+pub mod mount;
 pub mod open;
+pub mod structs;
 
 use dvida_serialize::*;
 
@@ -83,7 +85,7 @@ pub struct GroupDescriptor {
 }
 
 /// Inode structure - represents a file, directory, or other filesystem object
-#[derive(DvDeSer, Debug, Clone)]
+#[derive(DvDeSer, Debug, Clone, Default)]
 pub struct Inode {
     i_mode: u16,        // File mode (type and permissions)
     i_uid: u16,         // Low 16 bits of owner UID

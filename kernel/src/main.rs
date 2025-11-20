@@ -29,10 +29,7 @@ use crate::{
     args::parse_args,
     crypto::random::run_random,
     debug::terminal::WRITER,
-    hal::storage::{
-        HalStorageOperation, PRIMARY, PRIMARY_STORAGE_SENDER, SECONDARY, SECONDARY_STORAGE_SENDER,
-        add_entry, delete_entry, init_gpt, read_gpt, read_sectors, run_storage_device,
-    },
+    hal::storage::{PRIMARY, SECONDARY, run_storage_device},
 };
 
 pub mod arch;
@@ -123,11 +120,4 @@ fn hcf() -> ! {
             asm!("hlt");
         }
     }
-}
-
-use getrandom::Error;
-
-#[unsafe(no_mangle)]
-unsafe extern "Rust" fn __getrandom_v03_custom(dest: *mut u8, len: usize) -> Result<(), Error> {
-    todo!()
 }
