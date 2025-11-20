@@ -32,7 +32,7 @@ pub enum DeviceType {
 pub const PRIMARY: usize = 0;
 pub const SECONDARY: usize = 1;
 
-pub const BLOCK_SIZE: usize = 512;
+pub const SECTOR_SIZE: usize = 512;
 
 #[derive(Debug, Error)]
 pub enum IoErr {
@@ -157,7 +157,7 @@ impl HalStorageDevice {
                     match self
                         .read_sectors_async(
                             lba,
-                            (buffer.len() / BLOCK_SIZE) as u16,
+                            (buffer.len() / SECTOR_SIZE) as u16,
                             buffer.as_mut(),
                         )
                         .await
@@ -179,7 +179,7 @@ impl HalStorageDevice {
                     sender,
                 } => {
                     match self
-                        .write_sectors_async(lba, (buffer.len() / BLOCK_SIZE) as u16, &buffer)
+                        .write_sectors_async(lba, (buffer.len() / SECTOR_SIZE) as u16, &buffer)
                         .await
                     {
                         Ok(_) => {

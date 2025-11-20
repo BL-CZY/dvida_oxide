@@ -1,8 +1,11 @@
 use core::fmt::Debug;
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 
-use crate::hal::{gpt::GPTEntry, path::Path};
+use crate::{
+    drivers::fs::ext2::structs::Ext2Fs,
+    hal::{gpt::GPTEntry, path::Path},
+};
 
 #[derive(Debug)]
 pub struct MountPoint {
@@ -17,7 +20,7 @@ pub struct FileSystem {
     pub entry: GPTEntry,
 
     pub mnt_points: Vec<MountPoint>,
-    pub fs_impl: Box<dyn HalFs>,
+    pub fs_impl: HalFs,
 }
 
 pub enum OpenAccessMode {
@@ -67,16 +70,15 @@ pub struct OpenFlags {
     pub flags: i32,
 }
 
-pub trait HalInode {}
+pub enum HalInode {
+    Foo,
+}
 
 #[derive(Debug)]
 pub enum HalFsMountErr {}
 #[derive(Debug)]
 pub enum HalFsOpenErr {}
 
-pub trait HalFs: Debug {
-    fn mount(drive_id: usize, entry: GPTEntry) -> Result<Self, HalFsMountErr>
-    where
-        Self: Sized;
-    fn open(&mut self, path: Path, flags: OpenFlags) -> Result<Box<dyn HalInode>, HalFsOpenErr>;
+pub enum HalFs {
+    Ext2(Ext2Fs),
 }
