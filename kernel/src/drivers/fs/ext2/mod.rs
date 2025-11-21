@@ -5,8 +5,6 @@ pub mod structs;
 
 use dvida_serialize::*;
 
-use crate::hal::fs::HalInode;
-
 /// The ext2 superblock structure - located at byte offset 1024 from start
 /// All fields stored in little-endian format on disk
 #[derive(DvDeSer, Debug, Clone)]
@@ -107,8 +105,6 @@ pub struct Inode {
     i_osd2: [u8; 12],   // OS dependent field 2
 }
 
-impl HalInode for Inode {}
-
 /// Directory entry structure (variable length)
 #[derive(DvDeSer, Debug, Clone)]
 pub struct DirEntry {
@@ -129,6 +125,7 @@ pub const ROOT_ID: u16 = 0;
 pub const ALGO_BITMAP: u32 = 2;
 pub const BLOCKS_PER_GROUP: u32 = BLOCK_SIZE * 8;
 pub const INODES_PER_GROUP: u32 = BLOCKS_PER_GROUP;
+pub const INODE_SIZE: i64 = 32;
 
 // Filesystem state values for s_state
 pub const EXT2_VALID_FS: u16 = 0x0001; // Unmounted cleanly

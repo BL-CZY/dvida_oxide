@@ -8,6 +8,7 @@ use crate::{
     },
 };
 
+#[derive(Debug)]
 pub struct Ext2Fs {
     pub drive_id: usize,
     pub entry: GPTEntry,
@@ -17,24 +18,21 @@ pub struct Ext2Fs {
 }
 
 impl Ext2Fs {
+    /// relative LBA
     pub async fn read_sectors(
         &self,
         buffer: Box<[u8]>,
         lba: i64,
     ) -> Result<(), HalStorageOperationErr> {
-        storage::read_sectors(
-            self.drive_id,
-            &mut buffer,
-            self.entry.start_lba as i64 + lba,
-        )
-        .await?;
+        storage::read_sectors(self.drive_id, buffer, self.entry.start_lba as i64 + lba).await
     }
 
+    // relative LBA
     pub async fn write_sectors(
         &self,
         buffer: Box<[u8]>,
         lba: i64,
     ) -> Result<(), HalStorageOperationErr> {
-        storage::write_sectors(self.drive_id, &buffer, self.entry.start_lba as i64 + lba).await?;
+        storage::write_sectors(self.drive_id, buffer, self.entry.start_lba as i64 + lba).await
     }
 }

@@ -1,10 +1,11 @@
 use core::fmt::Debug;
 
 use alloc::vec::Vec;
+use dvida_serialize::{DvDeErr, DvSerErr};
 
 use crate::{
     drivers::fs::ext2::structs::Ext2Fs,
-    hal::{gpt::GPTEntry, path::Path},
+    hal::{gpt::GPTEntry, path::Path, storage::HalStorageOperationErr},
 };
 
 #[derive(Debug)]
@@ -77,8 +78,31 @@ pub enum HalInode {
 #[derive(Debug)]
 pub enum HalFsMountErr {}
 #[derive(Debug)]
-pub enum HalFsOpenErr {}
+pub enum HalFsOpenErr {
+    HalErr(HalStorageOperationErr),
+    DeserializationErr(DvDeErr),
+    SerializationErr(DvSerErr),
+}
 
+impl From<DvDeErr> for HalFsOpenErr {
+    fn from(value: DvDeErr) -> Self {
+        Self::DeserializationErr(value)
+    }
+}
+
+impl From<DvSerErr> for HalFsOpenErr {
+    fn from(value: DvSerErr) -> Self {
+        Self::SerializationErr(value)
+    }
+}
+
+impl From<HalStorageOperationErr> for HalFsOpenErr {
+    fn from(value: HalStorageOperationErr) -> Self {
+        Self::HalErr(value)
+    }
+}
+
+#[derive(Debug)]
 pub enum HalFs {
     Ext2(Ext2Fs),
 }

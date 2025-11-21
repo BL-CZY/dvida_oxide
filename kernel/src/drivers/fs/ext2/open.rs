@@ -1,5 +1,8 @@
+use alloc::boxed::Box;
+use dvida_serialize::DvDeserialize;
+
 use crate::{
-    drivers::fs::ext2::structs::Ext2Fs,
+    drivers::fs::ext2::{INODE_SIZE, Inode, structs::Ext2Fs},
     hal::{
         fs::{HalFsOpenErr, HalInode, OpenFlags},
         path::Path,
@@ -17,7 +20,14 @@ impl Ext2Fs {
         let superblock_loc = self.super_block.s_first_data_block;
         let inode_table_loc = superblock_loc as i64 + (block_size as i64 / SECTOR_SIZE as i64) * 3;
 
-        let buf = [0u8; 512];
+        let buf = Box::new([0u8; 512]);
+        let inode_table = self.read_sectors(buf.clone(), inode_table_loc).await?;
+
+        let inode = Inode::deserialize(
+            dvida_serialize::Endianness::Little,
+            &buf[INODE_SIZE as usize..],
+        )?
+        .0;
 
         for component in path.components().into_iter() {}
 
