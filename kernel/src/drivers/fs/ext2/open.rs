@@ -12,9 +12,9 @@ use crate::{
     },
 };
 
-const SUPERBLOCK_SIZE: i64 = 2;
-const DIR_INDIRECT_BLOCK_START: usize = 13;
-const LBA_ADDR_LEN: usize = 4;
+pub const SUPERBLOCK_SIZE: i64 = 2;
+pub const DIR_INDIRECT_BLOCK_START: usize = 13;
+pub const LBA_ADDR_LEN: usize = 4;
 
 struct DirEntryIter {
     buf: Box<[u8; BLOCK_SIZE as usize]>,
@@ -219,7 +219,7 @@ impl Ext2Fs {
         )?
         .0;
 
-        let mut it = path.components().into_iter().peekable();
+        let mut it = path.normalize().components().into_iter().peekable();
         while let Some(component) = it.next() {
             if it.peek().is_none() {
                 if flags.flags & OpenFlagsValue::CreateIfNotExist as i32 != 0 {

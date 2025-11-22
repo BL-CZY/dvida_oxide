@@ -1,5 +1,6 @@
 pub mod crc32;
 pub mod guid;
+pub mod iterators;
 pub mod random;
 pub mod uuid;
 
