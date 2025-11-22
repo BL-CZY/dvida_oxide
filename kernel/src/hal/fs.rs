@@ -82,6 +82,7 @@ pub enum HalFsOpenErr {
     HalErr(HalStorageOperationErr),
     DeserializationErr(DvDeErr),
     SerializationErr(DvSerErr),
+    NoSuchFileOrDirectory,
 }
 
 impl From<DvDeErr> for HalFsOpenErr {
