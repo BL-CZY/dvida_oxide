@@ -6,7 +6,7 @@ use dvida_serialize::DvDeserialize;
 use crate::{
     drivers::fs::ext2::{BLOCK_SIZE, DirEntry, INODE_SIZE, Inode, structs::Ext2Fs},
     hal::{
-        fs::{HalFsOpenErr, HalInode, OpenFlags},
+        fs::{HalFsOpenErr, HalInode, OpenFlags, OpenFlagsValue},
         path::Path,
         storage::SECTOR_SIZE,
     },
@@ -85,9 +85,13 @@ impl Ext2Fs {
     }
 
     /// returns the LBA of the inode
-    pub async fn find_entry_by_name(&self, name: &str, inode: &Inode) -> Result<i64, HalFsOpenErr> {
+    pub async fn find_entry_by_name(
+        &self,
+        name: &str,
+        inode: &Inode,
+    ) -> Result<Option<i64>, HalFsOpenErr> {
         if !inode.is_directory() {
-            return Err(HalFsOpenErr::NoSuchFileOrDirectory);
+            return Err(HalFsOpenErr::NotADirectory);
         }
 
         let buf = Box::new([0u8; BLOCK_SIZE as usize]);
@@ -98,7 +102,7 @@ impl Ext2Fs {
             self.read_sectors(buf.clone(), lba).await?;
 
             match self.find_entry_by_name_in_block(name, buf.clone()) {
-                Some(res) => return Ok(res),
+                Some(res) => return Ok(Some(res)),
                 _ => {}
             }
         }
@@ -119,7 +123,7 @@ impl Ext2Fs {
                 self.read_sectors(ind_buf.clone(), addr).await?;
 
                 match self.find_entry_by_name_in_block(name, ind_buf.clone()) {
-                    Some(res) => return Ok(res),
+                    Some(res) => return Ok(Some(res)),
                     _ => {}
                 }
             }
@@ -147,7 +151,7 @@ impl Ext2Fs {
                     for ind_addr in ind_iterator.into_iter() {
                         self.read_sectors(ind_ind_buf.clone(), ind_addr).await?;
                         match self.find_entry_by_name_in_block(name, ind_ind_buf.clone()) {
-                            Some(res) => return Ok(res),
+                            Some(res) => return Ok(Some(res)),
                             _ => {}
                         }
                     }
@@ -187,7 +191,7 @@ impl Ext2Fs {
                                 match self
                                     .find_entry_by_name_in_block(name, ind_ind_ind_buf.clone())
                                 {
-                                    Some(res) => return Ok(res),
+                                    Some(res) => return Ok(Some(res)),
                                     _ => {}
                                 }
                             }
@@ -197,7 +201,7 @@ impl Ext2Fs {
             }
         }
 
-        Err(HalFsOpenErr::NoSuchFileOrDirectory)
+        Ok(None)
     }
 
     /// This function assumes that everything is initialized like the init function
@@ -215,13 +219,24 @@ impl Ext2Fs {
         )?
         .0;
 
-        for component in path.components().into_iter() {
+        let mut it = path.components().into_iter().peekable();
+        while let Some(component) = it.next() {
+            if it.peek().is_none() {
+                if flags.flags & OpenFlagsValue::CreateIfNotExist as i32 != 0 {
+                    // TODO: create a file
+                    continue;
+                } else {
+                    // TODO: Other flags
+                }
+            }
+
             match self.find_entry_by_name(&component, &inode).await {
-                Ok(res) => {
+                Ok(Some(res)) => {
                     self.read_sectors(buf.clone(), res).await?;
                     inode =
                         Inode::deserialize(dvida_serialize::Endianness::Little, buf.as_ref())?.0;
                 }
+                Ok(None) => return Err(HalFsOpenErr::NoSuchFileOrDirectory),
                 Err(e) => return Err(e),
             }
         }

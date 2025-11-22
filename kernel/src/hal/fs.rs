@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 use dvida_serialize::{DvDeErr, DvSerErr};
 
 use crate::{
@@ -83,6 +83,7 @@ pub enum HalFsOpenErr {
     DeserializationErr(DvDeErr),
     SerializationErr(DvSerErr),
     NoSuchFileOrDirectory,
+    NotADirectory,
 }
 
 impl From<DvDeErr> for HalFsOpenErr {
