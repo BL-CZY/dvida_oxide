@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use dvida_serialize::{DvDeErr, DvSerErr};
 
 use crate::{
-    drivers::fs::ext2::structs::Ext2Fs,
+    drivers::fs::ext2::{self, structs::Ext2Fs},
     hal::{gpt::GPTEntry, path::Path, storage::HalStorageOperationErr},
 };
 
@@ -72,7 +72,7 @@ pub struct OpenFlags {
 }
 
 pub enum HalInode {
-    Foo,
+    Ext2(ext2::Inode),
 }
 
 #[derive(Debug)]
