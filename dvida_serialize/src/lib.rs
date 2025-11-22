@@ -16,6 +16,8 @@ pub enum Endianness {
 pub enum DvSerErr {
     #[error("The buffer is too small")]
     BufferTooSmall,
+    #[error("Inappropriate string length, expected range: {0}, ={1}")]
+    BadStringLength(usize, usize),
 }
 
 #[derive(Debug, Clone, Copy, Error)]

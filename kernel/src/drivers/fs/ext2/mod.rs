@@ -3,6 +3,7 @@ pub mod mount;
 pub mod open;
 pub mod structs;
 
+use alloc::string::String;
 use dvida_serialize::*;
 
 /// The ext2 superblock structure - located at byte offset 1024 from start
@@ -106,13 +107,82 @@ pub struct Inode {
 }
 
 /// Directory entry structure (variable length)
-#[derive(DvDeSer, Debug, Clone)]
+/// The name_len field is abstracted away for the name field
+/// For serialization and deserialization, it will return the next accumulator to where the next entry is
+#[derive(Debug, Clone)]
 pub struct DirEntry {
     inode: u32,   // Inode number (0 if entry is unused)
     rec_len: u16, // Distance to next directory entry
-    name_len: u8, // Name length
+    // name_len: u8,  // Name length
     file_type: u8, // File type
-                  // name: [u8; name_len]     // File name (variable length, not null-terminated)
+    name: String,  // File name (variable length, not null-terminated)
+}
+
+impl DvDeserialize for DirEntry {
+    fn deserialize(endianness: Endianness, input: &[u8]) -> Result<(Self, usize), DvDeErr>
+    where
+        Self: Sized,
+    {
+        let mut acc: usize = 0;
+
+        let (inode, size) = u32::deserialize(endianness, &input[acc..])?;
+        acc += size;
+        let (rec_len, size) = u16::deserialize(endianness, &input[acc..])?;
+        acc += size;
+        let (name_len, size) = u8::deserialize(endianness, &input[acc..])?;
+        acc += size;
+        let (file_type, size) = u8::deserialize(endianness, &input[acc..])?;
+        acc += size;
+
+        let mut name = String::new();
+        for i in 0..name_len as usize {
+            if i >= input[acc..].len() {
+                return Err(DvDeErr::WrongBufferSize);
+            }
+
+            name.push(input[acc..][i] as char);
+        }
+
+        // set acc to be rec_len so it points to the next entry
+        acc = rec_len as usize;
+        if acc >= input.len() {
+            return Err(DvDeErr::WrongBufferSize);
+        }
+
+        Ok((
+            DirEntry {
+                inode,
+                rec_len,
+                file_type,
+                name,
+            },
+            acc,
+        ))
+    }
+}
+
+impl DvSerialize for DirEntry {
+    fn serialize(&self, endianness: Endianness, target: &mut [u8]) -> Result<usize, DvSerErr> {
+        let mut acc: usize = 0;
+
+        if self.name.len() > 255 {
+            return Err(DvSerErr::BadStringLength(0, 255));
+        }
+
+        let name_len = self.name.len() as u8;
+
+        acc += self.inode.serialize(endianness, &mut target[acc..])?;
+        acc += self.rec_len.serialize(endianness, &mut target[acc..])?;
+        acc += name_len.serialize(endianness, &mut target[acc..])?; // name_len is ignored here 
+        acc += self.file_type.serialize(endianness, &mut target[acc..])?;
+
+        for (idx, char) in self.name.bytes().enumerate() {
+            target[acc..][idx] = char;
+        }
+
+        acc = self.rec_len as usize;
+        Ok(acc)
+    }
 }
 
 pub const BLOCK_SIZE: u32 = 1024;
