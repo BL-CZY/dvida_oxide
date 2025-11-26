@@ -84,6 +84,7 @@ pub enum HalFsOpenErr {
     SerializationErr(DvSerErr),
     NoSuchFileOrDirectory,
     NotADirectory,
+    NoAvailableInode,
 }
 
 impl From<DvDeErr> for HalFsOpenErr {

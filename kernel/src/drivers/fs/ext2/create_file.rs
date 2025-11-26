@@ -8,9 +8,60 @@ use crate::{
 };
 
 pub const RESERVED_BOOT_RECORD_OFFSET: i64 = 2;
+pub const BLOCK_SECTOR_SIZE: i64 = (BLOCK_SIZE as i64 / SECTOR_SIZE as i64) as i64;
 
 impl Ext2Fs {
-    pub async fn allocated_block(
+    fn block_group_size(&self) -> i64 {
+        self.super_block.s_blocks_per_group as i64 * (BLOCK_SIZE as i64 / SECTOR_SIZE as i64)
+    }
+
+    pub async fn traverse_find_blocks(
+        &self,
+        inode: &mut Inode,
+        mut cur_empty_block_in_inode: usize,
+        mut remaining_blocks: u8,
+    ) -> Result<(), HalFsOpenErr> {
+        let block_group_size = self.block_group_size();
+
+        for (group_number, addr) in (RESERVED_BOOT_RECORD_OFFSET..self.len() + 1)
+            .step_by(block_group_size as usize)
+            .enumerate()
+        {
+            if remaining_blocks <= 0 {
+                break;
+            }
+
+            let mut buf = Box::new([0u8; BLOCK_SIZE as usize]);
+
+            self.read_sectors(buf.clone(), addr + 2 * BLOCK_SECTOR_SIZE)
+                .await?;
+
+            let bit_iterator = BitIterator::new(buf.as_mut_slice());
+
+            for (idx, bit) in bit_iterator.into_iter().enumerate() {
+                if remaining_blocks <= 0 {
+                    break;
+                }
+
+                if bit == Bit::One {
+                    continue;
+                }
+
+                remaining_blocks -= 1;
+                inode.i_block[cur_empty_block_in_inode] = ((block_group_size * group_number as i64
+                    + RESERVED_BOOT_RECORD_OFFSET
+                    + 5
+                    + BLOCK_SECTOR_SIZE)
+                    + idx as i64) as u32;
+
+                cur_empty_block_in_inode += 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn allocated_blocks_for_inode(
         &self,
         inode: &mut Inode,
         group_number: i64,
@@ -24,7 +75,8 @@ impl Ext2Fs {
         let block_group_size =
             self.super_block.s_blocks_per_group as i64 * (BLOCK_SIZE as i64 / SECTOR_SIZE as i64);
 
-        let addr = block_group_size * group_number + RESERVED_BOOT_RECORD_OFFSET + 2;
+        let addr =
+            block_group_size * group_number + RESERVED_BOOT_RECORD_OFFSET + 2 * BLOCK_SECTOR_SIZE;
 
         let mut buf = Box::new([0u8; BLOCK_SIZE as usize]);
 
@@ -32,30 +84,48 @@ impl Ext2Fs {
 
         let bit_iterator: BitIterator<u8> = BitIterator::new(buf.as_mut_slice());
 
+        let mut cur_empty_block_in_inode = 0;
         for (idx, bit) in bit_iterator.into_iter().enumerate() {
+            if remaining_blocks <= 0 {
+                break;
+            }
+
             if bit == Bit::One {
                 continue;
             }
 
             remaining_blocks -= 1;
+            inode.i_block[cur_empty_block_in_inode] = ((block_group_size * group_number
+                + RESERVED_BOOT_RECORD_OFFSET
+                + 5
+                + BLOCK_SECTOR_SIZE)
+                + idx as i64) as u32;
+
+            cur_empty_block_in_inode += 1;
         }
+
+        if remaining_blocks <= 0 {
+            return Ok(());
+        }
+
+        // iterate over the entire filesystem
+        self.traverse_find_blocks(inode, cur_empty_block_in_inode, remaining_blocks)
+            .await?;
 
         Ok(())
     }
 
     pub async fn find_available_inode(&self) -> Result<i64, HalFsOpenErr> {
-        let block_group_size =
-            self.super_block.s_blocks_per_group as i64 * (BLOCK_SIZE as i64 / SECTOR_SIZE as i64);
+        let block_group_size = self.block_group_size();
 
         let mut inode_count = 0;
         let mut buf = Box::new([0u8; BLOCK_SIZE as usize]);
 
-        for addr in (RESERVED_BOOT_RECORD_OFFSET
-            ..RESERVED_BOOT_RECORD_OFFSET + self.entry.end_lba as i64 - self.entry.start_lba as i64
-                + 1)
+        for (group_number, addr) in (RESERVED_BOOT_RECORD_OFFSET..self.len() + 1)
             .step_by(block_group_size as usize)
+            .enumerate()
         {
-            let inode_bitmap_loc = addr + 3;
+            let inode_bitmap_loc = addr + 3 * BLOCK_SECTOR_SIZE;
             self.read_sectors(buf.clone(), inode_bitmap_loc).await?;
 
             let bit_iterator: BitIterator<u8> = BitIterator::<u8> {
@@ -65,7 +135,7 @@ impl Ext2Fs {
             };
 
             for (idx, bit) in bit_iterator.into_iter().enumerate() {
-                if inode_count as i64 * INODE_SIZE as i64 + addr + 4
+                if inode_count as i64 * INODE_SIZE as i64 + addr + 4 * BLOCK_SECTOR_SIZE
                     < self.super_block.s_first_ino as i64
                 {
                     continue;
@@ -83,15 +153,21 @@ impl Ext2Fs {
                 self.read_sectors(inode_table_buf.clone(), inode_table_loc)
                     .await?;
 
-                let inode = Inode::deserialize(
+                let mut ino = Inode::deserialize(
                     dvida_serialize::Endianness::Little,
                     &inode_table_buf[idx * INODE_SIZE as usize..],
                 )?
                 .0;
+
+                self.allocated_blocks_for_inode(&mut ino, group_number as i64)
+                    .await?;
+
+                //TODO: write everything
+                return Ok(inode_count as i64 * INODE_SIZE as i64 + addr + 4 * BLOCK_SECTOR_SIZE);
             }
         }
 
-        Ok(0)
+        Err(HalFsOpenErr::NoAvailableInode)
     }
 
     pub async fn create_file(&mut self, inode: &Inode) -> Result<(), HalFsOpenErr> {

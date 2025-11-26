@@ -35,4 +35,10 @@ impl Ext2Fs {
     ) -> Result<(), HalStorageOperationErr> {
         storage::write_sectors(self.drive_id, buffer, self.entry.start_lba as i64 + lba).await
     }
+
+    pub fn len(&self) -> i64 {
+        (self.entry.end_lba - self.entry.start_lba)
+            .try_into()
+            .unwrap_or(i64::MAX)
+    }
 }
