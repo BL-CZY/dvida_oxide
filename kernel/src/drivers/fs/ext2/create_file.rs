@@ -1,4 +1,4 @@
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec, vec::Vec};
 use dvida_serialize::DvDeserialize;
 
 use crate::{
@@ -10,6 +10,11 @@ use crate::{
 pub const RESERVED_BOOT_RECORD_OFFSET: i64 = 2;
 pub const BLOCK_SECTOR_SIZE: i64 = (BLOCK_SIZE as i64 / SECTOR_SIZE as i64) as i64;
 
+struct Block {
+    addr: i64,
+    gr_number: i64,
+}
+
 impl Ext2Fs {
     fn block_group_size(&self) -> i64 {
         self.super_block.s_blocks_per_group as i64 * (BLOCK_SIZE as i64 / SECTOR_SIZE as i64)
@@ -20,8 +25,9 @@ impl Ext2Fs {
         inode: &mut Inode,
         mut cur_empty_block_in_inode: usize,
         mut remaining_blocks: u8,
-    ) -> Result<(), HalFsOpenErr> {
+    ) -> Result<Vec<Block>, HalFsOpenErr> {
         let block_group_size = self.block_group_size();
+        let blocks_allocated = vec![];
 
         for (group_number, addr) in (RESERVED_BOOT_RECORD_OFFSET..self.len() + 1)
             .step_by(block_group_size as usize)
@@ -65,7 +71,7 @@ impl Ext2Fs {
         &self,
         inode: &mut Inode,
         group_number: i64,
-    ) -> Result<(), HalFsOpenErr> {
+    ) -> Result<Vec<Block>, HalFsOpenErr> {
         if self.super_block.s_prealloc_blocks > 12 {
             todo!("implement prealloc block more than 12");
         }
