@@ -5,12 +5,18 @@ use crate::{
     crypto::iterators::{Bit, BitIterator},
     drivers::fs::ext2::{BLOCK_SIZE, INODE_SIZE, Inode, structs::Ext2Fs},
     hal::{fs::HalFsOpenErr, storage::SECTOR_SIZE},
+    time::{Rtc, formats::rtc_to_posix},
 };
 
 pub const RESERVED_BOOT_RECORD_OFFSET: i64 = 2;
 pub const BLOCK_SECTOR_SIZE: i64 = (BLOCK_SIZE as i64 / SECTOR_SIZE as i64) as i64;
 
-struct Block {
+struct AllocatedBlock {
+    addr: i64,
+    gr_number: i64,
+}
+
+struct AllocatedInode {
     addr: i64,
     gr_number: i64,
 }
@@ -25,9 +31,9 @@ impl Ext2Fs {
         inode: &mut Inode,
         mut cur_empty_block_in_inode: usize,
         mut remaining_blocks: u8,
-    ) -> Result<Vec<Block>, HalFsOpenErr> {
+    ) -> Result<Vec<AllocatedBlock>, HalFsOpenErr> {
         let block_group_size = self.block_group_size();
-        let blocks_allocated = vec![];
+        let mut blocks_allocated = vec![];
 
         for (group_number, addr) in (RESERVED_BOOT_RECORD_OFFSET..self.len() + 1)
             .step_by(block_group_size as usize)
@@ -53,28 +59,36 @@ impl Ext2Fs {
                     continue;
                 }
 
-                remaining_blocks -= 1;
-                inode.i_block[cur_empty_block_in_inode] = ((block_group_size * group_number as i64
+                let block_addr = ((block_group_size * group_number as i64
                     + RESERVED_BOOT_RECORD_OFFSET
                     + 5
                     + BLOCK_SECTOR_SIZE)
                     + idx as i64) as u32;
+                remaining_blocks -= 1;
+                inode.i_block[cur_empty_block_in_inode] = block_addr;
+
+                blocks_allocated.push(AllocatedBlock {
+                    addr: block_addr as i64,
+                    gr_number: group_number as i64,
+                });
 
                 cur_empty_block_in_inode += 1;
             }
         }
 
-        Ok(())
+        Ok(blocks_allocated)
     }
 
     pub async fn allocated_blocks_for_inode(
         &self,
         inode: &mut Inode,
         group_number: i64,
-    ) -> Result<Vec<Block>, HalFsOpenErr> {
+    ) -> Result<Vec<AllocatedBlock>, HalFsOpenErr> {
         if self.super_block.s_prealloc_blocks > 12 {
             todo!("implement prealloc block more than 12");
         }
+
+        let mut blocks_allocated = vec![];
 
         let mut remaining_blocks = self.super_block.s_prealloc_blocks;
 
@@ -100,28 +114,36 @@ impl Ext2Fs {
                 continue;
             }
 
-            remaining_blocks -= 1;
-            inode.i_block[cur_empty_block_in_inode] = ((block_group_size * group_number
+            let block_addr = ((block_group_size * group_number
                 + RESERVED_BOOT_RECORD_OFFSET
                 + 5
                 + BLOCK_SECTOR_SIZE)
                 + idx as i64) as u32;
 
+            remaining_blocks -= 1;
+            inode.i_block[cur_empty_block_in_inode] = block_addr;
             cur_empty_block_in_inode += 1;
+            blocks_allocated.push(AllocatedBlock {
+                addr: block_addr as i64,
+                gr_number: group_number,
+            });
         }
 
         if remaining_blocks <= 0 {
-            return Ok(());
+            return Ok(blocks_allocated);
         }
 
         // iterate over the entire filesystem
-        self.traverse_find_blocks(inode, cur_empty_block_in_inode, remaining_blocks)
-            .await?;
+        blocks_allocated.extend(
+            self.traverse_find_blocks(inode, cur_empty_block_in_inode, remaining_blocks)
+                .await?
+                .into_iter(),
+        );
 
-        Ok(())
+        Ok(blocks_allocated)
     }
 
-    pub async fn find_available_inode(&self) -> Result<i64, HalFsOpenErr> {
+    pub async fn find_available_inode(&self) -> Result<AllocatedInode, HalFsOpenErr> {
         let block_group_size = self.block_group_size();
 
         let mut inode_count = 0;
@@ -169,17 +191,59 @@ impl Ext2Fs {
                     .await?;
 
                 //TODO: write everything
-                return Ok(inode_count as i64 * INODE_SIZE as i64 + addr + 4 * BLOCK_SECTOR_SIZE);
+                return Ok(AllocatedInode {
+                    addr: inode_count as i64 * INODE_SIZE as i64 + addr + 4 * BLOCK_SECTOR_SIZE,
+                    gr_number: group_number as i64,
+                });
             }
         }
 
         Err(HalFsOpenErr::NoAvailableInode)
     }
 
-    pub async fn create_file(&mut self, inode: &Inode) -> Result<(), HalFsOpenErr> {
-        if !inode.is_directory() {
+    async fn write_changes(
+        &mut self,
+        inode: &AllocatedInode,
+        blocks: &[AllocatedBlock],
+    ) -> Result<(), HalFsOpenErr> {
+        Ok(())
+    }
+
+    pub async fn create_file(&mut self, dir: &mut Inode) -> Result<(), HalFsOpenErr> {
+        if !dir.is_directory() {
             return Err(HalFsOpenErr::NotADirectory);
         }
+
+        let time = Rtc::new()
+            .read_datetime()
+            .map_or_else(|| 0, |dt| rtc_to_posix(&dt));
+
+        let allocated_inode = self.find_available_inode().await?;
+        let mut inode = Inode {
+            i_mode: 0b111111111, // TODO: permission
+            i_uid: 0,            //TODO; uid
+            i_size: self.super_block.s_prealloc_blocks as u32 * BLOCK_SIZE as u32, // TODO: directory
+            i_atime: time,
+            i_ctime: time,
+            i_mtime: time,
+            i_dtime: time, // TODO: deletion
+            i_gid: 0,      // TODO: gid
+            i_links_count: 1,
+            i_blocks: self.super_block.s_prealloc_blocks as u32, // TODO: directory
+            i_flags: 0,                                          // TODO: flags
+            i_osd1: 0,
+            i_osd2: [0; 12],
+            i_block: [0; 15],
+            i_file_acl: 0,
+            i_dir_acl: 0,
+            i_faddr: 0,
+            i_generation: 0,
+        };
+        let blocks = self
+            .allocated_blocks_for_inode(&mut inode, allocated_inode.gr_number)
+            .await?;
+
+        self.write_changes(&allocated_inode, &blocks).await?;
 
         Ok(())
     }
