@@ -1,9 +1,12 @@
 use alloc::{boxed::Box, vec, vec::Vec};
-use dvida_serialize::DvDeserialize;
+use dvida_serialize::{DvDeserialize, DvSerialize};
 
 use crate::{
     crypto::iterators::{Bit, BitIterator},
-    drivers::fs::ext2::{BLOCK_SIZE, INODE_SIZE, Inode, structs::Ext2Fs},
+    drivers::fs::ext2::{
+        BLOCK_SIZE, INODE_SIZE, Inode,
+        structs::{Ext2Fs, block_group_size},
+    },
     hal::{fs::HalFsOpenErr, storage::SECTOR_SIZE},
     time::{Rtc, formats::rtc_to_posix},
 };
@@ -13,17 +16,25 @@ pub const BLOCK_SECTOR_SIZE: i64 = (BLOCK_SIZE as i64 / SECTOR_SIZE as i64) as i
 
 struct AllocatedBlock {
     addr: i64,
+    // relative to the block group
+    block_idx: i64,
     gr_number: i64,
 }
 
 struct AllocatedInode {
     addr: i64,
+    inode: Inode,
+    // relative to the block group
+    inode_idx: i64,
     gr_number: i64,
 }
 
 impl Ext2Fs {
-    fn block_group_size(&self) -> i64 {
-        self.super_block.s_blocks_per_group as i64 * (BLOCK_SIZE as i64 / SECTOR_SIZE as i64)
+    pub fn block_group_size(&self) -> i64 {
+        block_group_size(
+            self.super_block.s_blocks_per_group.into(),
+            self.super_block.block_size().into(),
+        )
     }
 
     pub async fn traverse_find_blocks(
@@ -69,6 +80,7 @@ impl Ext2Fs {
 
                 blocks_allocated.push(AllocatedBlock {
                     addr: block_addr as i64,
+                    block_idx: idx as i64,
                     gr_number: group_number as i64,
                 });
 
@@ -125,6 +137,7 @@ impl Ext2Fs {
             cur_empty_block_in_inode += 1;
             blocks_allocated.push(AllocatedBlock {
                 addr: block_addr as i64,
+                block_idx: idx as i64,
                 gr_number: group_number,
             });
         }
@@ -175,7 +188,6 @@ impl Ext2Fs {
                     continue;
                 }
 
-                // TODO: set it to 1
                 let inode_table_buf = Box::new([0u8; BLOCK_SIZE as usize]);
                 let inode_table_loc = addr + 4;
                 self.read_sectors(inode_table_buf.clone(), inode_table_loc)
@@ -190,9 +202,10 @@ impl Ext2Fs {
                 self.allocated_blocks_for_inode(&mut ino, group_number as i64)
                     .await?;
 
-                //TODO: write everything
                 return Ok(AllocatedInode {
                     addr: inode_count as i64 * INODE_SIZE as i64 + addr + 4 * BLOCK_SECTOR_SIZE,
+                    inode_idx: idx as i64,
+                    inode: ino,
                     gr_number: group_number as i64,
                 });
             }
@@ -206,6 +219,49 @@ impl Ext2Fs {
         inode: &AllocatedInode,
         blocks: &[AllocatedBlock],
     ) -> Result<(), HalFsOpenErr> {
+        let mut buf = Box::new([0; BLOCK_SIZE as usize]);
+        let mut cur_bitmap_lba = -1;
+
+        for AllocatedBlock {
+            block_idx,
+            gr_number,
+            ..
+        } in blocks.iter()
+        {
+            let group = self.get_group(*gr_number);
+            let block_bitmap_lba = group.get_block_bitmap_lba();
+
+            if cur_bitmap_lba != block_bitmap_lba {
+                if cur_bitmap_lba != -1 {
+                    self.write_sectors(buf.clone(), cur_bitmap_lba).await?;
+                }
+
+                self.read_sectors(buf.clone(), block_bitmap_lba).await?;
+                cur_bitmap_lba = block_bitmap_lba
+            }
+
+            let mut target = buf[*block_idx as usize / 8];
+            target = target | 0x1 << *block_idx as usize % 8;
+            buf[*block_idx as usize / 8] = target;
+        }
+
+        self.write_sectors(buf.clone(), cur_bitmap_lba).await?;
+
+        let this_inode_lba_offset = (inode.inode_idx * INODE_SIZE) / BLOCK_SIZE as i64;
+        let group = self.get_group(inode.gr_number);
+        let lba = group.get_inode_table_lba() + this_inode_lba_offset;
+
+        buf.fill(0);
+        self.read_sectors(buf.clone(), lba).await?;
+
+        let offset = (inode.inode_idx * INODE_SIZE) % BLOCK_SIZE as i64;
+        inode.inode.serialize(
+            dvida_serialize::Endianness::Little,
+            &mut buf[offset as usize..],
+        )?;
+
+        self.write_sectors(buf, lba).await?;
+
         Ok(())
     }
 
