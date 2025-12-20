@@ -10,7 +10,7 @@ use crate::{
 struct Progress {
     block_num: u32,
     offset: u32,
-    idx: u32,
+    bytes_written: usize,
 }
 
 pub const INODE_BLOCK_LIMIT: u32 = 12;
@@ -24,7 +24,7 @@ pub const ADDR_PER_BLOCK: u32 = BLOCK_SIZE / 4;
 
 impl Ext2Fs {
     // this function has no bound checks so the i_size check has to be done before calling this
-    async fn get_block_lba(self, inode: &Inode, mut idx: u32) -> Result<u32, HalFsReadErr> {
+    async fn get_block_lba(&self, inode: &Inode, mut idx: u32) -> Result<u32, HalFsReadErr> {
         if idx < INODE_BLOCK_LIMIT {
             // after that we use indirect blocks
             return Ok(inode.i_block[idx as usize]);
@@ -104,21 +104,36 @@ impl Ext2Fs {
     }
 
     async fn read_till_next_block(
-        self,
+        &self,
         inode: &mut Inode,
-        buf: &mut [u8],
+        target: &mut [u8],
         ctx: &mut HalReadCtx,
         progress: &mut Progress,
     ) -> Result<(), HalFsReadErr> {
-        for i in progress.offset..self.super_block.block_size() {}
+        let lba = self
+            .get_block_lba(inode, progress.bytes_written as u32)
+            .await?;
+        let buf = Box::new([0u8; BLOCK_SIZE as usize]);
+
+        self.read_sectors(buf.clone(), lba as i64).await?;
+
+        for i in progress.offset..self.super_block.block_size() {
+            target[progress.bytes_written] = buf[i as usize];
+            progress.bytes_written += 1;
+            ctx.head += 1;
+
+            if ctx.head as u32 >= inode.i_size {
+                return Ok(());
+            }
+        }
 
         Ok(())
     }
 
     pub async fn read(
-        self,
+        &self,
         inode: &mut Inode,
-        buf: Box<[u8]>,
+        mut buf: Box<[u8]>,
         ctx: &mut HalReadCtx,
     ) -> Result<usize, HalFsReadErr> {
         if inode.is_directory() {
@@ -138,8 +153,13 @@ impl Ext2Fs {
         let mut progress = Progress {
             block_num: ctx.head as u32 / self.super_block.block_size(),
             offset: ctx.head as u32 % self.super_block.block_size(),
-            idx: 0,
+            bytes_written: 0,
         };
+
+        while (ctx.head as u32) < inode.i_size {
+            self.read_till_next_block(inode, &mut buf, ctx, &mut progress)
+                .await?;
+        }
 
         Ok(EOF)
     }
