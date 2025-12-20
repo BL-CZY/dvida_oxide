@@ -1,0 +1,106 @@
+use alloc::boxed::Box;
+use dvida_serialize::DvDeserialize;
+
+use crate::{
+    drivers::fs::ext2::{BLOCK_SIZE, Inode, structs::Ext2Fs},
+    hal::fs::{EOF, HalFsReadErr, HalReadCtx},
+};
+
+#[derive(Debug)]
+struct Progress {
+    block_num: u32,
+    offset: u32,
+    idx: u32,
+}
+
+pub const INODE_BLOCK_LIMIT: u32 = 12;
+pub const IND_BLOCK_ADDR_COUNT: u32 = BLOCK_SIZE / 4;
+pub const INODE_IND_BLOCK_LIMIT: u32 = INODE_BLOCK_LIMIT + IND_BLOCK_ADDR_COUNT;
+pub const INODE_DOUBLE_IND_BLOCK_LIMIT: u32 =
+    INODE_IND_BLOCK_LIMIT + IND_BLOCK_ADDR_COUNT * IND_BLOCK_ADDR_COUNT;
+pub const INODE_TRIPLE_IND_BLOCK_LIMIT: u32 = INODE_DOUBLE_IND_BLOCK_LIMIT
+    + IND_BLOCK_ADDR_COUNT * IND_BLOCK_ADDR_COUNT * IND_BLOCK_ADDR_COUNT;
+pub const ADDR_PER_BLOCK: u32 = BLOCK_SIZE / 4;
+
+impl Ext2Fs {
+    // this function has no bound checks so the i_size check has to be done before calling this
+    async fn get_block_lba(self, inode: &Inode, mut idx: u32) -> Result<u32, HalFsReadErr> {
+        if idx < INODE_BLOCK_LIMIT {
+            // after that we use indirect blocks
+            return Ok(inode.i_block[idx as usize]);
+        }
+
+        let mut buf = Box::new([0u8; BLOCK_SIZE as usize]);
+        if idx < INODE_IND_BLOCK_LIMIT {
+            // after that we use double indirect blocks
+            idx = idx - 12;
+            self.read_sectors(buf.clone(), inode.i_block[idx as usize] as i64)
+                .await;
+
+            return Ok(u32::deserialize(
+                dvida_serialize::Endianness::Little,
+                &buf[idx as usize * 4..],
+            )?
+            .0);
+        }
+
+        if idx < INODE_DOUBLE_IND_BLOCK_LIMIT {
+            let block_idx = idx / ADDR_PER_BLOCK;
+            self.read_sectors(buf.clone(), inode.i_block[12] as i64)
+                .await;
+
+            let ind_block_addr = u32::deserialize(
+                dvida_serialize::Endianness::Little,
+                &buf[block_idx as usize * 4..],
+            )?
+            .0 as i64;
+
+            buf.fill(0);
+            self.read_sectors(buf.clone(), ind_block_addr).await;
+        }
+
+        // we are not supposed to be here because of the i_size checks
+        Err(HalFsReadErr::Internal)
+    }
+
+    async fn read_till_next_block(
+        self,
+        inode: &mut Inode,
+        buf: &mut [u8],
+        ctx: &mut HalReadCtx,
+        progress: &mut Progress,
+    ) -> Result<(), HalFsReadErr> {
+        for i in progress.offset..self.super_block.block_size() {}
+
+        Ok(())
+    }
+
+    pub async fn read(
+        self,
+        inode: &mut Inode,
+        buf: Box<[u8]>,
+        ctx: &mut HalReadCtx,
+    ) -> Result<usize, HalFsReadErr> {
+        if inode.is_directory() {
+            return Err(HalFsReadErr::IsDirectory);
+        }
+
+        let len = if (inode.i_size - (ctx.head as u32)) % (buf.len() as u32) == 0 {
+            buf.len()
+        } else {
+            buf.len() + ctx.head as usize - inode.i_size as usize
+        };
+
+        if buf.len() < len {
+            return Err(HalFsReadErr::BufTooSmall);
+        }
+
+        let mut progress = Progress {
+            block_num: ctx.head as u32 / self.super_block.block_size(),
+            offset: ctx.head as u32 % self.super_block.block_size(),
+            idx: 0,
+        };
+
+        Ok(EOF)
+    }
+}

@@ -8,6 +8,8 @@ use crate::{
     hal::{gpt::GPTEntry, path::Path, storage::HalStorageOperationErr},
 };
 
+pub const EOF: usize = 0;
+
 #[derive(Debug)]
 pub struct MountPoint {
     pub fs: FileSystem,
@@ -86,6 +88,20 @@ pub enum HalFsOpenErr {
     NotADirectory,
     NoAvailableInode,
 }
+#[derive(Debug)]
+pub enum HalFsReadErr {
+    HalErr(HalStorageOperationErr),
+    DeserializationErr(DvDeErr),
+    SerializationErr(DvSerErr),
+    BufTooSmall,
+    IsDirectory,
+    Internal,
+}
+
+#[derive(Debug)]
+pub struct HalReadCtx {
+    pub head: usize,
+}
 
 impl From<DvDeErr> for HalFsOpenErr {
     fn from(value: DvDeErr) -> Self {
@@ -99,7 +115,25 @@ impl From<DvSerErr> for HalFsOpenErr {
     }
 }
 
+impl From<DvDeErr> for HalFsReadErr {
+    fn from(value: DvDeErr) -> Self {
+        Self::DeserializationErr(value)
+    }
+}
+
+impl From<DvSerErr> for HalFsReadErr {
+    fn from(value: DvSerErr) -> Self {
+        Self::SerializationErr(value)
+    }
+}
+
 impl From<HalStorageOperationErr> for HalFsOpenErr {
+    fn from(value: HalStorageOperationErr) -> Self {
+        Self::HalErr(value)
+    }
+}
+
+impl From<HalStorageOperationErr> for HalFsReadErr {
     fn from(value: HalStorageOperationErr) -> Self {
         Self::HalErr(value)
     }
