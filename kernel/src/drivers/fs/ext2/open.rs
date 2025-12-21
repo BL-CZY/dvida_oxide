@@ -219,6 +219,8 @@ impl Ext2Fs {
         )?
         .0;
 
+        let mut block_group_idx = 0;
+
         let mut it = path.normalize().components().into_iter().peekable();
         while let Some(component) = it.next() {
             if it.peek().is_none() {
@@ -235,12 +237,17 @@ impl Ext2Fs {
                     self.read_sectors(buf.clone(), res).await?;
                     inode =
                         Inode::deserialize(dvida_serialize::Endianness::Little, buf.as_ref())?.0;
+
+                    block_group_idx = self.get_group_from_lba(res).group_number;
                 }
                 Ok(None) => return Err(HalFsOpenErr::NoSuchFileOrDirectory),
                 Err(e) => return Err(e),
             }
         }
 
-        Ok(HalInode::Ext2(inode))
+        Ok(HalInode::Ext2(super::InodePlus {
+            inode: inode,
+            group_number: block_group_idx as u32,
+        }))
     }
 }

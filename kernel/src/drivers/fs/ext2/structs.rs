@@ -1,20 +1,22 @@
 use alloc::{boxed::Box, vec::Vec};
 
 use crate::{
-    drivers::fs::ext2::{GroupDescriptor, SuperBlock, create_file::RESERVED_BOOT_RECORD_OFFSET},
+    drivers::fs::ext2::{
+        GroupDescriptor, SuperBlock,
+        create_file::{BLOCK_SECTOR_SIZE, RESERVED_BOOT_RECORD_OFFSET},
+    },
     hal::{
         gpt::GPTEntry,
         storage::{self, HalStorageOperationErr, SECTOR_SIZE},
     },
 };
 
-// TODO: sparse superblock
-/// All relative lba addresses
+/// no sparse superblock
 #[derive(Debug)]
 pub struct Ext2BlockGroup {
-    group_number: i64,
-    blocks_per_group: i64,
-    sectors_per_block: i64,
+    pub group_number: i64,
+    pub blocks_per_group: i64,
+    pub sectors_per_block: i64,
 }
 
 impl Ext2BlockGroup {
@@ -106,6 +108,15 @@ impl Ext2Fs {
         (self.entry.end_lba - self.entry.start_lba)
             .try_into()
             .unwrap_or(i64::MAX)
+    }
+
+    pub fn get_group_from_lba(&self, lba: i64) -> Ext2BlockGroup {
+        Ext2BlockGroup {
+            group_number: lba
+                / (self.super_block.s_blocks_per_group as i64 * BLOCK_SECTOR_SIZE) as i64,
+            blocks_per_group: self.super_block.s_blocks_per_group as i64,
+            sectors_per_block: self.super_block.block_size() as i64 / SECTOR_SIZE as i64,
+        }
     }
 
     pub fn get_group(&self, gr_number: i64) -> Ext2BlockGroup {

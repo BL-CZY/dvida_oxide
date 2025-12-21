@@ -97,7 +97,7 @@ impl Ext2Fs {
         group_number: i64,
     ) -> Result<Vec<AllocatedBlock>, HalFsOpenErr> {
         if self.super_block.s_prealloc_blocks > 12 {
-            todo!("implement prealloc block more than 12");
+            return Err(HalFsOpenErr::Unsupported);
         }
 
         let mut blocks_allocated = vec![];

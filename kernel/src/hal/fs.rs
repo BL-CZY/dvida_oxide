@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
 use dvida_serialize::{DvDeErr, DvSerErr};
 
 use crate::{
@@ -74,7 +74,7 @@ pub struct OpenFlags {
 }
 
 pub enum HalInode {
-    Ext2(ext2::Inode),
+    Ext2(ext2::InodePlus),
 }
 
 #[derive(Debug)]
@@ -87,6 +87,7 @@ pub enum HalFsOpenErr {
     NoSuchFileOrDirectory,
     NotADirectory,
     NoAvailableInode,
+    Unsupported,
 }
 #[derive(Debug)]
 pub enum HalFsIOErr {
