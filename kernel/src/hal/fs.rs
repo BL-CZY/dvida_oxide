@@ -89,7 +89,7 @@ pub enum HalFsOpenErr {
     NoAvailableInode,
 }
 #[derive(Debug)]
-pub enum HalFsReadErr {
+pub enum HalFsIOErr {
     HalErr(HalStorageOperationErr),
     DeserializationErr(DvDeErr),
     SerializationErr(DvSerErr),
@@ -99,7 +99,7 @@ pub enum HalFsReadErr {
 }
 
 #[derive(Debug)]
-pub struct HalReadCtx {
+pub struct HalIOCtx {
     pub head: usize,
 }
 
@@ -115,13 +115,13 @@ impl From<DvSerErr> for HalFsOpenErr {
     }
 }
 
-impl From<DvDeErr> for HalFsReadErr {
+impl From<DvDeErr> for HalFsIOErr {
     fn from(value: DvDeErr) -> Self {
         Self::DeserializationErr(value)
     }
 }
 
-impl From<DvSerErr> for HalFsReadErr {
+impl From<DvSerErr> for HalFsIOErr {
     fn from(value: DvSerErr) -> Self {
         Self::SerializationErr(value)
     }
@@ -133,7 +133,7 @@ impl From<HalStorageOperationErr> for HalFsOpenErr {
     }
 }
 
-impl From<HalStorageOperationErr> for HalFsReadErr {
+impl From<HalStorageOperationErr> for HalFsIOErr {
     fn from(value: HalStorageOperationErr) -> Self {
         Self::HalErr(value)
     }

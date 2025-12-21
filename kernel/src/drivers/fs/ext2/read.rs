@@ -3,14 +3,14 @@ use dvida_serialize::DvDeserialize;
 
 use crate::{
     drivers::fs::ext2::{BLOCK_SIZE, Inode, structs::Ext2Fs},
-    hal::fs::{EOF, HalFsReadErr, HalReadCtx},
+    hal::fs::{HalFsIOErr, HalIOCtx},
 };
 
 #[derive(Debug)]
-struct Progress {
-    block_num: u32,
-    offset: u32,
-    bytes_written: usize,
+pub struct Progress {
+    pub block_idx: u32,
+    pub offset: u32,
+    pub bytes_written: usize,
 }
 
 pub const INODE_BLOCK_LIMIT: u32 = 12;
@@ -24,7 +24,7 @@ pub const ADDR_PER_BLOCK: u32 = BLOCK_SIZE / 4;
 
 impl Ext2Fs {
     // this function has no bound checks so the i_size check has to be done before calling this
-    async fn get_block_lba(&self, inode: &Inode, mut idx: u32) -> Result<u32, HalFsReadErr> {
+    pub async fn get_block_lba(&self, inode: &Inode, mut idx: u32) -> Result<u32, HalFsIOErr> {
         if idx < INODE_BLOCK_LIMIT {
             // after that we use indirect blocks
             return Ok(inode.i_block[idx as usize]);
@@ -100,44 +100,49 @@ impl Ext2Fs {
         }
 
         // we are not supposed to be here because of the i_size checks
-        Err(HalFsReadErr::Internal)
+        Err(HalFsIOErr::Internal)
     }
 
     async fn read_till_next_block(
         &self,
-        inode: &mut Inode,
+        inode: &Inode,
         target: &mut [u8],
-        ctx: &mut HalReadCtx,
+        ctx: &mut HalIOCtx,
         progress: &mut Progress,
-    ) -> Result<(), HalFsReadErr> {
-        let lba = self
-            .get_block_lba(inode, progress.bytes_written as u32)
-            .await?;
+    ) -> Result<(), HalFsIOErr> {
+        let lba = self.get_block_lba(inode, progress.block_idx as u32).await?;
         let buf = Box::new([0u8; BLOCK_SIZE as usize]);
 
         self.read_sectors(buf.clone(), lba as i64).await?;
 
         for i in progress.offset..self.super_block.block_size() {
-            target[progress.bytes_written] = buf[i as usize];
-            progress.bytes_written += 1;
-            ctx.head += 1;
-
             if ctx.head as u32 >= inode.i_size {
                 return Ok(());
             }
+
+            if progress.bytes_written >= target.len() {
+                return Ok(());
+            }
+
+            target[progress.bytes_written] = buf[i as usize];
+            progress.bytes_written += 1;
+            ctx.head += 1;
         }
+
+        progress.block_idx += 1;
+        progress.offset = 0;
 
         Ok(())
     }
 
     pub async fn read(
         &self,
-        inode: &mut Inode,
+        inode: &Inode,
         mut buf: Box<[u8]>,
-        ctx: &mut HalReadCtx,
-    ) -> Result<usize, HalFsReadErr> {
+        ctx: &mut HalIOCtx,
+    ) -> Result<usize, HalFsIOErr> {
         if inode.is_directory() {
-            return Err(HalFsReadErr::IsDirectory);
+            return Err(HalFsIOErr::IsDirectory);
         }
 
         let len = if (inode.i_size - (ctx.head as u32)) % (buf.len() as u32) == 0 {
@@ -147,20 +152,20 @@ impl Ext2Fs {
         };
 
         if buf.len() < len {
-            return Err(HalFsReadErr::BufTooSmall);
+            return Err(HalFsIOErr::BufTooSmall);
         }
 
         let mut progress = Progress {
-            block_num: ctx.head as u32 / self.super_block.block_size(),
+            block_idx: ctx.head as u32 / self.super_block.block_size(),
             offset: ctx.head as u32 % self.super_block.block_size(),
             bytes_written: 0,
         };
 
-        while (ctx.head as u32) < inode.i_size {
+        while (ctx.head as u32) < inode.i_size && progress.bytes_written < buf.len() {
             self.read_till_next_block(inode, &mut buf, ctx, &mut progress)
                 .await?;
         }
 
-        Ok(EOF)
+        Ok(progress.bytes_written)
     }
 }

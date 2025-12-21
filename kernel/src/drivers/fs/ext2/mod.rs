@@ -4,6 +4,7 @@ pub mod mount;
 pub mod open;
 pub mod read;
 pub mod structs;
+pub mod write;
 
 use alloc::string::String;
 use dvida_serialize::*;
@@ -106,6 +107,12 @@ pub struct Inode {
     i_dir_acl: u32,     // Directory ACL (or high 32 bits of size)
     i_faddr: u32,       // Fragment address
     i_osd2: [u8; 12],   // OS dependent field 2
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct InodePlus {
+    pub inode: Inode,
+    pub group_number: u32,
 }
 
 /// Directory entry structure (variable length)
