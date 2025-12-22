@@ -158,6 +158,54 @@ impl Ext2Fs {
         Ok(())
     }
 
+    pub async fn handle_indirect_block(
+        &mut self,
+        addr: u32,
+        inode: &mut Inode,
+        cur_ind_block_lba: &mut i64,
+        mut cur_block_buf: Box<[u8; BLOCK_SIZE as usize]>,
+        group_number: i64,
+        newly_allocated_blocks: &mut Vec<AllocatedBlock>,
+        block: &AllocatedBlock,
+    ) -> Result<(), HalFsIOErr> {
+        if addr == 0 {
+            let ind_block = self
+                .allocate_n_blocks_in_group(group_number, 1)
+                .await?
+                .remove(0);
+            *cur_ind_block_lba = ind_block.addr;
+            cur_block_buf.fill(0);
+            inode.i_block[INODE_BLOCK_LIMIT as usize] = ind_block.addr as u32;
+
+            newly_allocated_blocks.push(ind_block);
+
+            block.addr.serialize(
+                dvida_serialize::Endianness::Little,
+                &mut cur_block_buf[(inode.i_blocks - INODE_BLOCK_LIMIT) as usize * 4..],
+            )?;
+
+            return Ok(());
+        }
+
+        if *cur_ind_block_lba as u32 != inode.i_block[INODE_BLOCK_LIMIT as usize] {
+            if *cur_ind_block_lba != 0 {
+                self.write_sectors(cur_block_buf.clone(), *cur_ind_block_lba)
+                    .await?;
+            }
+
+            *cur_ind_block_lba = inode.i_block[INODE_BLOCK_LIMIT as usize] as i64;
+            self.read_sectors(cur_block_buf.clone(), *cur_ind_block_lba)
+                .await?;
+
+            block.addr.serialize(
+                dvida_serialize::Endianness::Little,
+                &mut cur_block_buf[(inode.i_blocks - INODE_BLOCK_LIMIT) as usize * 4..],
+            )?;
+        }
+
+        Ok(())
+    }
+
     pub async fn expand_inode(
         &mut self,
         inode: &mut Inode,
@@ -165,10 +213,13 @@ impl Ext2Fs {
         len: usize,
     ) -> Result<(), HalFsIOErr> {
         let block_count = len / BLOCK_SIZE as usize;
-        let blocks = self.allocate_n_blocks_in_group(group_number, len).await?;
+        let blocks = self
+            .allocate_n_blocks_in_group(group_number, block_count)
+            .await?;
 
         let mut cur_ind_block_lba = 0;
-        let mut cur_block_buf = Box::new([0u8; BLOCK_SIZE as usize]);
+        let cur_block_buf = Box::new([0u8; BLOCK_SIZE as usize]);
+
         let mut newly_allocated_blocks: Vec<AllocatedBlock> = vec![];
 
         for block in blocks.iter() {
@@ -176,40 +227,25 @@ impl Ext2Fs {
                 inode.i_block[inode.i_blocks as usize] = block.addr as u32;
                 inode.i_blocks += 1;
             } else if inode.i_blocks < INODE_IND_BLOCK_LIMIT {
-                if inode.i_block[INODE_BLOCK_LIMIT as usize] == 0 {
-                    let ind_block = self
+                self.handle_indirect_block(
+                    inode.i_block[INODE_BLOCK_LIMIT as usize],
+                    inode,
+                    &mut cur_ind_block_lba,
+                    cur_block_buf.clone(),
+                    group_number,
+                    &mut newly_allocated_blocks,
+                    block,
+                )
+                .await?;
+            } else if inode.i_blocks < INODE_DOUBLE_IND_BLOCK_LIMIT {
+                if inode.i_block[INODE_BLOCK_LIMIT as usize + 1] == 0 {
+                    let double_ind_block = self
                         .allocate_n_blocks_in_group(group_number, 1)
                         .await?
                         .remove(0);
-                    cur_ind_block_lba = ind_block.addr;
-                    cur_block_buf.fill(0);
-                    inode.i_block[INODE_BLOCK_LIMIT as usize] = ind_block.addr as u32;
 
-                    newly_allocated_blocks.push(ind_block);
-
-                    block.addr.serialize(
-                        dvida_serialize::Endianness::Little,
-                        &mut cur_block_buf[(inode.i_blocks - INODE_BLOCK_LIMIT) as usize * 4..],
-                    )?;
-
-                    continue;
+                    newly_allocated_blocks.push(double_ind_block);
                 }
-
-                if cur_ind_block_lba as u32 != inode.i_block[INODE_BLOCK_LIMIT as usize] {
-                    if cur_ind_block_lba != 0 {
-                        self.write_sectors(cur_block_buf.clone(), cur_ind_block_lba);
-                    }
-
-                    cur_ind_block_lba = inode.i_block[INODE_BLOCK_LIMIT as usize] as i64;
-                    self.read_sectors(cur_block_buf.clone(), cur_ind_block_lba)
-                        .await?;
-
-                    block.addr.serialize(
-                        dvida_serialize::Endianness::Little,
-                        &mut cur_block_buf[(inode.i_blocks - INODE_BLOCK_LIMIT) as usize * 4..],
-                    )?;
-                }
-            } else if inode.i_blocks < INODE_DOUBLE_IND_BLOCK_LIMIT {
             } else {
             }
         }
