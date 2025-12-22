@@ -1,11 +1,12 @@
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{boxed::Box, string::ToString, vec, vec::Vec};
+use dvida_serialize::DvSerialize;
 
 use crate::{
     crypto::iterators::{Bit, BitIterator},
     drivers::fs::ext2::{
-        BLOCK_SIZE, Inode,
+        BLOCK_SIZE, Inode, InodePlus,
         create_file::{AllocatedBlock, BLOCK_SECTOR_SIZE, RESERVED_BOOT_RECORD_OFFSET},
-        read::Progress,
+        read::{INODE_BLOCK_LIMIT, INODE_DOUBLE_IND_BLOCK_LIMIT, INODE_IND_BLOCK_LIMIT, Progress},
         structs::Ext2Fs,
     },
     hal::{
@@ -59,6 +60,10 @@ impl Ext2Fs {
                     gr_number: group_number as i64,
                 });
             }
+        }
+
+        if remaining_blocks > 0 {
+            return Err(HalStorageOperationErr::NoEnoughSpace);
         }
 
         Ok(blocks_allocated)
@@ -153,9 +158,71 @@ impl Ext2Fs {
         Ok(())
     }
 
-    pub async fn write(
+    pub async fn expand_inode(
         &mut self,
         inode: &mut Inode,
+        group_number: i64,
+        len: usize,
+    ) -> Result<(), HalFsIOErr> {
+        let block_count = len / BLOCK_SIZE as usize;
+        let blocks = self.allocate_n_blocks_in_group(group_number, len).await?;
+
+        let mut cur_ind_block_lba = 0;
+        let mut cur_block_buf = Box::new([0u8; BLOCK_SIZE as usize]);
+        let mut newly_allocated_blocks: Vec<AllocatedBlock> = vec![];
+
+        for block in blocks.iter() {
+            if inode.i_blocks < INODE_BLOCK_LIMIT {
+                inode.i_block[inode.i_blocks as usize] = block.addr as u32;
+                inode.i_blocks += 1;
+            } else if inode.i_blocks < INODE_IND_BLOCK_LIMIT {
+                if inode.i_block[INODE_BLOCK_LIMIT as usize] == 0 {
+                    let ind_block = self
+                        .allocate_n_blocks_in_group(group_number, 1)
+                        .await?
+                        .remove(0);
+                    cur_ind_block_lba = ind_block.addr;
+                    cur_block_buf.fill(0);
+                    inode.i_block[INODE_BLOCK_LIMIT as usize] = ind_block.addr as u32;
+
+                    newly_allocated_blocks.push(ind_block);
+
+                    block.addr.serialize(
+                        dvida_serialize::Endianness::Little,
+                        &mut cur_block_buf[(inode.i_blocks - INODE_BLOCK_LIMIT) as usize * 4..],
+                    )?;
+
+                    continue;
+                }
+
+                if cur_ind_block_lba as u32 != inode.i_block[INODE_BLOCK_LIMIT as usize] {
+                    if cur_ind_block_lba != 0 {
+                        self.write_sectors(cur_block_buf.clone(), cur_ind_block_lba);
+                    }
+
+                    cur_ind_block_lba = inode.i_block[INODE_BLOCK_LIMIT as usize] as i64;
+                    self.read_sectors(cur_block_buf.clone(), cur_ind_block_lba)
+                        .await?;
+
+                    block.addr.serialize(
+                        dvida_serialize::Endianness::Little,
+                        &mut cur_block_buf[(inode.i_blocks - INODE_BLOCK_LIMIT) as usize * 4..],
+                    )?;
+                }
+            } else if inode.i_blocks < INODE_DOUBLE_IND_BLOCK_LIMIT {
+            } else {
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn write(
+        &mut self,
+        InodePlus {
+            inode,
+            group_number,
+        }: &mut InodePlus,
         buf: Box<[u8]>,
         ctx: &mut HalIOCtx,
     ) -> Result<usize, HalFsIOErr> {
@@ -163,14 +230,9 @@ impl Ext2Fs {
             return Err(HalFsIOErr::IsDirectory);
         }
 
-        let len = if (inode.i_size - (ctx.head as u32)) % (buf.len() as u32) == 0 {
-            buf.len()
-        } else {
-            buf.len() + ctx.head as usize - inode.i_size as usize
-        };
-
-        if buf.len() < len {
-            return Err(HalFsIOErr::BufTooSmall);
+        if ctx.head + buf.len() >= inode.i_size as usize {
+            self.expand_inode(inode, *group_number as i64, ctx.head + buf.len())
+                .await;
         }
 
         let mut progress = Progress {

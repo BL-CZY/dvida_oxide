@@ -503,4 +503,8 @@ pub enum HalStorageOperationErr {
     DriveDidntRespond,
     #[error("Drive responded with error: {0}")]
     DriveErr(String),
+    #[error("Drive doesn't have enough space")]
+    NoEnoughSpace,
+    #[error("Internal error at {0}, {1}: {2}")]
+    Internal(u32, u32, String),
 }

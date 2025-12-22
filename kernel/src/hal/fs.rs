@@ -97,6 +97,7 @@ pub enum HalFsIOErr {
     BufTooSmall,
     IsDirectory,
     Internal,
+    NoSpaceLeft,
 }
 
 #[derive(Debug)]
