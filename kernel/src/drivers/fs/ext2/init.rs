@@ -24,19 +24,19 @@ use crate::{
     time::{self, Rtc, RtcDateTime, formats::rtc_to_posix},
 };
 
-pub async fn identify_ext2(drive_id: usize, entry: &GPTEntry) -> bool {
+pub async fn identify_ext2(drive_id: usize, entry: &GPTEntry) -> Option<SuperBlock> {
     let mut buf = Box::new([0u8; 1024]);
 
     if entry.start_lba - entry.end_lba < 3 {
         log!("Failed to identify ext2 because the GPT entry is too small");
-        return false;
+        return None;
     }
 
     match read_sectors(drive_id, buf.clone(), (entry.start_lba + 1) as i64).await {
         Ok(_) => {}
         Err(err) => {
             log!("Failed to identify ext2 because of read error: {}", err);
-            return false;
+            return None;
         }
     }
 
@@ -48,14 +48,14 @@ pub async fn identify_ext2(drive_id: usize, entry: &GPTEntry) -> bool {
                     "Failed to identify ext2 because of deserialization error: {:?}",
                     e
                 );
-                return false;
+                return None;
             }
         };
 
     if super_block.s_magic == 0xEF53 {
-        true
+        Some(super_block)
     } else {
-        false
+        None
     }
 }
 
