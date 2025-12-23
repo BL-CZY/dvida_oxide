@@ -1,4 +1,5 @@
 pub mod create_file;
+pub mod dirs;
 pub mod init;
 pub mod open;
 pub mod read;
@@ -88,29 +89,48 @@ pub struct GroupDescriptor {
 /// Inode structure - represents a file, directory, or other filesystem object
 #[derive(DvDeSer, Debug, Clone, Default)]
 pub struct Inode {
-    i_mode: u16,        // File mode (type and permissions)
-    i_uid: u16,         // Low 16 bits of owner UID
-    i_size: u32,        // Size in bytes
-    i_atime: u32,       // Access time
-    i_ctime: u32,       // Creation time
-    i_mtime: u32,       // Modification time
-    i_dtime: u32,       // Deletion time
-    i_gid: u16,         // Low 16 bits of group ID
-    i_links_count: u16, // Links count
-    i_blocks: u32,      // Blocks count (512-byte blocks)
-    i_flags: u32,       // File flags
-    i_osd1: u32,        // OS dependent field 1
-    i_block: [u32; 15], // Pointers to blocks
-    i_generation: u32,  // File version (for NFS)
-    i_file_acl: u32,    // File ACL (extended attributes)
-    i_dir_acl: u32,     // Directory ACL (or high 32 bits of size)
-    i_faddr: u32,       // Fragment address
-    i_osd2: [u8; 12],   // OS dependent field 2
+    /// File mode (type and permissions)
+    i_mode: u16,
+    /// Low 16 bits of owner UID
+    i_uid: u16,
+    /// Size in bytes
+    i_size: u32,
+    /// Access time
+    i_atime: u32,
+    /// Creation time
+    i_ctime: u32,
+    /// Modification time
+    i_mtime: u32,
+    /// Deletion time
+    i_dtime: u32,
+    /// Low 16 bits of group ID
+    i_gid: u16,
+    /// Links count
+    i_links_count: u16,
+    /// Blocks count (512-byte blocks)
+    i_blocks: u32,
+    /// File flags
+    i_flags: u32,
+    /// OS dependent field 1
+    i_osd1: u32,
+    /// Pointers to blocks
+    i_block: [u32; 15],
+    /// File version (for NFS)
+    i_generation: u32,
+    /// File ACL (extended attributes)
+    i_file_acl: u32,
+    /// Directory ACL (or high 32 bits of size)
+    i_dir_acl: u32,
+    /// Fragment address
+    i_faddr: u32,
+    /// OS dependent field 2
+    i_osd2: [u8; 12],
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct InodePlus {
     pub inode: Inode,
+    pub idx: u32,
     pub group_number: u32,
 }
 

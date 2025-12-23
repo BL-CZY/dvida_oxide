@@ -24,12 +24,12 @@ pub struct AllocatedBlock {
     pub gr_number: i64,
 }
 
-struct AllocatedInode {
-    addr: i64,
-    inode: Inode,
+pub struct AllocatedInode {
+    pub addr: i64,
+    pub inode: Inode,
     // relative to the block group
-    inode_idx: i64,
-    gr_number: i64,
+    pub inode_idx: i64,
+    pub gr_number: i64,
 }
 
 impl Ext2Fs {

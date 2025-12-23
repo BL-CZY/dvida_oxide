@@ -1,3 +1,4 @@
+use crate::time;
 use alloc::{boxed::Box, vec, vec::Vec};
 use dvida_serialize::{DvDeserialize, DvSerialize};
 
@@ -365,6 +366,7 @@ impl Ext2Fs {
         &mut self,
         InodePlus {
             inode,
+            idx,
             group_number,
         }: &mut InodePlus,
         buf: Box<[u8]>,
@@ -389,6 +391,16 @@ impl Ext2Fs {
             self.write_till_next_block(inode, buf.clone(), ctx, &mut progress)
                 .await?;
         }
+
+        let time = time::formats::rtc_to_posix(
+            &time::Rtc::new()
+                .read_datetime()
+                .expect("Failed to get time"),
+        );
+        inode.i_atime = time;
+        inode.i_ctime = time;
+
+        self.write_inode(inode, *idx, *group_number).await?;
 
         Ok(progress.bytes_written)
     }

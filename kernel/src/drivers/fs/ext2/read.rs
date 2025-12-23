@@ -1,9 +1,10 @@
 use alloc::boxed::Box;
-use dvida_serialize::DvDeserialize;
+use dvida_serialize::{DvDeserialize, DvSerialize};
 
 use crate::{
-    drivers::fs::ext2::{BLOCK_SIZE, Inode, structs::Ext2Fs},
+    drivers::fs::ext2::{BLOCK_SIZE, INODE_SIZE, Inode, InodePlus, structs::Ext2Fs},
     hal::fs::{HalFsIOErr, HalIOCtx},
+    time,
 };
 
 #[derive(Debug)]
@@ -135,9 +136,38 @@ impl Ext2Fs {
         Ok(())
     }
 
-    pub async fn read(
-        &self,
+    pub async fn write_inode(
+        &mut self,
         inode: &Inode,
+        idx: u32,
+        gr_number: u32,
+    ) -> Result<(), HalFsIOErr> {
+        let mut buf = Box::new([0; BLOCK_SIZE as usize]);
+        let this_inode_lba_offset = (idx as i64 * INODE_SIZE) / BLOCK_SIZE as i64;
+        let group = self.get_group(gr_number.into());
+        let lba = group.get_inode_table_lba() + this_inode_lba_offset;
+
+        buf.fill(0);
+        self.read_sectors(buf.clone(), lba).await?;
+
+        let offset = (idx as i64 * INODE_SIZE) % BLOCK_SIZE as i64;
+        inode.serialize(
+            dvida_serialize::Endianness::Little,
+            &mut buf[offset as usize..],
+        )?;
+
+        self.write_sectors(buf, lba).await?;
+
+        Ok(())
+    }
+
+    pub async fn read(
+        &mut self,
+        InodePlus {
+            inode,
+            idx,
+            group_number,
+        }: &mut InodePlus,
         mut buf: Box<[u8]>,
         ctx: &mut HalIOCtx,
     ) -> Result<usize, HalFsIOErr> {
@@ -165,6 +195,15 @@ impl Ext2Fs {
             self.read_till_next_block(inode, &mut buf, ctx, &mut progress)
                 .await?;
         }
+
+        let time = time::formats::rtc_to_posix(
+            &time::Rtc::new()
+                .read_datetime()
+                .expect("Failed to get time"),
+        );
+        inode.i_atime = time;
+
+        self.write_inode(inode, *idx, *group_number).await?;
 
         Ok(progress.bytes_written)
     }
