@@ -7,7 +7,10 @@ use crate::{
         BLOCK_SIZE, INODE_SIZE, Inode,
         structs::{Ext2Fs, block_group_size},
     },
-    hal::{fs::HalFsOpenErr, storage::SECTOR_SIZE},
+    hal::{
+        fs::HalFsOpenErr,
+        storage::{HalStorageOperationErr, SECTOR_SIZE},
+    },
     time::{Rtc, formats::rtc_to_posix},
 };
 
@@ -116,12 +119,11 @@ impl Ext2Fs {
         Err(HalFsOpenErr::NoAvailableInode)
     }
 
-    async fn write_changes(
+    pub async fn write_newly_allocated_blocks(
         &mut self,
-        inode: &AllocatedInode,
+        mut buf: Box<[u8; BLOCK_SIZE as usize]>,
         blocks: &[AllocatedBlock],
-    ) -> Result<(), HalFsOpenErr> {
-        let mut buf = Box::new([0; BLOCK_SIZE as usize]);
+    ) -> Result<(), HalStorageOperationErr> {
         let mut cur_bitmap_lba = -1;
 
         for AllocatedBlock {
@@ -148,6 +150,17 @@ impl Ext2Fs {
         }
 
         self.write_sectors(buf.clone(), cur_bitmap_lba).await?;
+        Ok(())
+    }
+
+    async fn write_changes(
+        &mut self,
+        inode: &AllocatedInode,
+        blocks: &[AllocatedBlock],
+    ) -> Result<(), HalFsOpenErr> {
+        let mut buf = Box::new([0; BLOCK_SIZE as usize]);
+        self.write_newly_allocated_blocks(buf.clone(), blocks)
+            .await?;
 
         let this_inode_lba_offset = (inode.inode_idx * INODE_SIZE) / BLOCK_SIZE as i64;
         let group = self.get_group(inode.gr_number);

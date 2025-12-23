@@ -354,6 +354,10 @@ impl Ext2Fs {
             }
         }
 
+        // repurpose the buffer as the buffer for the write_newly_allocated_blocks function;
+        let buf = cur_ind_block_buf;
+        self.write_newly_allocated_blocks(buf, &blocks).await?;
+
         Ok(())
     }
 
@@ -372,7 +376,7 @@ impl Ext2Fs {
 
         if ctx.head + buf.len() >= inode.i_size as usize {
             self.expand_inode(inode, *group_number as i64, ctx.head + buf.len())
-                .await;
+                .await?;
         }
 
         let mut progress = Progress {
@@ -382,8 +386,6 @@ impl Ext2Fs {
         };
 
         while progress.bytes_written < buf.len() {
-            if progress.block_idx >= inode.i_blocks {}
-
             self.write_till_next_block(inode, buf.clone(), ctx, &mut progress)
                 .await?;
         }
