@@ -4,11 +4,11 @@ use dvida_serialize::{DvDeserialize, DvSerialize};
 use crate::{
     crypto::iterators::{Bit, BitIterator},
     drivers::fs::ext2::{
-        BLOCK_SIZE, INODE_SIZE, Inode,
+        BLOCK_SIZE, INODE_SIZE, Inode, InodePlus,
         structs::{Ext2Fs, block_group_size},
     },
     hal::{
-        fs::HalFsOpenErr,
+        fs::HalFsIOErr,
         storage::{HalStorageOperationErr, SECTOR_SIZE},
     },
     time::{Rtc, formats::rtc_to_posix},
@@ -44,9 +44,9 @@ impl Ext2Fs {
         &self,
         inode: &mut Inode,
         group_number: i64,
-    ) -> Result<Vec<AllocatedBlock>, HalFsOpenErr> {
+    ) -> Result<Vec<AllocatedBlock>, HalFsIOErr> {
         if self.super_block.s_prealloc_blocks > 12 {
-            return Err(HalFsOpenErr::Unsupported);
+            return Err(HalFsIOErr::Unsupported);
         }
 
         let blocks_allocated = self
@@ -61,7 +61,7 @@ impl Ext2Fs {
         Ok(blocks_allocated)
     }
 
-    pub async fn find_available_inode(&self) -> Result<AllocatedInode, HalFsOpenErr> {
+    pub async fn find_available_inode(&self) -> Result<AllocatedInode, HalFsIOErr> {
         let block_group_size = self.block_group_size();
 
         let mut inode_count = 0;
@@ -116,7 +116,7 @@ impl Ext2Fs {
             }
         }
 
-        Err(HalFsOpenErr::NoAvailableInode)
+        Err(HalFsIOErr::NoAvailableInode)
     }
 
     pub async fn write_newly_allocated_blocks(
@@ -157,7 +157,7 @@ impl Ext2Fs {
         &mut self,
         inode: &AllocatedInode,
         blocks: &[AllocatedBlock],
-    ) -> Result<(), HalFsOpenErr> {
+    ) -> Result<(), HalFsIOErr> {
         let mut buf = Box::new([0; BLOCK_SIZE as usize]);
         self.write_newly_allocated_blocks(buf.clone(), blocks)
             .await?;
@@ -180,9 +180,16 @@ impl Ext2Fs {
         Ok(())
     }
 
-    pub async fn create_file(&mut self, dir: &mut Inode) -> Result<(), HalFsOpenErr> {
+    pub async fn create_file(
+        &mut self,
+        InodePlus {
+            inode: dir,
+            idx,
+            group_number,
+        }: &mut InodePlus,
+    ) -> Result<(), HalFsIOErr> {
         if !dir.is_directory() {
-            return Err(HalFsOpenErr::NotADirectory);
+            return Err(HalFsIOErr::NotADirectory);
         }
 
         let time = Rtc::new()
@@ -210,6 +217,7 @@ impl Ext2Fs {
             i_faddr: 0,
             i_generation: 0,
         };
+
         let blocks = self
             .allocated_blocks_for_inode(&mut inode, allocated_inode.gr_number)
             .await?;

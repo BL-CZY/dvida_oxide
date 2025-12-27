@@ -4,9 +4,9 @@ use alloc::boxed::Box;
 use dvida_serialize::DvDeserialize;
 
 use crate::{
-    drivers::fs::ext2::{BLOCK_SIZE, DirEntry, INODE_SIZE, Inode, structs::Ext2Fs},
+    drivers::fs::ext2::{BLOCK_SIZE, DirEntry, INODE_SIZE, Inode, InodePlus, structs::Ext2Fs},
     hal::{
-        fs::{HalFsOpenErr, HalInode, OpenFlags, OpenFlagsValue},
+        fs::{HalFsIOErr, HalInode, OpenFlags, OpenFlagsValue},
         path::Path,
         storage::SECTOR_SIZE,
     },
@@ -89,9 +89,9 @@ impl Ext2Fs {
         &self,
         name: &str,
         inode: &Inode,
-    ) -> Result<Option<i64>, HalFsOpenErr> {
+    ) -> Result<Option<i64>, HalFsIOErr> {
         if !inode.is_directory() {
-            return Err(HalFsOpenErr::NotADirectory);
+            return Err(HalFsIOErr::NotADirectory);
         }
 
         let buf = Box::new([0u8; BLOCK_SIZE as usize]);
@@ -211,8 +211,13 @@ impl Ext2Fs {
         inode_idx
     }
 
-    /// This function assumes that everything is initialized like the init function
-    pub async fn open_file(&self, path: Path, flags: OpenFlags) -> Result<HalInode, HalFsOpenErr> {
+    /// takes in a path
+    /// returns a tuple (the inode to the directory, Option<the inode to the file>)
+    /// If the file doesn't exist the Option will be None
+    pub async fn walk_path(
+        &self,
+        path: Path,
+    ) -> Result<(InodePlus, Option<InodePlus>), HalFsIOErr> {
         let block_size = self.super_block.block_size();
         let superblock_loc = self.super_block.s_first_data_block;
         let inode_table_loc = superblock_loc as i64 + (block_size as i64 / SECTOR_SIZE as i64) * 3;
@@ -225,39 +230,68 @@ impl Ext2Fs {
             &buf[INODE_SIZE as usize..],
         )?
         .0;
-        let mut inode_lba = inode_table_loc as u32 + INODE_SIZE as u32;
+        let mut directory_inode_lba = inode_table_loc as u32 + INODE_SIZE as u32;
+        let mut directory_block_group_idx = 0;
 
-        let mut block_group_idx = 0;
+        let mut file_inode: Option<InodePlus> = None;
 
         let mut it = path.normalize().components().into_iter().peekable();
         while let Some(component) = it.next() {
-            if it.peek().is_none() {
-                if flags.flags & OpenFlagsValue::CreateIfNotExist as i32 != 0 {
-                    // TODO: create a file
-                    continue;
-                } else {
-                    // TODO: Other flags
-                }
-            }
-
             match self.find_entry_by_name(&component, &inode).await {
                 Ok(Some(res)) => {
-                    inode_lba = res as u32;
                     self.read_sectors(buf.clone(), res).await?;
+
+                    if it.peek().is_none() {
+                        file_inode = Some(InodePlus {
+                            inode: Inode::deserialize(
+                                dvida_serialize::Endianness::Little,
+                                buf.as_ref(),
+                            )?
+                            .0,
+                            idx: self.get_inode_idx(res as u32),
+                            group_number: self.get_group_from_lba(res).group_number as u32,
+                        });
+                        continue;
+                    }
+
                     inode =
                         Inode::deserialize(dvida_serialize::Endianness::Little, buf.as_ref())?.0;
 
-                    block_group_idx = self.get_group_from_lba(res).group_number;
+                    directory_inode_lba = res as u32;
+                    directory_block_group_idx = self.get_group_from_lba(res).group_number;
                 }
-                Ok(None) => return Err(HalFsOpenErr::NoSuchFileOrDirectory),
+                Ok(None) => return Err(HalFsIOErr::NoSuchFileOrDirectory),
                 Err(e) => return Err(e),
             }
         }
 
-        Ok(HalInode::Ext2(super::InodePlus {
-            inode: inode,
-            idx: self.get_inode_idx(inode_lba),
-            group_number: block_group_idx as u32,
-        }))
+        Ok((
+            InodePlus {
+                inode,
+                group_number: directory_block_group_idx as u32,
+                idx: self.get_inode_idx(directory_inode_lba) as u32,
+            },
+            file_inode,
+        ))
+    }
+
+    /// This function assumes that everything is initialized like the init function
+    pub async fn open_file(&self, path: Path, flags: OpenFlags) -> Result<HalInode, HalFsIOErr> {
+        let (directory_inode, file_inode) = self.walk_path(path).await?;
+
+        let Some(file_inode) = file_inode else {
+            if flags.flags & OpenFlagsValue::CreateIfNotExist as i32 != 0 {
+                self.create_file(&mut directory_inode).await?;
+                todo!()
+            } else {
+                return Err(HalFsIOErr::NoSuchFileOrDirectory);
+            }
+        };
+
+        if flags.flags & OpenFlagsValue::ErrorIfCreateFileExists as i32 != 0 {
+            return Err(HalFsIOErr::FileExists);
+        }
+
+        Ok(HalInode::Ext2(file_inode))
     }
 }

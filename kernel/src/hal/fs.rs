@@ -79,16 +79,7 @@ pub enum HalInode {
 
 #[derive(Debug)]
 pub enum HalFsMountErr {}
-#[derive(Debug)]
-pub enum HalFsOpenErr {
-    HalErr(HalStorageOperationErr),
-    DeserializationErr(DvDeErr),
-    SerializationErr(DvSerErr),
-    NoSuchFileOrDirectory,
-    NotADirectory,
-    NoAvailableInode,
-    Unsupported,
-}
+
 #[derive(Debug)]
 pub enum HalFsIOErr {
     HalErr(HalStorageOperationErr),
@@ -98,23 +89,16 @@ pub enum HalFsIOErr {
     IsDirectory,
     Internal,
     NoSpaceLeft,
+    NoSuchFileOrDirectory,
+    NotADirectory,
+    NoAvailableInode,
+    FileExists,
+    Unsupported,
 }
 
 #[derive(Debug)]
 pub struct HalIOCtx {
     pub head: usize,
-}
-
-impl From<DvDeErr> for HalFsOpenErr {
-    fn from(value: DvDeErr) -> Self {
-        Self::DeserializationErr(value)
-    }
-}
-
-impl From<DvSerErr> for HalFsOpenErr {
-    fn from(value: DvSerErr) -> Self {
-        Self::SerializationErr(value)
-    }
 }
 
 impl From<DvDeErr> for HalFsIOErr {
@@ -126,12 +110,6 @@ impl From<DvDeErr> for HalFsIOErr {
 impl From<DvSerErr> for HalFsIOErr {
     fn from(value: DvSerErr) -> Self {
         Self::SerializationErr(value)
-    }
-}
-
-impl From<HalStorageOperationErr> for HalFsOpenErr {
-    fn from(value: HalStorageOperationErr) -> Self {
-        Self::HalErr(value)
     }
 }
 
