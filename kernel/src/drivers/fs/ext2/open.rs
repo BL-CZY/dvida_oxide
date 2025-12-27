@@ -216,7 +216,7 @@ impl Ext2Fs {
     /// If the file doesn't exist the Option will be None
     pub async fn walk_path(
         &self,
-        path: Path,
+        path: &Path,
     ) -> Result<(InodePlus, Option<InodePlus>), HalFsIOErr> {
         let block_size = self.super_block.block_size();
         let superblock_loc = self.super_block.s_first_data_block;
@@ -276,12 +276,20 @@ impl Ext2Fs {
     }
 
     /// This function assumes that everything is initialized like the init function
-    pub async fn open_file(&self, path: Path, flags: OpenFlags) -> Result<HalInode, HalFsIOErr> {
-        let (directory_inode, file_inode) = self.walk_path(path).await?;
+    pub async fn open_file(
+        &mut self,
+        path: Path,
+        flags: OpenFlags,
+    ) -> Result<HalInode, HalFsIOErr> {
+        let (mut directory_inode, file_inode) = self.walk_path(&path).await?;
 
         let Some(file_inode) = file_inode else {
             if flags.flags & OpenFlagsValue::CreateIfNotExist as i32 != 0 {
-                self.create_file(&mut directory_inode).await?;
+                self.create_file(
+                    &mut directory_inode,
+                    &path.file_name().ok_or(HalFsIOErr::BadPath)?,
+                )
+                .await?;
                 todo!()
             } else {
                 return Err(HalFsIOErr::NoSuchFileOrDirectory);

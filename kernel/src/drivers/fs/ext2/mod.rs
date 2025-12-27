@@ -139,11 +139,56 @@ pub struct InodePlus {
 /// For serialization and deserialization, it will return the next accumulator to where the next entry is
 #[derive(Debug, Clone)]
 pub struct DirEntry {
-    inode: u32,   // Inode number (0 if entry is unused)
-    rec_len: u16, // Distance to next directory entry
+    inode: u32, // Inode number (0 if entry is unused)
+    // unused record length
+    // rec_len: u16
     // name_len: u8,  // Name length
+    /// File type, not used since we don't support anything but revision 0
     file_type: u8, // File type
-    name: String,  // File name (variable length, not null-terminated)
+    name: String, // File name (variable length, not null-terminated)
+}
+
+pub const EXT2_DIR_ENTRY_ALIGNMENT: u16 = 4;
+
+impl DirEntry {
+    fn record_length(&self) -> u16 {
+        use core::mem::size_of;
+        let length = size_of::<u32>() // inode number
+            + size_of::<u16>() // rec_len
+            + size_of::<u8>() // name_len
+            + size_of::<u8>() // filetype
+            + self.name.len(); // name
+
+        (length as u16 + EXT2_DIR_ENTRY_ALIGNMENT) & !(EXT2_DIR_ENTRY_ALIGNMENT - 1)
+    }
+
+    pub fn serialize_till_end(
+        &self,
+        endianness: Endianness,
+        target: &mut [u8],
+    ) -> Result<usize, DvSerErr> {
+        let mut acc: usize = 0;
+
+        if self.name.len() > 255 {
+            return Err(DvSerErr::BadStringLength(0, 255));
+        }
+
+        let name_len = self.name.len() as u8;
+
+        let length = target.len() as u16;
+
+        acc += self.inode.serialize(endianness, &mut target[acc..])?;
+        acc += length.serialize(endianness, &mut target[acc..])?;
+        acc += name_len.serialize(endianness, &mut target[acc..])?; // name_len is ignored here 
+        acc += self.file_type.serialize(endianness, &mut target[acc..])?;
+
+        for (idx, char) in self.name.bytes().enumerate() {
+            target[acc..][idx] = char;
+        }
+
+        acc = length as usize;
+        Ok(acc)
+    }
 }
 
 impl DvDeserialize for DirEntry {
@@ -180,7 +225,6 @@ impl DvDeserialize for DirEntry {
         Ok((
             DirEntry {
                 inode,
-                rec_len,
                 file_type,
                 name,
             },
@@ -200,7 +244,9 @@ impl DvSerialize for DirEntry {
         let name_len = self.name.len() as u8;
 
         acc += self.inode.serialize(endianness, &mut target[acc..])?;
-        acc += self.rec_len.serialize(endianness, &mut target[acc..])?;
+        acc += self
+            .record_length()
+            .serialize(endianness, &mut target[acc..])?;
         acc += name_len.serialize(endianness, &mut target[acc..])?; // name_len is ignored here 
         acc += self.file_type.serialize(endianness, &mut target[acc..])?;
 
@@ -208,7 +254,7 @@ impl DvSerialize for DirEntry {
             target[acc..][idx] = char;
         }
 
-        acc = self.rec_len as usize;
+        acc = self.record_length() as usize;
         Ok(acc)
     }
 }

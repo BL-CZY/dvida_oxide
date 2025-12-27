@@ -357,7 +357,10 @@ impl Ext2Fs {
 
         // repurpose the buffer as the buffer for the write_newly_allocated_blocks function;
         let buf = cur_ind_block_buf;
-        self.write_newly_allocated_blocks(buf, &blocks).await?;
+        self.write_newly_allocated_blocks(buf.clone(), &blocks)
+            .await?;
+        self.write_newly_allocated_blocks(buf, &newly_allocated_blocks)
+            .await?;
 
         Ok(())
     }

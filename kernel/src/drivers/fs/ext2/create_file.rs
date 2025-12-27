@@ -184,10 +184,15 @@ impl Ext2Fs {
         &mut self,
         InodePlus {
             inode: dir,
-            idx,
             group_number,
+            ..
         }: &mut InodePlus,
-    ) -> Result<(), HalFsIOErr> {
+        name: &str,
+    ) -> Result<InodePlus, HalFsIOErr> {
+        if name.len() > 255 {
+            return Err(HalFsIOErr::NameTooLong);
+        }
+
         if !dir.is_directory() {
             return Err(HalFsIOErr::NotADirectory);
         }
@@ -204,8 +209,8 @@ impl Ext2Fs {
             i_atime: time,
             i_ctime: time,
             i_mtime: time,
-            i_dtime: time, // TODO: deletion
-            i_gid: 0,      // TODO: gid
+            i_dtime: 0,
+            i_gid: 0, // TODO: gid
             i_links_count: 1,
             i_blocks: self.super_block.s_prealloc_blocks as u32, // TODO: directory
             i_flags: 0,                                          // TODO: flags
@@ -223,7 +228,13 @@ impl Ext2Fs {
             .await?;
 
         self.write_changes(&allocated_inode, &blocks).await?;
+        self.add_dir_entry(dir, *group_number, allocated_inode.addr as u32, name)
+            .await?;
 
-        Ok(())
+        Ok(InodePlus {
+            inode: allocated_inode.inode,
+            idx: allocated_inode.inode_idx as u32,
+            group_number: allocated_inode.gr_number as u32,
+        })
     }
 }

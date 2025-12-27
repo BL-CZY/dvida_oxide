@@ -57,7 +57,7 @@ impl Ext2Fs {
             )?
             .0 as i64;
 
-            self.read_sectors(buf.clone(), ind_block_addr).await;
+            self.read_sectors(buf.clone(), ind_block_addr).await?;
 
             return Ok(u32::deserialize(
                 dvida_serialize::Endianness::Little,
