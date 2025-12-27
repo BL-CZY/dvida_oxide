@@ -204,6 +204,13 @@ impl Ext2Fs {
         Ok(None)
     }
 
+    pub fn get_inode_idx(&self, inode_lba: u32) -> u32 {
+        let block_group = self.get_group_from_lba(inode_lba as i64);
+        let inode_table_lba = block_group.get_inode_table_lba();
+        let inode_idx = (inode_lba - inode_table_lba as u32) / INODE_SIZE as u32;
+        inode_idx
+    }
+
     /// This function assumes that everything is initialized like the init function
     pub async fn open_file(&self, path: Path, flags: OpenFlags) -> Result<HalInode, HalFsOpenErr> {
         let block_size = self.super_block.block_size();
@@ -218,6 +225,7 @@ impl Ext2Fs {
             &buf[INODE_SIZE as usize..],
         )?
         .0;
+        let mut inode_lba = inode_table_loc as u32 + INODE_SIZE as u32;
 
         let mut block_group_idx = 0;
 
@@ -234,6 +242,7 @@ impl Ext2Fs {
 
             match self.find_entry_by_name(&component, &inode).await {
                 Ok(Some(res)) => {
+                    inode_lba = res as u32;
                     self.read_sectors(buf.clone(), res).await?;
                     inode =
                         Inode::deserialize(dvida_serialize::Endianness::Little, buf.as_ref())?.0;
@@ -247,6 +256,7 @@ impl Ext2Fs {
 
         Ok(HalInode::Ext2(super::InodePlus {
             inode: inode,
+            idx: self.get_inode_idx(inode_lba),
             group_number: block_group_idx as u32,
         }))
     }
