@@ -288,6 +288,7 @@ impl Ext2Fs {
                 self.create_file(
                     &mut directory_inode,
                     &path.file_name().ok_or(HalFsIOErr::BadPath)?,
+                    &flags,
                 )
                 .await?;
                 todo!()

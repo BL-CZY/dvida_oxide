@@ -8,7 +8,7 @@ use crate::{
         structs::{Ext2Fs, block_group_size},
     },
     hal::{
-        fs::HalFsIOErr,
+        fs::{HalFsIOErr, OpenFlags},
         storage::{HalStorageOperationErr, SECTOR_SIZE},
     },
     time::{Rtc, formats::rtc_to_posix},
@@ -44,13 +44,14 @@ impl Ext2Fs {
         &self,
         inode: &mut Inode,
         group_number: i64,
+        num: usize,
     ) -> Result<Vec<AllocatedBlock>, HalFsIOErr> {
-        if self.super_block.s_prealloc_blocks > 12 {
+        if num > 12 {
             return Err(HalFsIOErr::Unsupported);
         }
 
         let blocks_allocated = self
-            .allocate_n_blocks_in_group(group_number, self.super_block.s_prealloc_blocks as usize)
+            .allocate_n_blocks_in_group(group_number, num as usize)
             .await?;
 
         for block in blocks_allocated.iter() {
@@ -103,9 +104,6 @@ impl Ext2Fs {
                     &inode_table_buf[idx * INODE_SIZE as usize..],
                 )?
                 .0;
-
-                self.allocated_blocks_for_inode(&mut ino, group_number as i64)
-                    .await?;
 
                 return Ok(AllocatedInode {
                     addr: inode_count as i64 * INODE_SIZE as i64 + addr + 4 * BLOCK_SECTOR_SIZE,
@@ -182,12 +180,24 @@ impl Ext2Fs {
 
     pub async fn create_file(
         &mut self,
+        inode: &mut InodePlus,
+        name: &str,
+        flags: &OpenFlags,
+    ) -> Result<InodePlus, HalFsIOErr> {
+        Ok(self.create_inode(inode, name, false, flags).await?)
+    }
+
+    pub async fn create_inode(
+        &mut self,
         InodePlus {
             inode: dir,
             group_number,
+            addr,
             ..
         }: &mut InodePlus,
         name: &str,
+        is_dir: bool,
+        flags: &OpenFlags,
     ) -> Result<InodePlus, HalFsIOErr> {
         if name.len() > 255 {
             return Err(HalFsIOErr::NameTooLong);
@@ -203,8 +213,8 @@ impl Ext2Fs {
 
         let allocated_inode = self.find_available_inode().await?;
         let mut inode = Inode {
-            i_mode: 0b111111111, // TODO: permission
-            i_uid: 0,            //TODO; uid
+            i_mode: flags.perms as u16,
+            i_uid: 0, //TODO; uid
             i_size: self.super_block.s_prealloc_blocks as u32 * BLOCK_SIZE as u32, // TODO: directory
             i_atime: time,
             i_ctime: time,
@@ -212,8 +222,12 @@ impl Ext2Fs {
             i_dtime: 0,
             i_gid: 0, // TODO: gid
             i_links_count: 1,
-            i_blocks: self.super_block.s_prealloc_blocks as u32, // TODO: directory
-            i_flags: 0,                                          // TODO: flags
+            i_blocks: if is_dir {
+                self.super_block.s_prealloc_blocks as u32
+            } else {
+                self.super_block.s_prealloc_dir_blocks as u32
+            },
+            i_flags: 0, // TODO: flags
             i_osd1: 0,
             i_osd2: [0; 12],
             i_block: [0; 15],
@@ -224,17 +238,35 @@ impl Ext2Fs {
         };
 
         let blocks = self
-            .allocated_blocks_for_inode(&mut inode, allocated_inode.gr_number)
+            .allocated_blocks_for_inode(
+                &mut inode,
+                allocated_inode.gr_number,
+                if is_dir {
+                    self.super_block.s_prealloc_blocks as usize
+                } else {
+                    self.super_block.s_prealloc_dir_blocks as usize
+                },
+            )
             .await?;
 
         self.write_changes(&allocated_inode, &blocks).await?;
         self.add_dir_entry(dir, *group_number, allocated_inode.addr as u32, name)
             .await?;
 
-        Ok(InodePlus {
+        let mut res = InodePlus {
             inode: allocated_inode.inode,
             idx: allocated_inode.inode_idx as u32,
             group_number: allocated_inode.gr_number as u32,
-        })
+            addr: allocated_inode.addr as u32,
+        };
+
+        if is_dir {
+            self.add_dir_entry(&mut res.inode, res.group_number, res.addr as u32, ".")
+                .await?;
+            self.add_dir_entry(&mut res.inode, res.group_number, *addr as u32, "..")
+                .await?;
+        }
+
+        Ok(res)
     }
 }

@@ -132,6 +132,7 @@ pub struct InodePlus {
     pub inode: Inode,
     pub idx: u32,
     pub group_number: u32,
+    pub addr: u32,
 }
 
 /// Directory entry structure (variable length)
