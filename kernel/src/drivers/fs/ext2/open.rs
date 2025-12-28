@@ -1,10 +1,12 @@
 use core::cmp::min;
 
 use alloc::boxed::Box;
-use dvida_serialize::DvDeserialize;
+use dvida_serialize::{DvDeserialize, DvSerialize};
 
 use crate::{
-    drivers::fs::ext2::{BLOCK_SIZE, DirEntry, INODE_SIZE, Inode, InodePlus, structs::Ext2Fs},
+    drivers::fs::ext2::{
+        BLOCK_SIZE, DirEntry, DirEntryPartial, INODE_SIZE, Inode, InodePlus, structs::Ext2Fs,
+    },
     hal::{
         fs::{HalFsIOErr, HalInode, OpenFlags, OpenFlagsValue},
         path::Path,
@@ -15,25 +17,6 @@ use crate::{
 pub const SUPERBLOCK_SIZE: i64 = 2;
 pub const DIR_INDIRECT_BLOCK_START: usize = 13;
 pub const LBA_ADDR_LEN: usize = 4;
-
-struct DirEntryIter {
-    buf: Box<[u8; BLOCK_SIZE as usize]>,
-    acc: usize,
-}
-
-impl Iterator for DirEntryIter {
-    type Item = DirEntry;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let (entry, read) =
-            Self::Item::deserialize(dvida_serialize::Endianness::Little, &self.buf[self.acc..])
-                .ok()?;
-
-        self.acc += read;
-
-        if entry.inode == 0 { None } else { Some(entry) }
-    }
-}
 
 struct IndBlockIter {
     buf: Box<[u8; BLOCK_SIZE as usize]>,
@@ -65,30 +48,102 @@ impl Iterator for IndBlockIter {
 }
 
 impl Ext2Fs {
-    fn find_entry_by_name_in_block(
-        &self,
+    /// returns (Some(lba) if found, is_terminated)
+    async fn find_entry_by_name_in_block(
+        &mut self,
         name: &str,
-        buf: Box<[u8; BLOCK_SIZE as usize]>,
-    ) -> Option<i64> {
-        let entry_iter = DirEntryIter {
-            buf: buf.clone(),
-            acc: 0,
-        };
+        mut buf: Box<[u8; BLOCK_SIZE as usize]>,
+        lba: i64,
+        delete: bool,
+    ) -> Result<(Option<i64>, bool), HalFsIOErr> {
+        let mut progr = 0;
+        let mut this_entry_idx = 0;
+        let mut last_entry_idx = 0;
 
-        for entry in entry_iter.into_iter() {
-            if name == entry.name.as_str() {
-                return Some(entry.inode as i64);
+        while let Ok((entry, bytes_read)) =
+            DirEntry::deserialize(dvida_serialize::Endianness::Little, &buf[progr..])
+        {
+            progr += bytes_read;
+
+            if entry.inode == 0 && entry.record_length() == (buf.len() - progr) as u16 {
+                return Ok((None, true));
             }
+
+            // we don't check padding entries here
+            if entry.inode != 0 && name == entry.name.as_str() {
+                if delete {
+                    // if this is the first entry
+                    if this_entry_idx == last_entry_idx {
+                        // set it to a padding entry
+                        let raw_entry = DirEntryPartial {
+                            inode: 0,
+                            rec_len: entry.record_length(),
+                            name_len: 0,
+                        };
+
+                        raw_entry.serialize(dvida_serialize::Endianness::Little, &mut buf[0..])?;
+                        self.write_sectors(buf.clone(), lba).await?;
+                    } else {
+                        let this_raw_entry = DirEntryPartial::deserialize(
+                            dvida_serialize::Endianness::Little,
+                            &mut buf[this_entry_idx..],
+                        )?
+                        .0;
+
+                        let mut last_raw_entry = DirEntryPartial::deserialize(
+                            dvida_serialize::Endianness::Little,
+                            &mut buf[last_entry_idx..],
+                        )?
+                        .0;
+
+                        last_raw_entry.rec_len += this_raw_entry.rec_len;
+
+                        last_raw_entry.serialize(
+                            dvida_serialize::Endianness::Little,
+                            &mut buf[last_entry_idx..],
+                        )?;
+
+                        this_raw_entry.serialize(
+                            dvida_serialize::Endianness::Little,
+                            &mut buf[this_entry_idx..],
+                        )?;
+
+                        self.write_sectors(buf.clone(), lba).await?;
+                    }
+                }
+
+                return Ok((Some(entry.inode as i64), false));
+            }
+
+            last_entry_idx = this_entry_idx;
+            this_entry_idx += bytes_read;
         }
 
-        None
+        Ok((None, false))
+    }
+
+    pub async fn find_entry_by_name(
+        &mut self,
+        name: &str,
+        inode: &Inode,
+    ) -> Result<Option<i64>, HalFsIOErr> {
+        self.do_find_entry_by_name(name, inode, false).await
+    }
+
+    pub async fn find_entry_by_name_and_delete(
+        &mut self,
+        name: &str,
+        inode: &Inode,
+    ) -> Result<Option<i64>, HalFsIOErr> {
+        self.do_find_entry_by_name(name, inode, true).await
     }
 
     /// returns the LBA of the inode
-    pub async fn find_entry_by_name(
-        &self,
+    pub async fn do_find_entry_by_name(
+        &mut self,
         name: &str,
         inode: &Inode,
+        delete: bool,
     ) -> Result<Option<i64>, HalFsIOErr> {
         if !inode.is_directory() {
             return Err(HalFsIOErr::NotADirectory);
@@ -101,8 +156,12 @@ impl Ext2Fs {
             let lba = inode.i_block[i] as i64;
             self.read_sectors(buf.clone(), lba).await?;
 
-            match self.find_entry_by_name_in_block(name, buf.clone()) {
-                Some(res) => return Ok(Some(res)),
+            match self
+                .find_entry_by_name_in_block(name, buf.clone(), lba, delete)
+                .await?
+            {
+                (_, true) => return Ok(None),
+                (Some(res), false) => return Ok(Some(res)),
                 _ => {}
             }
         }
@@ -122,8 +181,12 @@ impl Ext2Fs {
             for addr in iterator.into_iter() {
                 self.read_sectors(ind_buf.clone(), addr).await?;
 
-                match self.find_entry_by_name_in_block(name, ind_buf.clone()) {
-                    Some(res) => return Ok(Some(res)),
+                match self
+                    .find_entry_by_name_in_block(name, ind_buf.clone(), lba, delete)
+                    .await?
+                {
+                    (_, true) => return Ok(None),
+                    (Some(res), false) => return Ok(Some(res)),
                     _ => {}
                 }
             }
@@ -150,8 +213,12 @@ impl Ext2Fs {
 
                     for ind_addr in ind_iterator.into_iter() {
                         self.read_sectors(ind_ind_buf.clone(), ind_addr).await?;
-                        match self.find_entry_by_name_in_block(name, ind_ind_buf.clone()) {
-                            Some(res) => return Ok(Some(res)),
+                        match self
+                            .find_entry_by_name_in_block(name, ind_ind_buf.clone(), lba, delete)
+                            .await?
+                        {
+                            (_, true) => return Ok(None),
+                            (Some(res), false) => return Ok(Some(res)),
                             _ => {}
                         }
                     }
@@ -189,9 +256,16 @@ impl Ext2Fs {
                                 self.read_sectors(ind_ind_ind_buf.clone(), ind_ind_addr)
                                     .await?;
                                 match self
-                                    .find_entry_by_name_in_block(name, ind_ind_ind_buf.clone())
+                                    .find_entry_by_name_in_block(
+                                        name,
+                                        ind_ind_ind_buf.clone(),
+                                        lba,
+                                        delete,
+                                    )
+                                    .await?
                                 {
-                                    Some(res) => return Ok(Some(res)),
+                                    (_, true) => return Ok(None),
+                                    (Some(res), false) => return Ok(Some(res)),
                                     _ => {}
                                 }
                             }
@@ -215,7 +289,7 @@ impl Ext2Fs {
     /// returns a tuple (the inode to the directory, Option<the inode to the file>)
     /// If the file doesn't exist the Option will be None
     pub async fn walk_path(
-        &self,
+        &mut self,
         path: &Path,
     ) -> Result<(InodePlus, Option<InodePlus>), HalFsIOErr> {
         let block_size = self.super_block.block_size();

@@ -1,4 +1,5 @@
 pub mod create_file;
+pub mod delete;
 pub mod dirs;
 pub mod init;
 pub mod open;
@@ -141,12 +142,20 @@ pub struct InodePlus {
 #[derive(Debug, Clone)]
 pub struct DirEntry {
     inode: u32, // Inode number (0 if entry is unused)
-    // unused record length
-    // rec_len: u16
+    rec_len: u16,
     // name_len: u8,  // Name length
     /// File type, not used since we don't support anything but revision 0
     file_type: u8, // File type
     name: String, // File name (variable length, not null-terminated)
+}
+
+/// A partial entry that can be deserialized and serialized quickly without the involvement of the
+/// name
+#[derive(Debug, Clone, DvDeSer)]
+pub struct DirEntryPartial {
+    inode: u32,
+    rec_len: u16,
+    name_len: u8,
 }
 
 pub const EXT2_DIR_ENTRY_ALIGNMENT: u16 = 4;
@@ -160,7 +169,9 @@ impl DirEntry {
             + size_of::<u8>() // filetype
             + self.name.len(); // name
 
-        (length as u16 + EXT2_DIR_ENTRY_ALIGNMENT) & !(EXT2_DIR_ENTRY_ALIGNMENT - 1)
+        // if the rec length read is larger than this we use the larger value
+        (length as u16 + EXT2_DIR_ENTRY_ALIGNMENT)
+            & !(EXT2_DIR_ENTRY_ALIGNMENT - 1).max(self.rec_len)
     }
 
     pub fn serialize_till_end(
@@ -226,6 +237,7 @@ impl DvDeserialize for DirEntry {
         Ok((
             DirEntry {
                 inode,
+                rec_len,
                 file_type,
                 name,
             },

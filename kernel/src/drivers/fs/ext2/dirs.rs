@@ -30,7 +30,8 @@ impl Ext2Fs {
             'entry_loop: while let Ok((mut entry, bytes_read)) =
                 DirEntry::deserialize(dvida_serialize::Endianness::Little, &buf[progr..])
             {
-                if entry.inode == 0 {
+                if entry.inode == 0 && entry.record_length() as usize == BLOCK_SIZE as usize - progr
+                {
                     entry.inode = child_inode_addr;
                     entry.name = name.to_string();
 
