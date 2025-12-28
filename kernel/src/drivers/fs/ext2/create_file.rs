@@ -8,7 +8,7 @@ use crate::{
         structs::{Ext2Fs, block_group_size},
     },
     hal::{
-        fs::{HalFsIOErr, OpenFlags},
+        fs::HalFsIOErr,
         storage::{HalStorageOperationErr, SECTOR_SIZE},
     },
     time::{Rtc, formats::rtc_to_posix},
@@ -99,7 +99,7 @@ impl Ext2Fs {
                 self.read_sectors(inode_table_buf.clone(), inode_table_loc)
                     .await?;
 
-                let mut ino = Inode::deserialize(
+                let ino = Inode::deserialize(
                     dvida_serialize::Endianness::Little,
                     &inode_table_buf[idx * INODE_SIZE as usize..],
                 )?
@@ -182,9 +182,9 @@ impl Ext2Fs {
         &mut self,
         inode: &mut InodePlus,
         name: &str,
-        flags: &OpenFlags,
+        perms: i32,
     ) -> Result<InodePlus, HalFsIOErr> {
-        Ok(self.create_inode(inode, name, false, flags).await?)
+        Ok(self.create_inode(inode, name, false, perms).await?)
     }
 
     pub async fn create_inode(
@@ -197,7 +197,7 @@ impl Ext2Fs {
         }: &mut InodePlus,
         name: &str,
         is_dir: bool,
-        flags: &OpenFlags,
+        perms: i32,
     ) -> Result<InodePlus, HalFsIOErr> {
         if name.len() > 255 {
             return Err(HalFsIOErr::NameTooLong);
@@ -213,7 +213,7 @@ impl Ext2Fs {
 
         let allocated_inode = self.find_available_inode().await?;
         let mut inode = Inode {
-            i_mode: flags.perms as u16,
+            i_mode: perms as u16,
             i_uid: 0, //TODO; uid
             i_size: self.super_block.s_prealloc_blocks as u32 * BLOCK_SIZE as u32, // TODO: directory
             i_atime: time,

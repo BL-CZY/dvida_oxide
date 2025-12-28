@@ -3,7 +3,7 @@ use dvida_serialize::{DvDeserialize, DvSerialize};
 
 use crate::{
     drivers::fs::ext2::{
-        BLOCK_SIZE, DirEntry, Inode, read::INODE_TRIPLE_IND_BLOCK_LIMIT, structs::Ext2Fs,
+        BLOCK_SIZE, DirEntry, Inode, InodePlus, read::INODE_TRIPLE_IND_BLOCK_LIMIT, structs::Ext2Fs,
     },
     hal::fs::HalFsIOErr,
 };
@@ -59,7 +59,15 @@ impl Ext2Fs {
         Ok(())
     }
 
-    pub async fn mkdir() {}
+    pub async fn mkdir(
+        &mut self,
+        inode: &mut InodePlus,
+        name: &str,
+        perms: i32,
+    ) -> Result<InodePlus, HalFsIOErr> {
+        Ok(self.create_inode(inode, name, false, perms).await?)
+    }
+
     pub async fn rmdir() {}
     pub async fn iter_dir() {}
 }

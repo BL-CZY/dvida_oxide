@@ -250,6 +250,7 @@ impl Ext2Fs {
                             .0,
                             idx: self.get_inode_idx(res as u32),
                             group_number: self.get_group_from_lba(res).group_number as u32,
+                            addr: res as u32,
                         });
                         continue;
                     }
@@ -270,6 +271,7 @@ impl Ext2Fs {
                 inode,
                 group_number: directory_block_group_idx as u32,
                 idx: self.get_inode_idx(directory_inode_lba) as u32,
+                addr: directory_inode_lba as u32,
             },
             file_inode,
         ))
@@ -288,7 +290,7 @@ impl Ext2Fs {
                 self.create_file(
                     &mut directory_inode,
                     &path.file_name().ok_or(HalFsIOErr::BadPath)?,
-                    &flags,
+                    flags.perms.ok_or(HalFsIOErr::NoPermsProvided)?,
                 )
                 .await?;
                 todo!()

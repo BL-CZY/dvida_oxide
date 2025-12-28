@@ -371,6 +371,7 @@ impl Ext2Fs {
             inode,
             idx,
             group_number,
+            ..
         }: &mut InodePlus,
         buf: Box<[u8]>,
         ctx: &mut HalIOCtx,

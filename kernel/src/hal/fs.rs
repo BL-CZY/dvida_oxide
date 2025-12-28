@@ -71,7 +71,7 @@ pub enum OpenFlagsValue {
 pub struct OpenFlags {
     pub access_mode: OpenAccessMode,
     pub flags: i32,
-    pub perms: i32,
+    pub perms: Option<i32>,
 }
 
 pub enum HalInode {
@@ -86,6 +86,7 @@ pub enum HalFsIOErr {
     HalErr(HalStorageOperationErr),
     DeserializationErr(DvDeErr),
     SerializationErr(DvSerErr),
+    NoPermsProvided,
     BadPath,
     NameTooLong,
     BufTooSmall,
