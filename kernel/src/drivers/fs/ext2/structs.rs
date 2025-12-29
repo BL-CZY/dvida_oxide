@@ -113,7 +113,8 @@ impl Ext2Fs {
     pub fn get_group_from_lba(&self, lba: i64) -> Ext2BlockGroup {
         Ext2BlockGroup {
             group_number: lba
-                / (self.super_block.s_blocks_per_group as i64 * BLOCK_SECTOR_SIZE) as i64,
+                - RESERVED_BOOT_RECORD_OFFSET
+                    / (self.super_block.s_blocks_per_group as i64 * BLOCK_SECTOR_SIZE) as i64,
             blocks_per_group: self.super_block.s_blocks_per_group as i64,
             sectors_per_block: self.super_block.block_size() as i64 / SECTOR_SIZE as i64,
         }
