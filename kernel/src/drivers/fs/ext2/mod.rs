@@ -161,6 +161,18 @@ pub struct DirEntryPartial {
 pub const EXT2_DIR_ENTRY_ALIGNMENT: u16 = 4;
 
 impl DirEntry {
+    fn new(inode: u32, name: String) -> Self {
+        let mut res = Self {
+            inode,
+            rec_len: 0,
+            file_type: 0,
+            name,
+        };
+
+        res.rec_len = res.record_length();
+        res
+    }
+
     fn record_length(&self) -> u16 {
         use core::mem::size_of;
         let length = size_of::<u32>() // inode number

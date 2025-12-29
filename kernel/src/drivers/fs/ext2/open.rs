@@ -55,6 +55,7 @@ impl Ext2Fs {
         mut buf: Box<[u8; BLOCK_SIZE as usize]>,
         lba: i64,
         delete: bool,
+        remaining_size: &mut u32,
     ) -> Result<(Option<i64>, bool), HalFsIOErr> {
         let mut progr = 0;
         let mut this_entry_idx = 0;
@@ -64,9 +65,11 @@ impl Ext2Fs {
             DirEntry::deserialize(dvida_serialize::Endianness::Little, &buf[progr..])
         {
             progr += bytes_read;
+            *remaining_size -= bytes_read as u32;
+            let mut is_terminated = false;
 
-            if entry.inode == 0 && entry.record_length() == (buf.len() - progr) as u16 {
-                return Ok((None, true));
+            if *remaining_size <= 0 {
+                is_terminated = true;
             }
 
             // we don't check padding entries here
@@ -112,7 +115,11 @@ impl Ext2Fs {
                     }
                 }
 
-                return Ok((Some(entry.inode as i64), false));
+                return Ok((Some(entry.inode as i64), is_terminated));
+            }
+
+            if is_terminated {
+                return Ok((None, false));
             }
 
             last_entry_idx = this_entry_idx;
@@ -149,6 +156,8 @@ impl Ext2Fs {
             return Err(HalFsIOErr::NotADirectory);
         }
 
+        let mut remaining = inode.i_size;
+
         let buf = Box::new([0u8; BLOCK_SIZE as usize]);
 
         // the first 12
@@ -157,7 +166,7 @@ impl Ext2Fs {
             self.read_sectors(buf.clone(), lba).await?;
 
             match self
-                .find_entry_by_name_in_block(name, buf.clone(), lba, delete)
+                .find_entry_by_name_in_block(name, buf.clone(), lba, delete, &mut remaining)
                 .await?
             {
                 (_, true) => return Ok(None),
@@ -182,7 +191,7 @@ impl Ext2Fs {
                 self.read_sectors(ind_buf.clone(), addr).await?;
 
                 match self
-                    .find_entry_by_name_in_block(name, ind_buf.clone(), lba, delete)
+                    .find_entry_by_name_in_block(name, ind_buf.clone(), lba, delete, &mut remaining)
                     .await?
                 {
                     (_, true) => return Ok(None),
@@ -214,7 +223,13 @@ impl Ext2Fs {
                     for ind_addr in ind_iterator.into_iter() {
                         self.read_sectors(ind_ind_buf.clone(), ind_addr).await?;
                         match self
-                            .find_entry_by_name_in_block(name, ind_ind_buf.clone(), lba, delete)
+                            .find_entry_by_name_in_block(
+                                name,
+                                ind_ind_buf.clone(),
+                                lba,
+                                delete,
+                                &mut remaining,
+                            )
                             .await?
                         {
                             (_, true) => return Ok(None),
@@ -261,6 +276,7 @@ impl Ext2Fs {
                                         ind_ind_ind_buf.clone(),
                                         lba,
                                         delete,
+                                        &mut remaining,
                                     )
                                     .await?
                                 {

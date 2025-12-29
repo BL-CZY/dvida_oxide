@@ -100,8 +100,7 @@ impl Ext2Fs {
             .0);
         }
 
-        // we are not supposed to be here because of the i_size checks
-        Err(HalFsIOErr::Internal)
+        Err(HalFsIOErr::FileTooLarge)
     }
 
     async fn read_till_next_block(

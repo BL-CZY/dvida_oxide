@@ -250,8 +250,14 @@ impl Ext2Fs {
             .await?;
 
         self.write_changes(&allocated_inode, &blocks).await?;
-        self.add_dir_entry(dir, *group_number, allocated_inode.addr as u32, name)
-            .await?;
+        self.add_dir_entry(
+            dir,
+            *group_number,
+            allocated_inode.addr as u32,
+            allocated_inode.inode_idx as u32,
+            name,
+        )
+        .await?;
 
         let mut res = InodePlus {
             inode: allocated_inode.inode,
@@ -261,10 +267,22 @@ impl Ext2Fs {
         };
 
         if is_dir {
-            self.add_dir_entry(&mut res.inode, res.group_number, res.addr as u32, ".")
-                .await?;
-            self.add_dir_entry(&mut res.inode, res.group_number, *addr as u32, "..")
-                .await?;
+            self.add_dir_entry(
+                &mut res.inode,
+                res.group_number,
+                allocated_inode.inode_idx as u32,
+                res.addr as u32,
+                ".",
+            )
+            .await?;
+            self.add_dir_entry(
+                &mut res.inode,
+                res.group_number,
+                allocated_inode.inode_idx as u32,
+                *addr as u32,
+                "..",
+            )
+            .await?;
         }
 
         Ok(res)

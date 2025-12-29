@@ -1,10 +1,8 @@
 use alloc::{boxed::Box, string::ToString};
-use dvida_serialize::{DvDeserialize, DvSerialize};
+use dvida_serialize::DvSerialize;
 
 use crate::{
-    drivers::fs::ext2::{
-        BLOCK_SIZE, DirEntry, Inode, InodePlus, read::INODE_TRIPLE_IND_BLOCK_LIMIT, structs::Ext2Fs,
-    },
+    drivers::fs::ext2::{BLOCK_SIZE, DirEntry, DirEntryPartial, Inode, InodePlus, structs::Ext2Fs},
     hal::fs::HalFsIOErr,
 };
 
@@ -14,48 +12,51 @@ impl Ext2Fs {
         dir: &mut Inode,
         group_number: u32,
         child_inode_addr: u32,
+        idx: u32,
         name: &str,
     ) -> Result<(), HalFsIOErr> {
         let mut buf = Box::new([0u8; BLOCK_SIZE as usize]);
 
-        'block_loop: for i in 0..INODE_TRIPLE_IND_BLOCK_LIMIT {
-            let lba = self.get_block_lba(&dir, i).await? as i64;
-            if lba == 0 {
-                break;
-            }
+        let block_idx = dir.i_size / BLOCK_SIZE;
+        let offset = dir.i_size % BLOCK_SIZE;
 
-            self.read_sectors(buf.clone(), lba).await?;
+        let lba = self.get_block_lba(dir, block_idx).await? as i64;
 
-            let mut progr = 0;
-            'entry_loop: while let Ok((mut entry, bytes_read)) =
-                DirEntry::deserialize(dvida_serialize::Endianness::Little, &buf[progr..])
-            {
-                if entry.inode == 0 && entry.record_length() as usize == BLOCK_SIZE as usize - progr
-                {
-                    entry.inode = child_inode_addr;
-                    entry.name = name.to_string();
+        let entry = DirEntry::new(child_inode_addr, name.to_string());
 
-                    if entry.record_length() + progr as u16 >= BLOCK_SIZE as u16 {
-                        entry.inode = 0;
-                        entry.name = "".into();
-                        entry.serialize_till_end(
-                            dvida_serialize::Endianness::Little,
-                            &mut buf[progr..],
-                        )?;
-                        self.write_sectors(buf.clone(), lba).await?;
+        if entry.record_length() + offset as u16 >= BLOCK_SIZE as u16 {
+            let partial_entry = DirEntryPartial {
+                inode: 0,
+                rec_len: (BLOCK_SIZE - offset) as u16,
+                name_len: 0,
+            };
 
-                        self.expand_inode(dir, group_number as i64, 1).await?;
+            partial_entry.serialize(
+                dvida_serialize::Endianness::Little,
+                &mut buf[offset as usize..],
+            )?;
+            self.write_sectors(buf.clone(), lba).await?;
+            dir.i_size = (dir.i_size + BLOCK_SIZE) & !(BLOCK_SIZE - 1);
 
-                        break 'entry_loop;
-                    }
+            self.expand_inode(dir, group_number as i64, 1).await?;
 
-                    entry.serialize(dvida_serialize::Endianness::Little, &mut buf[progr..])?;
-                    self.write_sectors(buf.clone(), lba).await?;
-                    break 'block_loop;
-                }
-                progr += bytes_read;
-            }
+            let lba = self.get_block_lba(dir, block_idx + 1).await? as i64;
+            buf.fill(0);
+
+            let bytes_written =
+                entry.serialize(dvida_serialize::Endianness::Little, &mut buf[0..])?;
+            self.write_sectors(buf.clone(), lba).await?;
+            dir.i_size += bytes_written as u32;
+        } else {
+            let bytes_written = entry.serialize(
+                dvida_serialize::Endianness::Little,
+                &mut buf[offset as usize..],
+            )?;
+            self.write_sectors(buf.clone(), lba).await?;
+            dir.i_size += bytes_written as u32;
         }
+
+        self.write_inode(dir, idx, group_number).await?;
 
         Ok(())
     }

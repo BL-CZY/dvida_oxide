@@ -87,6 +87,7 @@ pub enum HalFsIOErr {
     DeserializationErr(DvDeErr),
     SerializationErr(DvSerErr),
     NoPermsProvided,
+    FileTooLarge,
     BadPath,
     NameTooLong,
     BufTooSmall,
