@@ -369,7 +369,7 @@ impl Ext2Fs {
         &mut self,
         InodePlus {
             inode,
-            idx,
+            relative_idx: idx,
             group_number,
             ..
         }: &mut InodePlus,

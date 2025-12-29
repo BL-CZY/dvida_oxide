@@ -24,14 +24,6 @@ pub struct AllocatedBlock {
     pub gr_number: i64,
 }
 
-pub struct AllocatedInode {
-    pub addr: i64,
-    pub inode: Inode,
-    // relative to the block group
-    pub inode_idx: i64,
-    pub gr_number: i64,
-}
-
 impl Ext2Fs {
     pub fn block_group_size(&self) -> i64 {
         block_group_size(
@@ -62,7 +54,7 @@ impl Ext2Fs {
         Ok(blocks_allocated)
     }
 
-    pub async fn find_available_inode(&self) -> Result<AllocatedInode, HalFsIOErr> {
+    pub async fn find_available_inode(&self) -> Result<InodePlus, HalFsIOErr> {
         let block_group_size = self.block_group_size();
 
         let mut inode_count = 0;
@@ -105,12 +97,7 @@ impl Ext2Fs {
                 )?
                 .0;
 
-                return Ok(AllocatedInode {
-                    addr: inode_count as i64 * INODE_SIZE as i64 + addr + 4 * BLOCK_SECTOR_SIZE,
-                    inode_idx: idx as i64,
-                    inode: ino,
-                    gr_number: group_number as i64,
-                });
+                return Ok(self.relative_idx_to_inode_plus(ino, group_number as u32, idx as u32));
             }
         }
 
@@ -153,7 +140,7 @@ impl Ext2Fs {
 
     async fn write_changes(
         &mut self,
-        inode: &AllocatedInode,
+        inode: &InodePlus,
         blocks: &[AllocatedBlock],
     ) -> Result<(), HalFsIOErr> {
         let mut buf = Box::new([0; BLOCK_SIZE as usize]);
@@ -192,7 +179,7 @@ impl Ext2Fs {
         InodePlus {
             inode: dir,
             group_number,
-            addr,
+            relative_idx: idx,
             ..
         }: &mut InodePlus,
         name: &str,
@@ -261,9 +248,9 @@ impl Ext2Fs {
 
         let mut res = InodePlus {
             inode: allocated_inode.inode,
-            idx: allocated_inode.inode_idx as u32,
+            relative_idx: allocated_inode.inode_idx as u32,
             group_number: allocated_inode.gr_number as u32,
-            addr: allocated_inode.addr as u32,
+            absolute_idx: allocated_inode.inode_idx as u32,
         };
 
         if is_dir {

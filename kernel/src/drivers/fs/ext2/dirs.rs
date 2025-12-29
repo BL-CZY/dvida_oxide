@@ -11,7 +11,7 @@ impl Ext2Fs {
         &mut self,
         dir: &mut Inode,
         group_number: u32,
-        child_inode_addr: u32,
+        child_inode_idx: u32,
         idx: u32,
         name: &str,
     ) -> Result<(), HalFsIOErr> {
@@ -22,7 +22,7 @@ impl Ext2Fs {
 
         let lba = self.get_block_lba(dir, block_idx).await? as i64;
 
-        let entry = DirEntry::new(child_inode_addr, name.to_string());
+        let entry = DirEntry::new(child_inode_idx, name.to_string());
 
         if entry.record_length() + offset as u16 >= BLOCK_SIZE as u16 {
             let partial_entry = DirEntryPartial {

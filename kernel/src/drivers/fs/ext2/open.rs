@@ -145,7 +145,7 @@ impl Ext2Fs {
         self.do_find_entry_by_name(name, inode, true).await
     }
 
-    /// returns the LBA of the inode
+    /// returns the index of the inode
     pub async fn do_find_entry_by_name(
         &mut self,
         name: &str,
@@ -294,13 +294,6 @@ impl Ext2Fs {
         Ok(None)
     }
 
-    pub fn get_inode_idx(&self, inode_lba: u32) -> u32 {
-        let block_group = self.get_group_from_lba(inode_lba as i64);
-        let inode_table_lba = block_group.get_inode_table_lba();
-        let inode_idx = (inode_lba - inode_table_lba as u32) / INODE_SIZE as u32;
-        inode_idx
-    }
-
     /// takes in a path
     /// returns a tuple (the inode to the directory, Option<the inode to the file>)
     /// If the file doesn't exist the Option will be None
@@ -320,8 +313,8 @@ impl Ext2Fs {
             &buf[INODE_SIZE as usize..],
         )?
         .0;
-        let mut directory_inode_lba = inode_table_loc as u32 + INODE_SIZE as u32;
-        let mut directory_block_group_idx = 0;
+
+        let mut directory_inode_idx = ROOT_DIRECTORY_INODE_IDX as u32;
 
         let mut file_inode: Option<InodePlus> = None;
 
@@ -332,39 +325,30 @@ impl Ext2Fs {
                     self.read_sectors(buf.clone(), res).await?;
 
                     if it.peek().is_none() {
-                        file_inode = Some(InodePlus {
-                            inode: Inode::deserialize(
-                                dvida_serialize::Endianness::Little,
-                                buf.as_ref(),
-                            )?
-                            .0,
-                            idx: self.get_inode_idx(res as u32),
-                            group_number: self.get_group_from_lba(res).group_number as u32,
-                            addr: res as u32,
-                        });
-                        continue;
+                        file_inode = Some(
+                            self.global_idx_to_inode_plus(
+                                Inode::deserialize(
+                                    dvida_serialize::Endianness::Little,
+                                    buf.as_ref(),
+                                )?
+                                .0,
+                                res as u32,
+                            ),
+                        );
+                        break;
                     }
 
                     inode =
                         Inode::deserialize(dvida_serialize::Endianness::Little, buf.as_ref())?.0;
 
-                    directory_inode_lba = res as u32;
-                    directory_block_group_idx = self.get_group_from_lba(res).group_number;
+                    directory_inode_idx = res as u32;
                 }
                 Ok(None) => return Err(HalFsIOErr::NoSuchFileOrDirectory),
                 Err(e) => return Err(e),
             }
         }
 
-        Ok((
-            InodePlus {
-                inode,
-                group_number: directory_block_group_idx as u32,
-                idx: self.get_inode_idx(directory_inode_lba) as u32,
-                addr: directory_inode_lba as u32,
-            },
-            file_inode,
-        ))
+        Ok((self.get_nth_inode(directory_inode_idx).await?, file_inode))
     }
 
     /// This function assumes that everything is initialized like the init function
@@ -396,3 +380,5 @@ impl Ext2Fs {
         Ok(HalInode::Ext2(file_inode))
     }
 }
+
+pub const ROOT_DIRECTORY_INODE_IDX: usize = 1;

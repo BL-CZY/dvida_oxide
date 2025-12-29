@@ -2,6 +2,7 @@ pub mod create_file;
 pub mod delete;
 pub mod dirs;
 pub mod init;
+pub mod inode;
 pub mod open;
 pub mod read;
 pub mod structs;
@@ -9,6 +10,7 @@ pub mod write;
 
 use alloc::string::String;
 use dvida_serialize::*;
+pub use inode::InodePlus;
 
 /// The ext2 superblock structure - located at byte offset 1024 from start
 /// All fields stored in little-endian format on disk
@@ -126,14 +128,6 @@ pub struct Inode {
     i_faddr: u32,
     /// OS dependent field 2
     i_osd2: [u8; 12],
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct InodePlus {
-    pub inode: Inode,
-    pub idx: u32,
-    pub group_number: u32,
-    pub addr: u32,
 }
 
 /// Directory entry structure (variable length)
