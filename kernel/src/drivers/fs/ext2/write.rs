@@ -367,22 +367,23 @@ impl Ext2Fs {
 
     pub async fn write(
         &mut self,
-        InodePlus {
-            inode,
-            relative_idx: idx,
-            group_number,
-            ..
-        }: &mut InodePlus,
+        victim_inode: &mut InodePlus,
         buf: Box<[u8]>,
         ctx: &mut HalIOCtx,
     ) -> Result<usize, HalFsIOErr> {
+        let inode = &mut victim_inode.inode;
+
         if inode.is_directory() {
             return Err(HalFsIOErr::IsDirectory);
         }
 
         if ctx.head + buf.len() >= inode.i_size as usize {
-            self.expand_inode(inode, *group_number as i64, ctx.head + buf.len())
-                .await?;
+            self.expand_inode(
+                inode,
+                victim_inode.group_number as i64,
+                ctx.head + buf.len(),
+            )
+            .await?;
         }
 
         let mut progress = Progress {
@@ -404,7 +405,7 @@ impl Ext2Fs {
         inode.i_atime = time;
         inode.i_ctime = time;
 
-        self.write_inode(inode, *idx, *group_number).await?;
+        self.write_inode(victim_inode).await?;
 
         Ok(progress.bytes_written)
     }

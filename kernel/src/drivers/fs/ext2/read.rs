@@ -1,8 +1,8 @@
 use alloc::boxed::Box;
-use dvida_serialize::{DvDeserialize, DvSerialize};
+use dvida_serialize::DvDeserialize;
 
 use crate::{
-    drivers::fs::ext2::{BLOCK_SIZE, INODE_SIZE, Inode, InodePlus, structs::Ext2Fs},
+    drivers::fs::ext2::{BLOCK_SIZE, Inode, InodePlus, structs::Ext2Fs},
     hal::fs::{HalFsIOErr, HalIOCtx},
     time,
 };
@@ -137,15 +137,12 @@ impl Ext2Fs {
 
     pub async fn read(
         &mut self,
-        InodePlus {
-            inode,
-            relative_idx: idx,
-            group_number,
-            ..
-        }: &mut InodePlus,
+        victim_inode: &mut InodePlus,
         mut buf: Box<[u8]>,
         ctx: &mut HalIOCtx,
     ) -> Result<usize, HalFsIOErr> {
+        let inode = &mut victim_inode.inode;
+
         if inode.is_directory() {
             return Err(HalFsIOErr::IsDirectory);
         }
@@ -178,7 +175,7 @@ impl Ext2Fs {
         );
         inode.i_atime = time;
 
-        self.write_inode(inode, *idx, *group_number).await?;
+        self.write_inode(victim_inode).await?;
 
         Ok(progress.bytes_written)
     }

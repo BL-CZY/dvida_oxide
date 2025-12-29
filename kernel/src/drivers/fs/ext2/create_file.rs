@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, vec::Vec};
-use dvida_serialize::{DvDeserialize, DvSerialize};
+use dvida_serialize::DvDeserialize;
 
 use crate::{
     crypto::iterators::{Bit, BitIterator},
@@ -143,24 +143,11 @@ impl Ext2Fs {
         inode: &InodePlus,
         blocks: &[AllocatedBlock],
     ) -> Result<(), HalFsIOErr> {
-        let mut buf = Box::new([0; BLOCK_SIZE as usize]);
+        let buf = Box::new([0; BLOCK_SIZE as usize]);
         self.write_newly_allocated_blocks(buf.clone(), blocks)
             .await?;
 
-        let this_inode_lba_offset = (inode.inode_idx * INODE_SIZE) / BLOCK_SIZE as i64;
-        let group = self.get_group(inode.gr_number);
-        let lba = group.get_inode_table_lba() + this_inode_lba_offset;
-
-        buf.fill(0);
-        self.read_sectors(buf.clone(), lba).await?;
-
-        let offset = (inode.inode_idx * INODE_SIZE) % BLOCK_SIZE as i64;
-        inode.inode.serialize(
-            dvida_serialize::Endianness::Little,
-            &mut buf[offset as usize..],
-        )?;
-
-        self.write_sectors(buf, lba).await?;
+        self.write_inode(inode).await?;
 
         Ok(())
     }
@@ -176,12 +163,7 @@ impl Ext2Fs {
 
     pub async fn create_inode(
         &mut self,
-        InodePlus {
-            inode: dir,
-            group_number,
-            relative_idx: idx,
-            ..
-        }: &mut InodePlus,
+        dir_inode: &mut InodePlus,
         name: &str,
         is_dir: bool,
         perms: i32,
@@ -189,6 +171,8 @@ impl Ext2Fs {
         if name.len() > 255 {
             return Err(HalFsIOErr::NameTooLong);
         }
+
+        let dir = &dir_inode.inode;
 
         if !dir.is_directory() {
             return Err(HalFsIOErr::NotADirectory);
@@ -198,7 +182,7 @@ impl Ext2Fs {
             .read_datetime()
             .map_or_else(|| 0, |dt| rtc_to_posix(&dt));
 
-        let allocated_inode = self.find_available_inode().await?;
+        let mut allocated_inode = self.find_available_inode().await?;
         let mut inode = Inode {
             i_mode: perms as u16,
             i_uid: 0, //TODO; uid
@@ -227,7 +211,7 @@ impl Ext2Fs {
         let blocks = self
             .allocated_blocks_for_inode(
                 &mut inode,
-                allocated_inode.gr_number,
+                allocated_inode.group_number.into(),
                 if is_dir {
                     self.super_block.s_prealloc_blocks as usize
                 } else {
@@ -237,41 +221,16 @@ impl Ext2Fs {
             .await?;
 
         self.write_changes(&allocated_inode, &blocks).await?;
-        self.add_dir_entry(
-            dir,
-            *group_number,
-            allocated_inode.addr as u32,
-            allocated_inode.inode_idx as u32,
-            name,
-        )
-        .await?;
-
-        let mut res = InodePlus {
-            inode: allocated_inode.inode,
-            relative_idx: allocated_inode.inode_idx as u32,
-            group_number: allocated_inode.gr_number as u32,
-            absolute_idx: allocated_inode.inode_idx as u32,
-        };
+        self.add_dir_entry(dir_inode, allocated_inode.absolute_idx as u32, name)
+            .await?;
 
         if is_dir {
-            self.add_dir_entry(
-                &mut res.inode,
-                res.group_number,
-                allocated_inode.inode_idx as u32,
-                res.addr as u32,
-                ".",
-            )
-            .await?;
-            self.add_dir_entry(
-                &mut res.inode,
-                res.group_number,
-                allocated_inode.inode_idx as u32,
-                *addr as u32,
-                "..",
-            )
-            .await?;
+            let temp = allocated_inode.absolute_idx as u32;
+            self.add_dir_entry(&mut allocated_inode, temp, ".").await?;
+            self.add_dir_entry(&mut allocated_inode, dir_inode.absolute_idx as u32, "..")
+                .await?;
         }
 
-        Ok(res)
+        Ok(allocated_inode)
     }
 }

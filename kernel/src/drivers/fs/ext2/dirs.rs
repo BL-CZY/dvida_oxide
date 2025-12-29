@@ -9,13 +9,12 @@ use crate::{
 impl Ext2Fs {
     pub async fn add_dir_entry(
         &mut self,
-        dir: &mut Inode,
-        group_number: u32,
+        inode: &mut InodePlus,
         child_inode_idx: u32,
-        idx: u32,
         name: &str,
     ) -> Result<(), HalFsIOErr> {
         let mut buf = Box::new([0u8; BLOCK_SIZE as usize]);
+        let dir = &mut inode.inode;
 
         let block_idx = dir.i_size / BLOCK_SIZE;
         let offset = dir.i_size % BLOCK_SIZE;
@@ -38,7 +37,7 @@ impl Ext2Fs {
             self.write_sectors(buf.clone(), lba).await?;
             dir.i_size = (dir.i_size + BLOCK_SIZE) & !(BLOCK_SIZE - 1);
 
-            self.expand_inode(dir, group_number as i64, 1).await?;
+            self.expand_inode(dir, inode.group_number as i64, 1).await?;
 
             let lba = self.get_block_lba(dir, block_idx + 1).await? as i64;
             buf.fill(0);
@@ -56,7 +55,7 @@ impl Ext2Fs {
             dir.i_size += bytes_written as u32;
         }
 
-        self.write_inode(dir, idx, group_number).await?;
+        self.write_inode(inode).await?;
 
         Ok(())
     }
