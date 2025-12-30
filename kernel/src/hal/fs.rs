@@ -1,7 +1,7 @@
 use core::fmt::Debug;
 
-use alloc::vec::Vec;
-use dvida_serialize::{DvDeErr, DvSerErr};
+use alloc::{string::String, vec::Vec};
+use dvida_serialize::{DvDeErr, DvSerErr, DvSerialize};
 
 use crate::{
     drivers::fs::ext2::{self, structs::Ext2Fs},
@@ -9,6 +9,61 @@ use crate::{
 };
 
 pub const EOF: usize = 0;
+
+pub struct DirEnt64 {
+    pub inode_idx: u64,
+    pub offset: i64,
+    pub file_type: u8,
+    pub name: String,
+}
+
+impl DirEnt64 {
+    pub fn rec_len(&self) -> usize {
+        let length = size_of::<u64>()
+            + size_of::<i64>()
+            + size_of::<u16>()
+            + size_of::<u8>()
+            + self.name.len()
+            + 1;
+
+        let length = (length + 8) & !7;
+        length
+    }
+}
+
+impl DvSerialize for DirEnt64 {
+    fn serialize(
+        &self,
+        endianness: dvida_serialize::Endianness,
+        target: &mut [u8],
+    ) -> Result<usize, DvSerErr> {
+        let length = self.rec_len();
+
+        if target.len() < length {
+            return Err(DvSerErr::BufferTooSmall);
+        }
+
+        let mut progress = 0;
+
+        progress += self
+            .inode_idx
+            .serialize(endianness, &mut target[progress..])?;
+        progress += self.offset.serialize(endianness, &mut target[progress..])?;
+        progress += (length as u16).serialize(endianness, &mut target[progress..])?;
+        progress += self
+            .file_type
+            .serialize(endianness, &mut target[progress..])?;
+
+        for byte in self.name.as_bytes().iter() {
+            target[progress] = *byte;
+            progress += 1;
+        }
+
+        target[progress] = b'\0';
+
+        Ok(length)
+    }
+}
 
 #[derive(Debug)]
 pub struct MountPoint {

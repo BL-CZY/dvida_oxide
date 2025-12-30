@@ -1,9 +1,14 @@
 use alloc::{boxed::Box, string::ToString};
-use dvida_serialize::DvSerialize;
+use dvida_serialize::{DvDeserialize, DvSerialize};
 
 use crate::{
-    drivers::fs::ext2::{BLOCK_SIZE, DirEntry, DirEntryPartial, Inode, InodePlus, structs::Ext2Fs},
-    hal::{fs::HalFsIOErr, path::Path},
+    drivers::fs::ext2::{
+        BLOCK_SIZE, DirEntry, DirEntryPartial, Inode, InodePlus, read::Progress, structs::Ext2Fs,
+    },
+    hal::{
+        fs::{DirEnt64, HalFsIOErr},
+        path::Path,
+    },
 };
 
 impl Ext2Fs {
@@ -96,5 +101,89 @@ impl Ext2Fs {
 
         Ok(())
     }
-    pub async fn iter_dir() {}
+
+    // return (if it reaches the end of the entires or not, if it reaches the end of the buffer or not)
+    async fn read_entries_till_next_block(
+        &self,
+        inode: &Inode,
+        target: &mut [u8],
+        offset: &mut i64,
+        progress: &mut Progress,
+    ) -> Result<(bool, bool), HalFsIOErr> {
+        let lba = self.get_block_lba(inode, progress.block_idx as u32).await?;
+        let buf = Box::new([0u8; BLOCK_SIZE as usize]);
+
+        self.read_sectors(buf.clone(), lba as i64).await?;
+
+        let mut progress_bytes = progress.offset as usize;
+        while let Ok((entry, bytes_read)) =
+            DirEntry::deserialize(dvida_serialize::Endianness::Little, &buf[progress_bytes..])
+        {
+            if entry.inode != 0 {
+                let result_entry = DirEnt64 {
+                    inode_idx: entry.inode as u64,
+                    offset: *offset + bytes_read as i64,
+                    file_type: entry.file_type as u8,
+                    name: entry.name,
+                };
+
+                if result_entry.rec_len() + progress.bytes_written >= target.len() {
+                    progress.block_idx += 1;
+                    progress.offset = 0;
+
+                    return Ok((false, true));
+                }
+
+                progress.bytes_written += result_entry.serialize(
+                    dvida_serialize::Endianness::Little,
+                    &mut target[progress.bytes_written as usize..],
+                )?;
+            }
+
+            *offset += bytes_read as i64;
+            progress_bytes += bytes_read;
+        }
+
+        if *offset >= inode.i_size.into() {
+            return Ok((true, true));
+        }
+
+        progress.block_idx += 1;
+        progress.offset = 0;
+
+        Ok((false, false))
+    }
+
+    pub async fn iter_dir(
+        &mut self,
+        offset: &mut i64,
+        mut buf: Box<[u8]>,
+        inode: &mut InodePlus,
+    ) -> Result<bool, HalFsIOErr> {
+        if !inode.inode.is_directory() {
+            return Err(HalFsIOErr::NotADirectory);
+        }
+
+        let mut progress = Progress {
+            block_idx: *offset as u32 / self.super_block.block_size(),
+            offset: *offset as u32 % self.super_block.block_size(),
+            bytes_written: 0,
+        };
+
+        loop {
+            let (reached_end, finished) = self
+                .read_entries_till_next_block(&mut inode.inode, &mut buf, offset, &mut progress)
+                .await?;
+
+            if reached_end {
+                return Ok(true);
+            }
+
+            if finished {
+                break;
+            }
+        }
+
+        Ok(false)
+    }
 }
