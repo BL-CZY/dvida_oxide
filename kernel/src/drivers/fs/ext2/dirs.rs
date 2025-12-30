@@ -3,7 +3,7 @@ use dvida_serialize::DvSerialize;
 
 use crate::{
     drivers::fs::ext2::{BLOCK_SIZE, DirEntry, DirEntryPartial, Inode, InodePlus, structs::Ext2Fs},
-    hal::fs::HalFsIOErr,
+    hal::{fs::HalFsIOErr, path::Path},
 };
 
 impl Ext2Fs {
@@ -60,15 +60,41 @@ impl Ext2Fs {
         Ok(())
     }
 
-    pub async fn mkdir(
-        &mut self,
-        inode: &mut InodePlus,
-        name: &str,
-        perms: i32,
-    ) -> Result<InodePlus, HalFsIOErr> {
-        Ok(self.create_inode(inode, name, false, perms).await?)
+    pub async fn mkdir(&mut self, path: Path, perms: i32) -> Result<InodePlus, HalFsIOErr> {
+        let (mut dir_inode, file_inode) = self.walk_path(&path).await?;
+
+        if file_inode.is_some() {
+            return Err(HalFsIOErr::FileExists);
+        }
+
+        Ok(self
+            .create_inode(
+                &mut dir_inode,
+                &path.file_name().ok_or(HalFsIOErr::BadPath)?,
+                true,
+                perms,
+            )
+            .await?)
     }
 
-    pub async fn rmdir() {}
+    pub async fn rmdir(&mut self, path: Path) -> Result<(), HalFsIOErr> {
+        let (mut dir_inode, file_inode) = self.walk_path(&path).await?;
+
+        let Some(file_inode) = file_inode else {
+            return Err(HalFsIOErr::NoSuchFileOrDirectory);
+        };
+
+        if !file_inode.inode.is_directory() {
+            return Err(HalFsIOErr::NotADirectory);
+        }
+
+        if !self.is_dir_empty(&dir_inode.inode).await? {
+            return Err(HalFsIOErr::DirectoryNotEmpty);
+        }
+
+        self.free_inode(&mut dir_inode).await?;
+
+        Ok(())
+    }
     pub async fn iter_dir() {}
 }

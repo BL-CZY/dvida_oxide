@@ -5,10 +5,7 @@ use crate::{
     drivers::fs::ext2::{
         BLOCK_SIZE, InodePlus,
         create_file::RESERVED_BOOT_RECORD_OFFSET,
-        read::{
-            INODE_BLOCK_LIMIT, INODE_DOUBLE_IND_BLOCK_LIMIT, INODE_IND_BLOCK_LIMIT,
-            INODE_TRIPLE_IND_BLOCK_LIMIT,
-        },
+        read::{INODE_BLOCK_LIMIT, INODE_DOUBLE_IND_BLOCK_LIMIT, INODE_IND_BLOCK_LIMIT},
         structs::Ext2Fs,
     },
     hal::{fs::HalFsIOErr, path::Path, storage::SECTOR_SIZE},

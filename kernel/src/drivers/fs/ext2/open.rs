@@ -55,6 +55,7 @@ impl Ext2Fs {
         mut buf: Box<[u8; BLOCK_SIZE as usize]>,
         lba: i64,
         delete: bool,
+        find_is_empty: bool,
         remaining_size: &mut u32,
     ) -> Result<(Option<i64>, bool), HalFsIOErr> {
         let mut progr = 0;
@@ -72,8 +73,12 @@ impl Ext2Fs {
                 is_terminated = true;
             }
 
+            if entry.name.as_str() != "." || entry.name.as_str() != ".." {
+                return Ok((Some(1), true));
+            }
+
             // we don't check padding entries here
-            if entry.inode != 0 && name == entry.name.as_str() {
+            if entry.inode != 0 && name == entry.name.as_str() && !find_is_empty {
                 if delete {
                     // if this is the first entry
                     if this_entry_idx == last_entry_idx {
@@ -134,7 +139,7 @@ impl Ext2Fs {
         name: &str,
         inode: &Inode,
     ) -> Result<Option<i64>, HalFsIOErr> {
-        self.do_find_entry_by_name(name, inode, false).await
+        self.do_find_entry_by_name(name, inode, false, false).await
     }
 
     pub async fn find_entry_by_name_and_delete(
@@ -142,15 +147,25 @@ impl Ext2Fs {
         name: &str,
         inode: &Inode,
     ) -> Result<Option<i64>, HalFsIOErr> {
-        self.do_find_entry_by_name(name, inode, true).await
+        self.do_find_entry_by_name(name, inode, true, false).await
     }
 
-    /// returns the index of the inode
+    // TODO: refactor this
+    pub async fn is_dir_empty(&mut self, inode: &Inode) -> Result<bool, HalFsIOErr> {
+        Ok(self
+            .do_find_entry_by_name("", inode, false, false)
+            .await?
+            .is_none())
+    }
+
+    /// returns the index of the inode if the find_is_empty flag is not up
+    /// otherwise, returns Some(1) if the directory is not empty
     pub async fn do_find_entry_by_name(
         &mut self,
         name: &str,
         inode: &Inode,
         delete: bool,
+        find_is_empty: bool,
     ) -> Result<Option<i64>, HalFsIOErr> {
         if !inode.is_directory() {
             return Err(HalFsIOErr::NotADirectory);
@@ -166,10 +181,23 @@ impl Ext2Fs {
             self.read_sectors(buf.clone(), lba).await?;
 
             match self
-                .find_entry_by_name_in_block(name, buf.clone(), lba, delete, &mut remaining)
+                .find_entry_by_name_in_block(
+                    name,
+                    buf.clone(),
+                    lba,
+                    delete,
+                    find_is_empty,
+                    &mut remaining,
+                )
                 .await?
             {
-                (_, true) => return Ok(None),
+                (res, true) => {
+                    if find_is_empty {
+                        return Ok(None);
+                    } else {
+                        return Ok(res);
+                    }
+                }
                 (Some(res), false) => return Ok(Some(res)),
                 _ => {}
             }
@@ -191,10 +219,24 @@ impl Ext2Fs {
                 self.read_sectors(ind_buf.clone(), addr).await?;
 
                 match self
-                    .find_entry_by_name_in_block(name, ind_buf.clone(), lba, delete, &mut remaining)
+                    .find_entry_by_name_in_block(
+                        name,
+                        ind_buf.clone(),
+                        lba,
+                        delete,
+                        find_is_empty,
+                        &mut remaining,
+                    )
                     .await?
                 {
-                    (_, true) => return Ok(None),
+                    (res, true) => {
+                        if find_is_empty {
+                            return Ok(None);
+                        } else {
+                            return Ok(res);
+                        }
+                    }
+
                     (Some(res), false) => return Ok(Some(res)),
                     _ => {}
                 }
@@ -228,11 +270,19 @@ impl Ext2Fs {
                                 ind_ind_buf.clone(),
                                 lba,
                                 delete,
+                                find_is_empty,
                                 &mut remaining,
                             )
                             .await?
                         {
-                            (_, true) => return Ok(None),
+                            (res, true) => {
+                                if find_is_empty {
+                                    return Ok(None);
+                                } else {
+                                    return Ok(res);
+                                }
+                            }
+
                             (Some(res), false) => return Ok(Some(res)),
                             _ => {}
                         }
@@ -276,11 +326,19 @@ impl Ext2Fs {
                                         ind_ind_ind_buf.clone(),
                                         lba,
                                         delete,
+                                        find_is_empty,
                                         &mut remaining,
                                     )
                                     .await?
                                 {
-                                    (_, true) => return Ok(None),
+                                    (res, true) => {
+                                        if find_is_empty {
+                                            return Ok(None);
+                                        } else {
+                                            return Ok(res);
+                                        }
+                                    }
+
                                     (Some(res), false) => return Ok(Some(res)),
                                     _ => {}
                                 }

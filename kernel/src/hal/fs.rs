@@ -86,6 +86,7 @@ pub enum HalFsIOErr {
     HalErr(HalStorageOperationErr),
     DeserializationErr(DvDeErr),
     SerializationErr(DvSerErr),
+    DirectoryNotEmpty,
     NoPermsProvided,
     FileTooLarge,
     BadPath,
