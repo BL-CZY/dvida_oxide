@@ -23,12 +23,14 @@ enum MutexLinkedListState {
     Locked = 1,
 }
 
-pub struct MutexWakerNode {
+struct MutexWakerNode {
     next: *mut MutexWakerNode,
     prev: *mut MutexWakerNode,
     waker: Waker,
 }
+
 /// uses a circular linked list for wakers
+#[derive(Debug)]
 pub struct Mutex<T> {
     inner: UnsafeCell<T>,
 
