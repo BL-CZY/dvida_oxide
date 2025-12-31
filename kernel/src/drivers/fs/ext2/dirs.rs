@@ -23,8 +23,14 @@ impl Ext2Fs {
 
         let block_idx = dir.i_size / BLOCK_SIZE;
         let offset = dir.i_size % BLOCK_SIZE;
-
         let lba = self.get_block_lba(dir, block_idx).await? as i64;
+
+        // Read existing block if present. If LBA==0 treat as zero-filled (sparse)
+        if lba != 0 {
+            self.read_sectors(buf.clone(), lba).await?;
+        } else {
+            buf.fill(0);
+        }
 
         let entry = DirEntry::new(child_inode_idx, name.to_string());
 
@@ -40,9 +46,13 @@ impl Ext2Fs {
                 &mut buf[offset as usize..],
             )?;
             self.write_sectors(buf.clone(), lba).await?;
-            dir.i_size = (dir.i_size + BLOCK_SIZE) & !(BLOCK_SIZE - 1);
 
-            self.expand_inode(dir, inode.group_number as i64, 1).await?;
+            // align up to next block boundary correctly
+            dir.i_size = (dir.i_size + BLOCK_SIZE - 1) & !(BLOCK_SIZE - 1);
+
+            // allocate one more block (pass bytes to expand)
+            self.expand_inode(dir, inode.group_number as i64, BLOCK_SIZE as usize)
+                .await?;
 
             let lba = self.get_block_lba(dir, block_idx + 1).await? as i64;
             buf.fill(0);

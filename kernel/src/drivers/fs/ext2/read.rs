@@ -48,7 +48,8 @@ impl Ext2Fs {
         if idx < INODE_DOUBLE_IND_BLOCK_LIMIT {
             idx = idx - INODE_IND_BLOCK_LIMIT;
             let block_idx = idx / ADDR_PER_BLOCK;
-            self.read_sectors(buf.clone(), inode.i_block[13] as i64)
+            // triple indirect uses i_block[14]
+            self.read_sectors(buf.clone(), inode.i_block[14] as i64)
                 .await?;
 
             let ind_block_addr = u32::deserialize(
@@ -113,7 +114,12 @@ impl Ext2Fs {
         let lba = self.get_block_lba(inode, progress.block_idx as u32).await?;
         let buf = Box::new([0u8; BLOCK_SIZE as usize]);
 
-        self.read_sectors(buf.clone(), lba as i64).await?;
+        // if the block is not allocated (sparse file/hole), treat it as zero-filled
+        if lba == 0 {
+            // buf is already zeroed
+        } else {
+            self.read_sectors(buf.clone(), lba as i64).await?;
+        }
 
         for i in progress.offset..self.super_block.block_size() {
             if ctx.head as u32 >= inode.i_size {
@@ -147,14 +153,12 @@ impl Ext2Fs {
             return Err(HalFsIOErr::IsDirectory);
         }
 
-        let len = if (inode.i_size - (ctx.head as u32)) % (buf.len() as u32) == 0 {
-            buf.len()
-        } else {
-            buf.len() + ctx.head as usize - inode.i_size as usize
-        };
+        // number of bytes remaining in file from current head
+        let remaining = (inode.i_size as usize).saturating_sub(ctx.head);
+        let to_read = core::cmp::min(buf.len(), remaining);
 
-        if buf.len() < len {
-            return Err(HalFsIOErr::BufTooSmall);
+        if to_read == 0 {
+            return Ok(0);
         }
 
         let mut progress = Progress {

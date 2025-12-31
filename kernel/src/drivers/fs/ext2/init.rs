@@ -1,5 +1,6 @@
 use core::error::Error;
 
+use alloc::string::ToString;
 use alloc::vec;
 use alloc::{boxed::Box, vec::Vec};
 use dvida_serialize::{DvDeserialize, DvSerialize, Endianness};
@@ -10,18 +11,12 @@ use crate::hal::storage::write_sectors;
 use crate::{
     crypto::uuid::uuid_v4,
     drivers::fs::ext2::{
-        ALGO_BITMAP, BLOCK_SIZE, BLOCKS_PER_GROUP, CREATOR_OS_DVIDA, DirEntry, EXT2_DYNAMIC_REV,
-        EXT2_ERRORS_CONTINUE, EXT2_FEATURE_COMPAT_EXT_ATTR, EXT2_FEATURE_INCOMPAT_FILETYPE,
-        EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER, EXT2_FT_DIR, EXT2_OS_LINUX, EXT2_ROOT_INO,
-        EXT2_S_IFDIR, EXT2_SUPER_MAGIC, EXT2_VALID_FS, FIRST_DATA_BLOCK, GroupDescriptor, Inode,
-        LOG_BLOCK_SIZE, MAX_MOUNT_COUNT, ROOT_ID, S_R_BLOCKS_COUNT, SuperBlock,
+        ALGO_BITMAP, BLOCK_SIZE, BLOCKS_PER_GROUP, CREATOR_OS_DVIDA, DirEntry,
+        EXT2_ERRORS_CONTINUE, EXT2_ROOT_INO, EXT2_S_IFDIR, EXT2_SUPER_MAGIC, EXT2_VALID_FS,
+        GroupDescriptor, Inode, LOG_BLOCK_SIZE, MAX_MOUNT_COUNT, ROOT_ID, SuperBlock,
     },
-    hal::{
-        self,
-        gpt::GPTEntry,
-        storage::{HalStorageOperationErr, read_sectors},
-    },
-    time::{self, Rtc, RtcDateTime, formats::rtc_to_posix},
+    hal::{gpt::GPTEntry, storage::read_sectors},
+    time::{Rtc, RtcDateTime, formats::rtc_to_posix},
 };
 
 pub async fn identify_ext2(drive_id: usize, entry: &GPTEntry) -> Option<SuperBlock> {
@@ -60,12 +55,9 @@ pub async fn identify_ext2(drive_id: usize, entry: &GPTEntry) -> Option<SuperBlo
 }
 
 // ext2 structure sizes (in bytes) according to spec
-const SUPERBLOCK_SIZE: usize = 1024;
 const GROUP_DESCRIPTOR_SIZE: usize = 32;
 const INODE_SIZE: u16 = 128;
-const DIR_ENTRY_HEADER_SIZE: usize = 8;
 const FIRST_DATA_BLOCK_ADDR: u32 = 1024 / BLOCK_SIZE;
-const SET_LATER: u32 = 0;
 
 // blocksize is considered to be 1kb
 // TODO: add root directory
@@ -119,7 +111,7 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) -> Result<(), Box<dyn 
         bg_vec.push(bg_descriptor);
     }
 
-    let super_block: SuperBlock = SuperBlock {
+    let mut super_block: SuperBlock = SuperBlock {
         // total inodes and blocks across filesystem
         s_inodes_count: (INODES_PER_GROUP as u32 * num_block_groups as u32),
         s_blocks_count: blocks as u32,
@@ -200,21 +192,95 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) -> Result<(), Box<dyn 
 
     // inode table zero buffer (we'll write per-group inode table blocks)
 
-    for (bg_idx, _bg_desc) in bg_vec.iter().enumerate() {
+    for bg_idx in 0..bg_vec.len() {
+        // prepare buffers for this group
         sb_buf.fill(0);
         super_block.serialize(Endianness::Little, &mut sb_buf)?;
 
-        // compute absolute sector for this group's superblock copy
-        let superblock_sector = entry.start_lba as u64
-            + ((bg_idx as u64 * BLOCKS_PER_GROUP as u64 + 1) * sectors_per_block);
+        // write zeroed inode table blocks for this group
+        let inode_table_blocks = (((INODE_SIZE as u32) * INODES_PER_GROUP as u32)
+            + (BLOCK_SIZE as u16 as u32 - 1))
+            / BLOCK_SIZE as u32;
 
-        write_sectors(
-            drive_id,
-            sb_buf.clone().into_boxed_slice(),
-            superblock_sector as i64,
-        )
-        .await?;
+        let inode_buf_len = (inode_table_blocks as usize) * BLOCK_SIZE as usize;
+        let mut inode_buf = vec![0u8; inode_buf_len];
 
+        // If this is group 0, create the root inode and its directory block
+        if bg_idx == 0 {
+            // compute some helpful values
+            let group_start_block = partition_start_block + bg_idx as u64 * BLOCKS_PER_GROUP as u64;
+            let data_blocks_start = group_start_block + 3 + inode_table_blocks as u64;
+
+            // data block absolute (relative to partition)
+            let root_data_block = data_blocks_start; // use first data block in group
+
+            // prepare directory block with "." and ".." entries
+            let mut dir_block = vec![0u8; BLOCK_SIZE as usize];
+            let dot = DirEntry::new(EXT2_ROOT_INO, ".".to_string());
+            let dotdot = DirEntry::new(EXT2_ROOT_INO, "..".to_string());
+
+            // serialize '.' at offset 0
+            let first_len = dot.serialize(Endianness::Little, &mut dir_block[0..])?;
+
+            // serialize '..' at offset first_len
+            let second_offset = first_len;
+            let _second_len =
+                dotdot.serialize(Endianness::Little, &mut dir_block[second_offset..])?;
+
+            // adjust the rec_len of the second entry to fill the rest of the block
+            let final_rec_len: u16 = (BLOCK_SIZE as u16) - (first_len as u16);
+            // rec_len is at offset second_offset + 4 (after inode u32)
+            dir_block[second_offset + 4] = (final_rec_len & 0xFF) as u8;
+            dir_block[second_offset + 5] = ((final_rec_len >> 8) & 0xFF) as u8;
+
+            // write directory block to disk
+            let data_sector = entry.start_lba as u64 + (root_data_block * sectors_per_block);
+            write_sectors(drive_id, dir_block.into_boxed_slice(), data_sector as i64).await?;
+
+            // construct root inode and write into inode table buffer
+            let root_inode_index = EXT2_ROOT_INO as u32;
+            let relative_idx = (root_inode_index - 1) as usize; // zero-based
+
+            let root_inode = Inode {
+                i_mode: (EXT2_S_IFDIR | 0o755) as u16,
+                i_uid: 0,
+                i_size: BLOCK_SIZE,
+                i_atime: time,
+                i_ctime: time,
+                i_mtime: time,
+                i_dtime: 0,
+                i_gid: 0,
+                i_links_count: 2,
+                i_blocks: 1,
+                i_flags: 0,
+                i_osd1: 0,
+                i_block: {
+                    let mut a = [0u32; 15];
+                    a[0] = root_data_block as u32 + 0; // block number relative to partition
+                    a
+                },
+                i_generation: 0,
+                i_file_acl: 0,
+                i_dir_acl: 0,
+                i_faddr: 0,
+                i_osd2: [0u8; 12],
+            };
+
+            // serialize root inode into inode_buf at proper offset
+            let inode_offset = relative_idx * INODE_SIZE as usize;
+            root_inode.serialize(Endianness::Little, &mut inode_buf[inode_offset..])?;
+
+            // adjust counts in descriptors/superblock
+            {
+                let bgd = &mut bg_vec[bg_idx];
+                bgd.bg_free_inodes_count = bgd.bg_free_inodes_count.saturating_sub(1);
+                bgd.bg_free_blocks_count = bgd.bg_free_blocks_count.saturating_sub(1);
+                bgd.bg_used_dirs_count = bgd.bg_used_dirs_count.saturating_add(1);
+            }
+
+            super_block.s_free_inodes_count = super_block.s_free_inodes_count.saturating_sub(1);
+            super_block.s_free_blocks_count = super_block.s_free_blocks_count.saturating_sub(1);
+        }
         // prepare and write full group descriptor table at the group's descriptor location
         gd_buf.fill(0);
         for (idx, bgd) in bg_vec.iter().enumerate() {
@@ -234,12 +300,17 @@ pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) -> Result<(), Box<dyn 
         )
         .await?;
 
-        // write zeroed inode table blocks for this group
-        let inode_table_blocks = (((INODE_SIZE as u32) * INODES_PER_GROUP as u32)
-            + (BLOCK_SIZE as u16 as u32 - 1))
-            / BLOCK_SIZE as u32;
+        // compute absolute sector for this group's superblock copy
+        let superblock_sector = entry.start_lba as u64
+            + ((bg_idx as u64 * BLOCKS_PER_GROUP as u64 + 1) * sectors_per_block);
 
-        let inode_buf = vec![0u8; (inode_table_blocks as usize) * BLOCK_SIZE as usize];
+        write_sectors(
+            drive_id,
+            sb_buf.clone().into_boxed_slice(),
+            superblock_sector as i64,
+        )
+        .await?;
+
         let inode_table_sector = entry.start_lba as u64
             + ((bg_idx as u64 * BLOCKS_PER_GROUP as u64 + 3) * sectors_per_block);
 

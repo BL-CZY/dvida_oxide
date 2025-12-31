@@ -147,6 +147,13 @@ impl Ext2Fs {
         self.write_newly_allocated_blocks(buf.clone(), blocks)
             .await?;
 
+        // Zero out newly allocated data blocks to avoid leaking data
+        let zero_block = Box::new([0u8; BLOCK_SIZE as usize]);
+        for b in blocks.iter() {
+            // `addr` is the LBA of the allocated block
+            self.write_sectors(zero_block.clone(), b.addr).await?;
+        }
+
         self.write_inode(inode).await?;
 
         Ok(())
@@ -183,34 +190,34 @@ impl Ext2Fs {
             .map_or_else(|| 0, |dt| rtc_to_posix(&dt));
 
         let mut allocated_inode = self.find_available_inode().await?;
-        let mut inode = Inode {
-            i_mode: perms as u16,
-            i_uid: 0, //TODO; uid
-            i_size: self.super_block.s_prealloc_blocks as u32 * BLOCK_SIZE as u32, // TODO: directory
-            i_atime: time,
-            i_ctime: time,
-            i_mtime: time,
-            i_dtime: 0,
-            i_gid: 0, // TODO: gid
-            i_links_count: 1,
-            i_blocks: if is_dir {
-                self.super_block.s_prealloc_blocks as u32
-            } else {
-                self.super_block.s_prealloc_dir_blocks as u32
-            },
-            i_flags: 0, // TODO: flags
-            i_osd1: 0,
-            i_osd2: [0; 12],
-            i_block: [0; 15],
-            i_file_acl: 0,
-            i_dir_acl: 0,
-            i_faddr: 0,
-            i_generation: 0,
-        };
+
+        let inode = &mut allocated_inode.inode;
+
+        // Set mode and file type bits (directory vs regular file)
+        const S_IFDIR: u16 = 0x4000;
+        const S_IFREG: u16 = 0x8000;
+        inode.i_mode = (perms as u16) | if is_dir { S_IFDIR } else { S_IFREG };
+        inode.i_uid = 0; // TODO: support UID
+        inode.i_size = 0;
+        inode.i_atime = time;
+        inode.i_ctime = time;
+        inode.i_mtime = time;
+        inode.i_dtime = 0;
+        inode.i_gid = 0; // TODO: support GID
+        inode.i_links_count = if is_dir { 2 } else { 1 };
+        inode.i_blocks = 0;
+        inode.i_flags = 0;
+        inode.i_osd1 = 0;
+        inode.i_osd2 = [0; 12];
+        inode.i_block = [0; 15];
+        inode.i_file_acl = 0;
+        inode.i_dir_acl = 0;
+        inode.i_faddr = 0;
+        inode.i_generation = 0;
 
         let blocks = self
             .allocated_blocks_for_inode(
-                &mut inode,
+                inode,
                 allocated_inode.group_number.into(),
                 if is_dir {
                     self.super_block.s_prealloc_blocks as usize
@@ -221,6 +228,7 @@ impl Ext2Fs {
             .await?;
 
         self.write_changes(&allocated_inode, &blocks).await?;
+
         self.add_dir_entry(dir_inode, allocated_inode.absolute_idx as u32, name)
             .await?;
 
@@ -229,6 +237,9 @@ impl Ext2Fs {
             self.add_dir_entry(&mut allocated_inode, temp, ".").await?;
             self.add_dir_entry(&mut allocated_inode, dir_inode.absolute_idx as u32, "..")
                 .await?;
+
+            dir_inode.inode.i_links_count = dir_inode.inode.i_links_count.saturating_add(1);
+            self.write_inode(dir_inode).await?;
         }
 
         Ok(allocated_inode)

@@ -6,13 +6,13 @@ use crate::{
     crypto::iterators::{Bit, BitIterator},
     drivers::fs::ext2::{
         BLOCK_SIZE, Inode, InodePlus,
-        create_file::{AllocatedBlock, BLOCK_SECTOR_SIZE, RESERVED_BOOT_RECORD_OFFSET},
+        create_file::AllocatedBlock,
         read::{INODE_BLOCK_LIMIT, INODE_DOUBLE_IND_BLOCK_LIMIT, INODE_IND_BLOCK_LIMIT, Progress},
         structs::Ext2Fs,
     },
     hal::{
         fs::{HalFsIOErr, HalIOCtx},
-        storage::{HalStorageOperationErr, SECTOR_SIZE},
+        storage::HalStorageOperationErr,
     },
 };
 
@@ -21,42 +21,50 @@ impl Ext2Fs {
         &self,
         mut remaining_blocks: usize,
     ) -> Result<Vec<AllocatedBlock>, HalStorageOperationErr> {
-        let block_group_size = self.block_group_size();
         let mut blocks_allocated = vec![];
 
-        for (group_number, addr) in (RESERVED_BOOT_RECORD_OFFSET..self.len() + 1)
-            .step_by(block_group_size as usize)
-            .enumerate()
-        {
-            if remaining_blocks <= 0 {
+        // iterate over block groups
+        for group_number in 0..(self.super_block.s_blocks_per_group as i64) {
+            if remaining_blocks == 0 {
                 break;
             }
 
+            let group = self.get_group(group_number as i64);
             let mut buf = Box::new([0u8; BLOCK_SIZE as usize]);
 
-            self.read_sectors(buf.clone(), addr + 2 * BLOCK_SECTOR_SIZE)
+            // read block bitmap for the group
+            self.read_sectors(buf.clone(), group.get_block_bitmap_lba())
                 .await?;
 
             let bit_iterator = BitIterator::new(buf.as_mut_slice());
 
+            // compute index of first data block within the group (in bitmap block indices)
+            let first_data_block_lba = group.get_data_blocks_start_lba();
+            let first_data_block_idx =
+                ((first_data_block_lba - group.get_group_lba()) / group.sectors_per_block) as usize;
+
             for (idx, bit) in bit_iterator.into_iter().enumerate() {
-                if remaining_blocks <= 0 {
+                if remaining_blocks == 0 {
                     break;
+                }
+
+                // skip metadata/reserved blocks before the data blocks start
+                if idx < first_data_block_idx {
+                    continue;
                 }
 
                 if bit == Bit::One {
                     continue;
                 }
 
-                let block_addr = ((block_group_size * group_number as i64
-                    + RESERVED_BOOT_RECORD_OFFSET
-                    + 5
-                    + BLOCK_SECTOR_SIZE)
-                    + idx as i64) as u32;
+                // map bitmap index to data block LBA
+                let block_lba = group.get_data_blocks_start_lba()
+                    + ((idx - first_data_block_idx) as i64) * group.sectors_per_block;
+
                 remaining_blocks -= 1;
 
                 blocks_allocated.push(AllocatedBlock {
-                    addr: block_addr as i64,
+                    addr: block_lba,
                     block_idx: idx as i64,
                     gr_number: group_number as i64,
                 });
@@ -76,47 +84,48 @@ impl Ext2Fs {
         mut num: usize,
     ) -> Result<Vec<AllocatedBlock>, HalStorageOperationErr> {
         let mut blocks_allocated = vec![];
-
-        let block_group_size =
-            self.super_block.s_blocks_per_group as i64 * (BLOCK_SIZE as i64 / SECTOR_SIZE as i64);
-
-        let addr =
-            block_group_size * group_number + RESERVED_BOOT_RECORD_OFFSET + 2 * BLOCK_SECTOR_SIZE;
-
+        let group = self.get_group(group_number);
         let mut buf = Box::new([0u8; BLOCK_SIZE as usize]);
 
-        self.read_sectors(buf.clone(), addr).await?;
-
+        // read the block bitmap for the group
+        self.read_sectors(buf.clone(), group.get_block_bitmap_lba())
+            .await?;
         let bit_iterator: BitIterator<u8> = BitIterator::new(buf.as_mut_slice());
 
+        // index of first data block within the group
+        let first_data_block_lba = group.get_data_blocks_start_lba();
+        let first_data_block_idx =
+            ((first_data_block_lba - group.get_group_lba()) / group.sectors_per_block) as usize;
+
         for (idx, bit) in bit_iterator.into_iter().enumerate() {
-            if num <= 0 {
+            if num == 0 {
                 break;
+            }
+
+            if idx < first_data_block_idx {
+                continue;
             }
 
             if bit == Bit::One {
                 continue;
             }
 
-            let block_addr = ((block_group_size * group_number
-                + RESERVED_BOOT_RECORD_OFFSET
-                + 5
-                + BLOCK_SECTOR_SIZE)
-                + idx as i64) as u32;
+            let block_lba = group.get_data_blocks_start_lba()
+                + ((idx - first_data_block_idx) as i64) * group.sectors_per_block;
 
             num -= 1;
             blocks_allocated.push(AllocatedBlock {
-                addr: block_addr as i64,
+                addr: block_lba,
                 block_idx: idx as i64,
                 gr_number: group_number,
             });
         }
 
-        if num <= 0 {
+        if num == 0 {
             return Ok(blocks_allocated);
         }
 
-        // iterate over the entire filesystem
+        // if this group didn't satisfy the request, fall back to scanning entire fs
         blocks_allocated.extend(self.allocate_n_blocks(num).await?.into_iter());
 
         Ok(blocks_allocated)
@@ -324,9 +333,10 @@ impl Ext2Fs {
                     Some(ref buf) => buf.clone(),
                     None => {
                         let buf = Box::new([0u8; BLOCK_SIZE as usize]);
+                        // should read the triple-indirect block pointer at index +2
                         self.read_sectors(
                             buf.clone(),
-                            inode.i_block[INODE_BLOCK_LIMIT as usize + 1] as i64,
+                            inode.i_block[INODE_BLOCK_LIMIT as usize + 2] as i64,
                         )
                         .await?;
                         buf

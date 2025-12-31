@@ -5,7 +5,8 @@ use dvida_serialize::{DvDeserialize, DvSerialize};
 
 use crate::{
     drivers::fs::ext2::{
-        BLOCK_SIZE, DirEntry, DirEntryPartial, INODE_SIZE, Inode, InodePlus, structs::Ext2Fs,
+        BLOCK_SIZE, DirEntry, DirEntryPartial, INODE_SIZE, Inode, InodePlus,
+        read::INODE_BLOCK_LIMIT, structs::Ext2Fs,
     },
     hal::{
         fs::{HalFsIOErr, HalInode, OpenFlags, OpenFlagsValue},
@@ -15,7 +16,6 @@ use crate::{
 };
 
 pub const SUPERBLOCK_SIZE: i64 = 2;
-pub const DIR_INDIRECT_BLOCK_START: usize = 13;
 pub const LBA_ADDR_LEN: usize = 4;
 
 struct IndBlockIter {
@@ -73,8 +73,14 @@ impl Ext2Fs {
                 is_terminated = true;
             }
 
-            if entry.name.as_str() != "." || entry.name.as_str() != ".." {
-                return Ok((Some(1), true));
+            // skip the special entries "." and ".." when searching
+            if entry.name.as_str() == "." || entry.name.as_str() == ".." {
+                if is_terminated {
+                    return Ok((None, true));
+                }
+                last_entry_idx = this_entry_idx;
+                this_entry_idx += bytes_read;
+                continue;
             }
 
             // we don't check padding entries here
@@ -175,9 +181,16 @@ impl Ext2Fs {
 
         let buf = Box::new([0u8; BLOCK_SIZE as usize]);
 
-        // the first 12
-        for i in 0..min(inode.i_blocks as usize, DIR_INDIRECT_BLOCK_START) {
+        // compute number of data blocks represented by i_blocks (which counts 512-byte sectors)
+        let sectors_per_block = (BLOCK_SIZE as usize) / (SECTOR_SIZE as usize);
+        let block_count = (inode.i_blocks as usize) / sectors_per_block;
+
+        // the direct blocks (0..INODE_BLOCK_LIMIT-1)
+        for i in 0..min(block_count, INODE_BLOCK_LIMIT as usize) {
             let lba = inode.i_block[i] as i64;
+            if lba == 0 {
+                continue;
+            }
             self.read_sectors(buf.clone(), lba).await?;
 
             match self
@@ -203,8 +216,8 @@ impl Ext2Fs {
             }
         }
 
-        // the 13th
-        let lba = inode.i_block[13] as i64;
+        // single indirect (index 12)
+        let lba = inode.i_block[12] as i64;
 
         if lba != 0 {
             self.read_sectors(buf.clone(), lba).await?;
@@ -216,13 +229,16 @@ impl Ext2Fs {
 
             let ind_buf = Box::new([0u8; BLOCK_SIZE as usize]);
             for addr in iterator.into_iter() {
+                if addr == 0 {
+                    continue;
+                }
                 self.read_sectors(ind_buf.clone(), addr).await?;
 
                 match self
                     .find_entry_by_name_in_block(
                         name,
                         ind_buf.clone(),
-                        lba,
+                        addr,
                         delete,
                         find_is_empty,
                         &mut remaining,
@@ -241,20 +257,78 @@ impl Ext2Fs {
                     _ => {}
                 }
             }
+        }
 
-            // the 14th
+        // double indirect (index 13)
+        let lba = inode.i_block[13] as i64;
+
+        if lba != 0 {
+            self.read_sectors(buf.clone(), lba).await?;
+
+            let iterator = IndBlockIter {
+                buf: buf.clone(),
+                acc: 0,
+            };
+
+            let ind_buf = Box::new([0u8; BLOCK_SIZE as usize]);
+            let ind_ind_buf = Box::new([0u8; BLOCK_SIZE as usize]);
+            for addr in iterator.into_iter() {
+                if addr == 0 {
+                    continue;
+                }
+                self.read_sectors(ind_buf.clone(), addr).await?;
+
+                let ind_iterator = IndBlockIter {
+                    buf: ind_buf.clone(),
+                    acc: 0,
+                };
+
+                for ind_addr in ind_iterator.into_iter() {
+                    if ind_addr == 0 {
+                        continue;
+                    }
+                    self.read_sectors(ind_ind_buf.clone(), ind_addr).await?;
+                    match self
+                        .find_entry_by_name_in_block(
+                            name,
+                            ind_ind_buf.clone(),
+                            ind_addr,
+                            delete,
+                            find_is_empty,
+                            &mut remaining,
+                        )
+                        .await?
+                    {
+                        (res, true) => {
+                            if find_is_empty {
+                                return Ok(None);
+                            } else {
+                                return Ok(res);
+                            }
+                        }
+
+                        (Some(res), false) => return Ok(Some(res)),
+                        _ => {}
+                    }
+                }
+            }
+
+            // triple indirect (index 14)
             let lba = inode.i_block[14] as i64;
 
             if lba != 0 {
                 self.read_sectors(buf.clone(), lba).await?;
-
                 let iterator = IndBlockIter {
                     buf: buf.clone(),
                     acc: 0,
                 };
 
-                let ind_ind_buf = Box::new([0u8; BLOCK_SIZE as usize]);
+                let ind_ind_ind_buf = Box::new([0u8; BLOCK_SIZE as usize]);
+
                 for addr in iterator.into_iter() {
+                    if addr == 0 {
+                        continue;
+                    }
                     self.read_sectors(ind_buf.clone(), addr).await?;
 
                     let ind_iterator = IndBlockIter {
@@ -263,85 +337,43 @@ impl Ext2Fs {
                     };
 
                     for ind_addr in ind_iterator.into_iter() {
-                        self.read_sectors(ind_ind_buf.clone(), ind_addr).await?;
-                        match self
-                            .find_entry_by_name_in_block(
-                                name,
-                                ind_ind_buf.clone(),
-                                lba,
-                                delete,
-                                find_is_empty,
-                                &mut remaining,
-                            )
-                            .await?
-                        {
-                            (res, true) => {
-                                if find_is_empty {
-                                    return Ok(None);
-                                } else {
-                                    return Ok(res);
-                                }
-                            }
-
-                            (Some(res), false) => return Ok(Some(res)),
-                            _ => {}
+                        if ind_addr == 0 {
+                            continue;
                         }
-                    }
-                }
+                        self.read_sectors(ind_ind_buf.clone(), ind_addr).await?;
 
-                // the 15th
-                let lba = inode.i_block[15] as i64;
-
-                if lba != 0 {
-                    self.read_sectors(buf.clone(), lba).await?;
-                    let iterator = IndBlockIter {
-                        buf: buf.clone(),
-                        acc: 0,
-                    };
-
-                    let ind_ind_ind_buf = Box::new([0u8; BLOCK_SIZE as usize]);
-
-                    for addr in iterator.into_iter() {
-                        self.read_sectors(ind_buf.clone(), addr).await?;
-
-                        let ind_iterator = IndBlockIter {
-                            buf: ind_buf.clone(),
+                        let ind_ind_iterator = IndBlockIter {
+                            buf: ind_ind_buf.clone(),
                             acc: 0,
                         };
 
-                        for ind_addr in ind_iterator.into_iter() {
-                            self.read_sectors(ind_ind_buf.clone(), ind_addr).await?;
-
-                            let ind_ind_iterator = IndBlockIter {
-                                buf: ind_ind_buf.clone(),
-                                acc: 0,
-                            };
-
-                            for ind_ind_addr in ind_ind_iterator.into_iter() {
-                                self.read_sectors(ind_ind_ind_buf.clone(), ind_ind_addr)
-                                    .await?;
-                                match self
-                                    .find_entry_by_name_in_block(
-                                        name,
-                                        ind_ind_ind_buf.clone(),
-                                        lba,
-                                        delete,
-                                        find_is_empty,
-                                        &mut remaining,
-                                    )
-                                    .await?
-                                {
-                                    (res, true) => {
-                                        if find_is_empty {
-                                            return Ok(None);
-                                        } else {
-                                            return Ok(res);
-                                        }
+                        for ind_ind_addr in ind_ind_iterator.into_iter() {
+                            if ind_ind_addr == 0 {
+                                continue;
+                            }
+                            self.read_sectors(ind_ind_ind_buf.clone(), ind_ind_addr)
+                                .await?;
+                            match self
+                                .find_entry_by_name_in_block(
+                                    name,
+                                    ind_ind_ind_buf.clone(),
+                                    ind_ind_addr,
+                                    delete,
+                                    find_is_empty,
+                                    &mut remaining,
+                                )
+                                .await?
+                            {
+                                (res, true) => {
+                                    if find_is_empty {
+                                        return Ok(None);
+                                    } else {
+                                        return Ok(res);
                                     }
-
-                                    (Some(res), false) => return Ok(Some(res)),
-                                    _ => {}
                                 }
+
+                                (Some(res), false) => return Ok(Some(res)),
+                                _ => {}
                             }
                         }
                     }
@@ -416,26 +448,33 @@ impl Ext2Fs {
         flags: OpenFlags,
     ) -> Result<HalInode, HalFsIOErr> {
         let (mut directory_inode, file_inode) = self.walk_path(&path).await?;
+        // remember whether the file existed before we attempt creation
+        let existed = file_inode.is_some();
 
-        let Some(file_inode) = file_inode else {
+        let mut file_inode = if let Some(i) = file_inode {
+            Some(i)
+        } else {
             if flags.flags & OpenFlagsValue::CreateIfNotExist as i32 != 0 {
-                self.create_file(
-                    &mut directory_inode,
-                    &path.file_name().ok_or(HalFsIOErr::BadPath)?,
-                    flags.perms.ok_or(HalFsIOErr::NoPermsProvided)?,
-                )
-                .await?;
-                todo!()
+                let created = self
+                    .create_file(
+                        &mut directory_inode,
+                        &path.file_name().ok_or(HalFsIOErr::BadPath)?,
+                        flags.perms.ok_or(HalFsIOErr::NoPermsProvided)?,
+                    )
+                    .await?;
+
+                Some(created)
             } else {
                 return Err(HalFsIOErr::NoSuchFileOrDirectory);
             }
         };
 
-        if flags.flags & OpenFlagsValue::ErrorIfCreateFileExists as i32 != 0 {
+        // If O_CREAT | O_EXCL and the file already existed, fail with FileExists
+        if existed && (flags.flags & OpenFlagsValue::ErrorIfCreateFileExists as i32 != 0) {
             return Err(HalFsIOErr::FileExists);
         }
 
-        Ok(HalInode::Ext2(file_inode))
+        Ok(HalInode::Ext2(file_inode.take().unwrap()))
     }
 }
 

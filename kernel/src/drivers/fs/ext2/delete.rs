@@ -66,16 +66,18 @@ impl Ext2Fs {
     ) -> Result<(), HalFsIOErr> {
         let buf = Box::new([0u8; BLOCK_SIZE as usize]);
         self.read_sectors(buf.clone(), block_lba).await?;
-
         for i in (0..BLOCK_SIZE).step_by(4) {
             let lba = u32::deserialize(dvida_serialize::Endianness::Little, &buf[i as usize..])?.0;
             if lba == 0 {
-                return Ok(());
+                // remaining pointers are zero; stop iterating so we still free the
+                // indirect block itself below
+                break;
             }
 
             self.free_block(lba as i64, cur_bitmap_lba, cur_buf).await?;
         }
 
+        // finally free the indirect block entry itself
         self.free_block(block_lba, cur_bitmap_lba, cur_buf).await?;
 
         Ok(())
@@ -89,17 +91,18 @@ impl Ext2Fs {
     ) -> Result<(), HalFsIOErr> {
         let buf = Box::new([0u8; BLOCK_SIZE as usize]);
         self.read_sectors(buf.clone(), block_lba).await?;
-
         for i in (0..BLOCK_SIZE).step_by(4) {
             let lba = u32::deserialize(dvida_serialize::Endianness::Little, &buf[i as usize..])?.0;
             if lba == 0 {
-                return Ok(());
+                break;
             }
 
-            self.free_indirect_block(block_lba, cur_bitmap_lba, cur_buf)
+            // lba is the address of an indirect block
+            self.free_indirect_block(lba as i64, cur_bitmap_lba, cur_buf)
                 .await?;
         }
 
+        // finally free the double-indirect block itself
         self.free_block(block_lba, cur_bitmap_lba, cur_buf).await?;
 
         Ok(())
@@ -113,17 +116,18 @@ impl Ext2Fs {
     ) -> Result<(), HalFsIOErr> {
         let buf = Box::new([0u8; BLOCK_SIZE as usize]);
         self.read_sectors(buf.clone(), block_lba).await?;
-
         for i in (0..BLOCK_SIZE).step_by(4) {
             let lba = u32::deserialize(dvida_serialize::Endianness::Little, &buf[i as usize..])?.0;
             if lba == 0 {
-                return Ok(());
+                break;
             }
 
-            self.free_double_indirect_block(block_lba, cur_bitmap_lba, cur_buf)
+            // lba is the address of a double-indirect block
+            self.free_double_indirect_block(lba as i64, cur_bitmap_lba, cur_buf)
                 .await?;
         }
 
+        // finally free the triple-indirect block itself
         self.free_block(block_lba, cur_bitmap_lba, cur_buf).await?;
 
         Ok(())
