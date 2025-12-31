@@ -1,9 +1,11 @@
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, vec, vec::Vec};
+use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
         GroupDescriptor, SuperBlock,
         create_file::{BLOCK_SECTOR_SIZE, RESERVED_BOOT_RECORD_OFFSET},
+        init::{identify_ext2, init_ext2},
     },
     hal::{
         gpt::GPTEntry,
@@ -86,6 +88,28 @@ pub struct Ext2Fs {
 }
 
 impl Ext2Fs {
+    pub async fn new(drive_id: usize, entry: GPTEntry) -> Self {
+        if identify_ext2(drive_id, &entry).await.is_none() {
+            init_ext2(drive_id, &entry)
+                .await
+                .expect("Failed to init ext2");
+            log!("Initialized ext2");
+        }
+
+        let super_block = identify_ext2(drive_id, &entry)
+            .await
+            .expect("Failed to mount ext2");
+
+        log!("Mounted ext2");
+
+        Self {
+            drive_id,
+            entry,
+            super_block,
+            group_descs: vec![],
+        }
+    }
+
     /// relative LBA
     pub async fn read_sectors(
         &self,

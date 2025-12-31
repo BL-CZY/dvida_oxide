@@ -147,7 +147,6 @@ impl HalStorageDevice {
         }
 
         while let Some(op) = rx.recv().await {
-            iprintln!("Received storage operation: {:?}", op);
             match op {
                 HalStorageOperation::Read {
                     mut buffer,

@@ -60,7 +60,6 @@ const INODE_SIZE: u16 = 128;
 const FIRST_DATA_BLOCK_ADDR: u32 = 1024 / BLOCK_SIZE;
 
 // blocksize is considered to be 1kb
-// TODO: add root directory
 pub async fn init_ext2(drive_id: usize, entry: &GPTEntry) -> Result<(), Box<dyn Error>> {
     // TODO: check entry eligibility
 
