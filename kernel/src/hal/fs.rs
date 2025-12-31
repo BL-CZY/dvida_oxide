@@ -1,7 +1,9 @@
 use core::fmt::Debug;
 
-use alloc::{string::String, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 use dvida_serialize::{DvDeErr, DvSerErr, DvSerialize};
+use ejcineque::sync::mutex::Mutex;
+use lazy_static::lazy_static;
 
 use crate::{
     drivers::fs::ext2::{self, structs::Ext2Fs},
@@ -9,6 +11,11 @@ use crate::{
 };
 
 pub const EOF: usize = 0;
+
+lazy_static! {
+    pub static ref FILE_SYSTEM: Arc<Mutex<FileSystem>> =
+        Arc::new(Mutex::new(FileSystem::default()));
+}
 
 pub struct DirEnt64 {
     pub inode_idx: u64,
@@ -71,7 +78,7 @@ pub struct MountPoint {
     pub path: Path,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct FileSystem {
     pub drive_id: usize,
     pub entry_idx: usize,
@@ -180,7 +187,9 @@ impl From<HalStorageOperationErr> for HalFsIOErr {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum HalFs {
+    #[default]
+    Unidentified,
     Ext2(Ext2Fs),
 }

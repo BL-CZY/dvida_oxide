@@ -23,11 +23,17 @@ enum MutexLinkedListState {
     Locked = 1,
 }
 
+unsafe impl Send for MutexWakerNode {}
+unsafe impl Sync for MutexWakerNode {}
+
 struct MutexWakerNode {
     next: *mut MutexWakerNode,
     prev: *mut MutexWakerNode,
     waker: Waker,
 }
+
+unsafe impl<T: Send> Send for Mutex<T> {}
+unsafe impl<T: Send> Sync for Mutex<T> {}
 
 /// uses a circular linked list for wakers
 #[derive(Debug)]

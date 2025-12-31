@@ -126,6 +126,19 @@ pub struct GPTEntry {
     pub name: [u16; 36],
 }
 
+impl Default for GPTEntry {
+    fn default() -> Self {
+        GPTEntry {
+            type_guid: Guid::default(),
+            unique_guid: Guid::default(),
+            start_lba: 0,
+            end_lba: 0,
+            flags: 0,
+            name: [0u16; 36],
+        }
+    }
+}
+
 impl TryFrom<&[u8]> for GPTEntry {
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         if !(value.len() / 128).is_power_of_two() {

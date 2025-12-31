@@ -4,3 +4,5 @@ pub mod keyboard;
 pub mod path;
 pub mod perms;
 pub mod storage;
+pub mod vfs;
+
