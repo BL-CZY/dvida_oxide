@@ -163,11 +163,9 @@ impl HalStorageDevice {
                         .await
                     {
                         Ok(_) => {
-                            iprintln!("Read Operation succeeded!: {:?}", buffer);
                             sender.send(Ok(()));
                         }
                         Err(e) => {
-                            iprintln!("Operation failed..: {:?}", e);
                             sender.send(Err(HalStorageOperationErr::DriveErr(e.to_string())));
                         }
                     }
@@ -183,12 +181,10 @@ impl HalStorageDevice {
                         .await
                     {
                         Ok(_) => {
-                            iprintln!("Write operation succeeded!: {:?}", buffer);
                             sender.send(Ok(()));
                         }
 
                         Err(e) => {
-                            iprintln!("Write operation failed..: {:?}", e);
                             sender.send(Err(HalStorageOperationErr::DriveErr(e.to_string())));
                         }
                     }
@@ -197,12 +193,10 @@ impl HalStorageDevice {
                 HalStorageOperation::InitGpt { force, sender } => {
                     match self.create_gpt(force).await {
                         Ok(_) => {
-                            log!("Initialized new gpt: forced: {}", force);
                             sender.send(Ok(()));
                         }
 
                         Err(e) => {
-                            log!("GPT failed to initialize: {}", e);
                             sender.send(Err(e));
                         }
                     }
@@ -210,12 +204,10 @@ impl HalStorageDevice {
 
                 HalStorageOperation::ReadGpt { sender } => match self.read_gpt().await {
                     Ok(res) => {
-                        log!("Read GPT table: {:?}", res);
                         sender.send(Ok(res));
                     }
 
                     Err(e) => {
-                        log!("Failed to read GPT table: {:?}", e);
                         sender.send(Err(e));
                     }
                 },
@@ -231,13 +223,11 @@ impl HalStorageDevice {
                     .add_entry(name, start_lba, end_lba, type_guid, flags)
                     .await
                 {
-                    Ok(res) => {
-                        log!("Added GPT entry: {:?}", res);
+                    Ok(_res) => {
                         sender.send(Ok(()));
                     }
 
                     Err(e) => {
-                        log!("Failed to add GPT entry: {:?}", e);
                         sender.send(Err(e));
                     }
                 },
@@ -245,12 +235,10 @@ impl HalStorageDevice {
                 HalStorageOperation::DeleteEntry { idx, sender } => {
                     match self.delete_entry(idx).await {
                         Ok(res) => {
-                            log!("Deleted GPT entry: {:?}", res);
                             sender.send(Ok(res));
                         }
 
                         Err(e) => {
-                            log!("Failed to delete GPT delete: {:?}", e);
                             sender.send(Err(e));
                         }
                     }

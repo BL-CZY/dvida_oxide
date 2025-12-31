@@ -29,7 +29,7 @@ use crate::{
     args::parse_args,
     crypto::random::run_random,
     debug::terminal::WRITER,
-    hal::storage::{PRIMARY, SECONDARY, run_storage_device},
+    hal::storage::{PRIMARY, SECONDARY, read_gpt, run_storage_device},
 };
 
 pub mod arch;
@@ -62,7 +62,9 @@ async fn kernel_main(executor: Executor) {
     yield_now().await;
     log!("Random number task launched");
 
-    parse_args();
+    let args = parse_args();
+    let (_header, entries) = read_gpt(args.root_drive).await.expect("Failed to read GPT");
+    log!("Root directory entry: {:?}", entries[args.root_entry]);
 }
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
