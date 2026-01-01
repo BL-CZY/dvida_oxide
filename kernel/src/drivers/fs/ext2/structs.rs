@@ -1,13 +1,11 @@
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::boxed::Box;
 use dvida_serialize::DvDeserialize;
 use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
-        BLOCK_GROUP_DESCRIPTOR_SIZE, BLOCK_SIZE, GroupDescriptor, GroupDescriptorPartial,
-        SuperBlock,
-        create_file::{BLOCK_SECTOR_SIZE, RESERVED_BOOT_RECORD_OFFSET},
-        init::identify_ext2,
+        BLOCK_GROUP_DESCRIPTOR_SIZE, GroupDescriptorPartial, SuperBlock,
+        create_file::RESERVED_BOOT_RECORD_OFFSET, init::identify_ext2,
     },
     hal::{
         fs::HalFsIOErr,
@@ -20,6 +18,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Ext2BlockGroup {
     pub group_number: i64,
+    pub block_size: i64,
     pub blocks_per_group: i64,
     pub sectors_per_block: i64,
     pub descriptor_partial: GroupDescriptorPartial,
@@ -50,35 +49,27 @@ impl Ext2BlockGroup {
     }
 
     pub fn get_block_bitmap_lba(&self) -> i64 {
-        if self.group_number == 0 {
-            self.get_group_lba() + 1024 / SECTOR_SIZE as i64 + self.sectors_per_block
-        } else {
-            self.get_group_lba() + self.sectors_per_block * 2
-        }
+        self.block_idx_to_lba(self.descriptor_partial.bg_block_bitmap)
     }
 
     pub fn get_inode_bitmap_lba(&self) -> i64 {
-        if self.group_number == 0 {
-            self.get_group_lba() + 1024 / SECTOR_SIZE as i64 + self.sectors_per_block * 2
-        } else {
-            self.get_group_lba() + self.sectors_per_block * 3
-        }
+        self.block_idx_to_lba(self.descriptor_partial.bg_inode_bitmap)
     }
 
     pub fn get_inode_table_lba(&self) -> i64 {
-        if self.group_number == 0 {
-            self.get_group_lba() + 1024 / SECTOR_SIZE as i64 + self.sectors_per_block * 3
-        } else {
-            self.get_group_lba() + self.sectors_per_block * 4
-        }
+        self.block_idx_to_lba(self.descriptor_partial.bg_inode_table)
     }
 
     pub fn get_data_blocks_start_lba(&self) -> i64 {
-        if self.group_number == 0 {
-            self.get_group_lba() + 1024 / SECTOR_SIZE as i64 + self.sectors_per_block * 217
-        } else {
-            self.get_group_lba() + self.sectors_per_block * 218
-        }
+        self.get_group_lba()
+    }
+
+    pub fn block_idx_to_lba(&self, block_idx: u32) -> i64 {
+        block_idx as i64 * self.block_size as i64 / SECTOR_SIZE as i64
+    }
+
+    pub fn lba_to_block_idx(&self, lba: i64) -> u32 {
+        (lba / self.block_size as i64) as u32 * SECTOR_SIZE as u32
     }
 }
 
@@ -146,6 +137,7 @@ impl Ext2Fs {
 
         Ok(Ext2BlockGroup {
             group_number: gr_number,
+            block_size: self.super_block.block_size() as i64,
             blocks_per_group: self.super_block.s_blocks_per_group as i64,
             sectors_per_block: self.super_block.block_size() as i64 / SECTOR_SIZE as i64,
             descriptor_partial: GroupDescriptorPartial::deserialize(
@@ -157,11 +149,11 @@ impl Ext2Fs {
     }
 
     pub fn block_idx_to_lba(&self, block_idx: u32) -> i64 {
-        block_idx as i64 * BLOCK_SIZE as i64 / SECTOR_SIZE as i64
+        block_idx as i64 * self.super_block.block_size() as i64 / SECTOR_SIZE as i64
     }
 
     pub fn lba_to_block_idx(&self, lba: i64) -> u32 {
-        (lba / BLOCK_SIZE as i64) as u32 * SECTOR_SIZE as u32
+        (lba / self.super_block.block_size() as i64) as u32 * SECTOR_SIZE as u32
     }
 }
 
