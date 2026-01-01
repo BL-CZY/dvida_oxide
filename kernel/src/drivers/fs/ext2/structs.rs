@@ -1,13 +1,16 @@
 use alloc::{boxed::Box, vec, vec::Vec};
+use dvida_serialize::DvDeserialize;
 use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
-        GroupDescriptor, SuperBlock,
+        BLOCK_GROUP_DESCRIPTOR_SIZE, BLOCK_SIZE, GroupDescriptor, GroupDescriptorPartial,
+        SuperBlock,
         create_file::{BLOCK_SECTOR_SIZE, RESERVED_BOOT_RECORD_OFFSET},
         init::identify_ext2,
     },
     hal::{
+        fs::HalFsIOErr,
         gpt::GPTEntry,
         storage::{self, HalStorageOperationErr, SECTOR_SIZE},
     },
@@ -19,6 +22,7 @@ pub struct Ext2BlockGroup {
     pub group_number: i64,
     pub blocks_per_group: i64,
     pub sectors_per_block: i64,
+    pub descriptor_partial: GroupDescriptorPartial,
 }
 
 impl Ext2BlockGroup {
@@ -125,22 +129,39 @@ impl Ext2Fs {
             .unwrap_or(i64::MAX)
     }
 
-    pub fn get_group_from_lba(&self, lba: i64) -> Ext2BlockGroup {
-        Ext2BlockGroup {
-            group_number: lba
-                - RESERVED_BOOT_RECORD_OFFSET
-                    / (self.super_block.s_blocks_per_group as i64 * BLOCK_SECTOR_SIZE) as i64,
-            blocks_per_group: self.super_block.s_blocks_per_group as i64,
-            sectors_per_block: self.super_block.block_size() as i64 / SECTOR_SIZE as i64,
-        }
+    pub async fn get_group_from_lba(&self, lba: i64) -> Result<Ext2BlockGroup, HalFsIOErr> {
+        let group_number = self.lba_to_block_idx(lba) / self.super_block.s_blocks_per_group;
+
+        self.get_group(group_number as i64).await
     }
 
-    pub fn get_group(&self, gr_number: i64) -> Ext2BlockGroup {
-        Ext2BlockGroup {
+    pub async fn get_group(&self, gr_number: i64) -> Result<Ext2BlockGroup, HalFsIOErr> {
+        let bg_table_block_idx = self.super_block.s_first_data_block;
+        let lba = self.block_idx_to_lba(bg_table_block_idx);
+        let lba_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) / SECTOR_SIZE as i64;
+        let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
+
+        let mut buf: Box<[u8]> = Box::new([0u8; SECTOR_SIZE]);
+        buf = self.read_sectors(buf, lba + lba_offset).await?;
+
+        Ok(Ext2BlockGroup {
             group_number: gr_number,
             blocks_per_group: self.super_block.s_blocks_per_group as i64,
             sectors_per_block: self.super_block.block_size() as i64 / SECTOR_SIZE as i64,
-        }
+            descriptor_partial: GroupDescriptorPartial::deserialize(
+                dvida_serialize::Endianness::Little,
+                &buf[byte_offset as usize..],
+            )?
+            .0,
+        })
+    }
+
+    pub fn block_idx_to_lba(&self, block_idx: u32) -> i64 {
+        block_idx as i64 * BLOCK_SIZE as i64 / SECTOR_SIZE as i64
+    }
+
+    pub fn lba_to_block_idx(&self, lba: i64) -> u32 {
+        (lba / BLOCK_SIZE as i64) as u32 * SECTOR_SIZE as u32
     }
 }
 

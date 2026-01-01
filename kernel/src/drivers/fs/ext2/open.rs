@@ -2,6 +2,7 @@ use core::cmp::min;
 
 use alloc::boxed::Box;
 use dvida_serialize::{DvDeserialize, DvSerialize};
+use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
@@ -385,8 +386,9 @@ impl Ext2Fs {
         path: &Path,
     ) -> Result<(InodePlus, Option<InodePlus>), HalFsIOErr> {
         let block_size = self.super_block.block_size();
-        let superblock_loc = self.super_block.s_first_data_block;
-        let inode_table_loc = superblock_loc as i64 + (block_size as i64 / SECTOR_SIZE as i64) * 3;
+        let superblock_loc = self.super_block.s_first_data_block * 2;
+        let inode_table_loc = superblock_loc as i64 + (block_size as i64 / SECTOR_SIZE as i64) * 4;
+        log!("{}", inode_table_loc);
 
         let mut buf: Box<[u8]> = Box::new([0u8; 512]);
         buf = self.read_sectors(buf, inode_table_loc).await?;
@@ -396,6 +398,8 @@ impl Ext2Fs {
             &buf[INODE_SIZE as usize..],
         )?
         .0;
+
+        log!("Root directory Inode: {:?}", inode);
 
         let mut directory_inode_idx = ROOT_DIRECTORY_INODE_IDX as u32;
 

@@ -88,7 +88,9 @@ pub struct FileSystem {
     pub fs_impl: HalFs,
 }
 
+#[derive(Debug, Clone, Default)]
 pub enum OpenAccessMode {
+    #[default]
     ReadOnly,
     WriteOnly,
     ReadNWrite,
@@ -130,12 +132,14 @@ pub enum OpenFlagsValue {
     Unique = 0x1 << 14,
 }
 
+#[derive(Debug, Clone, Default)]
 pub struct OpenFlags {
     pub access_mode: OpenAccessMode,
     pub flags: i32,
     pub perms: Option<i32>,
 }
 
+#[derive(Debug, Clone)]
 pub enum HalInode {
     Ext2(ext2::InodePlus),
 }

@@ -123,7 +123,7 @@ impl PataDevice {
     }
 
     fn send_lba48(&mut self, count: u16, lba: u64) {
-        log!("send_lba48: count={}, lba={:#x}", count, lba);
+        log!("send_lba48: count={}, lba=0x{:#x}", count, lba);
         unsafe {
             self.drive_port.write(cmd::LBA48);
 

@@ -61,9 +61,11 @@ impl<T> Mutex<T> {
     }
 
     fn lock_wakers_list(&self) {
-        let mut counter: usize = 1000;
-        loop {
-            if self
+        while self
+            .wakers_list_state
+            .load(core::sync::atomic::Ordering::Relaxed)
+            == MutexLinkedListState::Locked as u8
+            || self
                 .wakers_list_state
                 .compare_exchange(
                     MutexLinkedListState::Unlocked as u8,
@@ -71,15 +73,9 @@ impl<T> Mutex<T> {
                     core::sync::atomic::Ordering::Acquire,
                     core::sync::atomic::Ordering::Relaxed,
                 )
-                .is_ok()
-            {
-                break;
-            }
-
-            counter -= 1;
-            if counter <= 0 {
-                panic!("Potential deadlock detected");
-            }
+                .is_err()
+        {
+            core::hint::spin_loop();
         }
     }
 

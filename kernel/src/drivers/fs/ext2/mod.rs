@@ -17,31 +17,51 @@ pub use inode::InodePlus;
 #[derive(DvDeSer, Debug, Clone)]
 pub struct SuperBlock {
     // Base fields (revision 0 and 1)
-    s_inodes_count: u32,      // Total number of inodes
-    s_blocks_count: u32,      // Total number of blocks
-    s_r_blocks_count: u32,    // Number of reserved blocks
-    s_free_blocks_count: u32, // Number of free blocks
-    s_free_inodes_count: u32, // Number of free inodes
-    s_first_data_block: u32,  // First data block (0 or 1)
-    s_log_block_size: u32,    // Block size = 1024 << s_log_block_size
-    s_log_frag_size: u32,     // Fragment size = 1024 << s_log_frag_size
-    s_blocks_per_group: u32,  // Number of blocks per group
-    s_frags_per_group: u32,   // Number of fragments per group
-    s_inodes_per_group: u32,  // Number of inodes per group
-    s_mtime: u32,             // Last mount time (POSIX time)
-    s_wtime: u32,             // Last write time (POSIX time)
-    s_mnt_count: u16,         // Mount count since last fsck
-    s_max_mnt_count: u16,     // Maximum mount count before fsck
-    s_magic: u16,             // Magic signature (0xEF53)
-    s_state: u16,             // File system state
-    s_errors: u16,            // Behavior when detecting errors
-    s_minor_rev_level: u16,   // Minor revision level
-    s_lastcheck: u32,         // Last check time (POSIX time)
-    s_checkinterval: u32,     // Maximum time between checks
-    s_creator_os: u32,        // OS that created the filesystem
-    s_rev_level: u32,         // Revision level
-    s_def_resuid: u16,        // Default user ID for reserved blocks
-    s_def_resgid: u16,        // Default group ID for reserved blocks
+    /// Total number of inodes
+    s_inodes_count: u32,
+    /// Total number of blocks
+    s_blocks_count: u32,
+    /// Number of reserved blocks
+    s_r_blocks_count: u32,
+    /// Number of free blocks
+    s_free_blocks_count: u32,
+    /// Number of free inodes
+    s_free_inodes_count: u32,
+    /// First data block (0 or 1)
+    s_first_data_block: u32,
+    /// Block size = 1024 << s_log_block_size
+    s_log_block_size: u32,
+    /// Fragment size = 1024 << s_log_frag_size
+    s_log_frag_size: u32,
+    /// Number of blocks per group
+    s_blocks_per_group: u32,
+    /// Number of fragments per group
+    s_frags_per_group: u32,
+    /// Number of inodes per group
+    s_inodes_per_group: u32,
+    /// Last mount time (POSIX time)
+    s_mtime: u32,
+    /// Last write time (POSIX time)
+    s_wtime: u32,
+    /// Mount count since last fsck
+    s_mnt_count: u16,
+    /// Maximum mount count before fsck
+    s_max_mnt_count: u16,
+    /// Magic signature (0xEF53)
+    s_magic: u16,
+    /// File system state
+    s_state: u16,
+    /// Behavior when detecting errors
+    s_errors: u16,
+    /// Minor revision level
+    s_minor_rev_level: u16,
+    /// Last check time (POSIX time)
+    s_lastcheck: u32,
+    s_checkinterval: u32, // Maximum time between checks
+    s_creator_os: u32,    // OS that created the filesystem
+    s_rev_level: u32,     // Revision level
+    s_def_resuid: u16,    // Default user ID for reserved blocks
+    s_def_resgid: u16,    // Default group ID for reserved blocks
 
     // Extended fields (EXT2_DYNAMIC_REV - revision 1)
     s_first_ino: u32,         // First non-reserved inode
@@ -78,15 +98,33 @@ pub struct SuperBlock {
                                // reserved: [u8; 760],
 }
 
+pub const BLOCK_GROUP_DESCRIPTOR_SIZE: usize = 32;
+
 /// Block Group Descriptor structure
 #[derive(DvDeSer, Debug, Clone)]
 pub struct GroupDescriptor {
-    bg_block_bitmap: u32,      // Block number of block bitmap
-    bg_inode_bitmap: u32,      // Block number of inode bitmap
-    bg_inode_table: u32,       // Block number of inode table
-    bg_free_blocks_count: u16, // Number of free blocks
-    bg_free_inodes_count: u16, // Number of free inodes
-    bg_used_dirs_count: u16,   // Number of directories
+    /// Block number of block bitmap
+    bg_block_bitmap: u32,
+    /// Block number of inode bitmap
+    bg_inode_bitmap: u32,
+    /// Block number of inode table
+    bg_inode_table: u32,
+    /// Number of free blocks
+    bg_free_blocks_count: u16,
+    /// Number of free inodes
+    bg_free_inodes_count: u16,
+    /// Number of directories
+    bg_used_dirs_count: u16,
+}
+
+#[derive(DvDeSer, Debug, Clone)]
+pub struct GroupDescriptorPartial {
+    /// Block number of block bitmap
+    bg_block_bitmap: u32,
+    /// Block number of inode bitmap
+    bg_inode_bitmap: u32,
+    /// Block number of inode table
+    bg_inode_table: u32,
 }
 
 /// Inode structure - represents a file, directory, or other filesystem object

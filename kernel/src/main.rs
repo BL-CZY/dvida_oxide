@@ -6,7 +6,6 @@
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 
-use alloc::boxed::Box;
 use terminal::{iprintln, log};
 
 extern crate alloc;
@@ -31,7 +30,9 @@ use crate::{
     crypto::random::run_random,
     debug::terminal::WRITER,
     hal::{
-        storage::{PRIMARY, SECONDARY, read_gpt, run_storage_device},
+        fs::OpenFlags,
+        path::Path,
+        storage::{PRIMARY, SECONDARY, run_storage_device},
         vfs::init_vfs,
     },
 };
@@ -69,6 +70,8 @@ async fn kernel_main(executor: Executor) {
     let args = parse_args();
 
     init_vfs(args.root_drive, args.root_entry).await;
+    let res = hal::vfs::open(Path::from_str("/test").unwrap(), OpenFlags::default()).await;
+    log!("{:?}", res);
 }
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
