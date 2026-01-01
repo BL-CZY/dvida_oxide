@@ -18,7 +18,7 @@ impl Ext2Fs {
         child_inode_idx: u32,
         name: &str,
     ) -> Result<(), HalFsIOErr> {
-        let mut buf = Box::new([0u8; BLOCK_SIZE as usize]);
+        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
         let dir = &mut inode.inode;
 
         let block_idx = dir.i_size / BLOCK_SIZE;
@@ -27,7 +27,7 @@ impl Ext2Fs {
 
         // Read existing block if present. If LBA==0 treat as zero-filled (sparse)
         if lba != 0 {
-            self.read_sectors(buf.clone(), lba).await?;
+            buf = self.read_sectors(buf, lba).await?;
         } else {
             buf.fill(0);
         }
@@ -121,9 +121,9 @@ impl Ext2Fs {
         progress: &mut Progress,
     ) -> Result<(bool, bool), HalFsIOErr> {
         let lba = self.get_block_lba(inode, progress.block_idx as u32).await?;
-        let buf = Box::new([0u8; BLOCK_SIZE as usize]);
+        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
 
-        self.read_sectors(buf.clone(), lba as i64).await?;
+        buf = self.read_sectors(buf, lba as i64).await?;
 
         let mut progress_bytes = progress.offset as usize;
         while let Ok((entry, bytes_read)) =

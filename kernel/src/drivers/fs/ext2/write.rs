@@ -30,13 +30,12 @@ impl Ext2Fs {
             }
 
             let group = self.get_group(group_number as i64);
-            let mut buf = Box::new([0u8; BLOCK_SIZE as usize]);
+            let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
 
             // read block bitmap for the group
-            self.read_sectors(buf.clone(), group.get_block_bitmap_lba())
-                .await?;
+            buf = self.read_sectors(buf, group.get_block_bitmap_lba()).await?;
 
-            let bit_iterator = BitIterator::new(buf.as_mut_slice());
+            let bit_iterator = BitIterator::new(buf.as_mut());
 
             // compute index of first data block within the group (in bitmap block indices)
             let first_data_block_lba = group.get_data_blocks_start_lba();
@@ -85,12 +84,11 @@ impl Ext2Fs {
     ) -> Result<Vec<AllocatedBlock>, HalStorageOperationErr> {
         let mut blocks_allocated = vec![];
         let group = self.get_group(group_number);
-        let mut buf = Box::new([0u8; BLOCK_SIZE as usize]);
+        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
 
         // read the block bitmap for the group
-        self.read_sectors(buf.clone(), group.get_block_bitmap_lba())
-            .await?;
-        let bit_iterator: BitIterator<u8> = BitIterator::new(buf.as_mut_slice());
+        buf = self.read_sectors(buf, group.get_block_bitmap_lba()).await?;
+        let bit_iterator: BitIterator<u8> = BitIterator::new(buf.as_mut());
 
         // index of first data block within the group
         let first_data_block_lba = group.get_data_blocks_start_lba();
@@ -134,17 +132,17 @@ impl Ext2Fs {
     async fn write_till_next_block(
         &mut self,
         inode: &mut Inode,
-        input: Box<[u8]>,
+        input: &Box<[u8]>,
         ctx: &mut HalIOCtx,
         progress: &mut Progress,
     ) -> Result<(), HalFsIOErr> {
-        let mut buf = Box::new([0u8; BLOCK_SIZE as usize]);
+        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
         let lba = self.get_block_lba(inode, progress.block_idx).await? as i64;
 
         // if we are not at the start of a block we need to make sure the existing data doesn't
         // get overwritten
         if progress.offset != 0 {
-            self.read_sectors(buf.clone(), lba).await?;
+            buf = self.read_sectors(buf, lba).await?;
         }
 
         for i in progress.offset..self.super_block.block_size() {
@@ -173,11 +171,11 @@ impl Ext2Fs {
         addr: u32,
         inode: &mut Inode,
         cur_ind_block_lba: &mut i64,
-        mut cur_ind_block_buf: Box<[u8; BLOCK_SIZE as usize]>,
+        mut cur_ind_block_buf: Box<[u8]>,
         group_number: i64,
         newly_allocated_blocks: &mut Vec<AllocatedBlock>,
         block: &AllocatedBlock,
-    ) -> Result<(), HalFsIOErr> {
+    ) -> Result<Box<[u8]>, HalFsIOErr> {
         if addr == 0 {
             let ind_block = self
                 .allocate_n_blocks_in_group(group_number, 1)
@@ -194,7 +192,7 @@ impl Ext2Fs {
                 &mut cur_ind_block_buf[(inode.i_blocks - INODE_BLOCK_LIMIT) as usize * 4..],
             )?;
 
-            return Ok(());
+            return Ok(cur_ind_block_buf);
         }
 
         if *cur_ind_block_lba as u32 != inode.i_block[INODE_BLOCK_LIMIT as usize] {
@@ -204,7 +202,8 @@ impl Ext2Fs {
             }
 
             *cur_ind_block_lba = inode.i_block[INODE_BLOCK_LIMIT as usize] as i64;
-            self.read_sectors(cur_ind_block_buf.clone(), *cur_ind_block_lba)
+            cur_ind_block_buf = self
+                .read_sectors(cur_ind_block_buf, *cur_ind_block_lba)
                 .await?;
 
             block.addr.serialize(
@@ -213,7 +212,7 @@ impl Ext2Fs {
             )?;
         }
 
-        Ok(())
+        Ok(cur_ind_block_buf)
     }
 
     pub async fn handle_double_indirect_block(
@@ -224,9 +223,9 @@ impl Ext2Fs {
         newly_allocated_blocks: &mut Vec<AllocatedBlock>,
         double_ind_block_buf: &mut Option<Box<[u8; 1024]>>,
         cur_ind_block_lba: &mut i64,
-        cur_ind_block_buf: Box<[u8; BLOCK_SIZE as usize]>,
+        mut cur_ind_block_buf: Box<[u8]>,
         block: &AllocatedBlock,
-    ) -> Result<(), HalFsIOErr> {
+    ) -> Result<Box<[u8]>, HalFsIOErr> {
         if addr == 0 {
             let double_ind_block = self
                 .allocate_n_blocks_in_group(group_number, 1)
@@ -241,12 +240,10 @@ impl Ext2Fs {
         let temp_buf = match double_ind_block_buf {
             Some(buf) => buf.clone(),
             None => {
-                let buf = Box::new([0u8; BLOCK_SIZE as usize]);
-                self.read_sectors(
-                    buf.clone(),
-                    inode.i_block[INODE_BLOCK_LIMIT as usize + 1] as i64,
-                )
-                .await?;
+                let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
+                buf = self
+                    .read_sectors(buf, inode.i_block[INODE_BLOCK_LIMIT as usize + 1] as i64)
+                    .await?;
                 buf
             }
         };
@@ -257,18 +254,19 @@ impl Ext2Fs {
         )?
         .0;
 
-        self.handle_indirect_block(
-            addr,
-            inode,
-            cur_ind_block_lba,
-            cur_ind_block_buf.clone(),
-            group_number,
-            newly_allocated_blocks,
-            block,
-        )
-        .await?;
+        cur_ind_block_buf = self
+            .handle_indirect_block(
+                addr,
+                inode,
+                cur_ind_block_lba,
+                cur_ind_block_buf,
+                group_number,
+                newly_allocated_blocks,
+                block,
+            )
+            .await?;
 
-        Ok(())
+        Ok(cur_ind_block_buf)
     }
 
     pub async fn expand_inode(
@@ -283,7 +281,7 @@ impl Ext2Fs {
             .await?;
 
         let mut cur_ind_block_lba = 0;
-        let cur_ind_block_buf = Box::new([0u8; BLOCK_SIZE as usize]);
+        let mut cur_ind_block_buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
 
         let mut double_ind_block_buf = None;
         let mut triple_ind_block_buf = None;
@@ -306,17 +304,18 @@ impl Ext2Fs {
                 )
                 .await?;
             } else if inode.i_blocks < INODE_DOUBLE_IND_BLOCK_LIMIT {
-                self.handle_double_indirect_block(
-                    inode.i_block[INODE_BLOCK_LIMIT as usize + 1],
-                    group_number,
-                    inode,
-                    &mut newly_allocated_blocks,
-                    &mut double_ind_block_buf,
-                    &mut cur_ind_block_lba,
-                    cur_ind_block_buf.clone(),
-                    block,
-                )
-                .await?;
+                cur_ind_block_buf = self
+                    .handle_double_indirect_block(
+                        inode.i_block[INODE_BLOCK_LIMIT as usize + 1],
+                        group_number,
+                        inode,
+                        &mut newly_allocated_blocks,
+                        &mut double_ind_block_buf,
+                        &mut cur_ind_block_lba,
+                        cur_ind_block_buf,
+                        block,
+                    )
+                    .await?;
             } else {
                 if inode.i_block[INODE_BLOCK_LIMIT as usize + 2] == 0 {
                     let triple_ind_block = self
@@ -332,13 +331,11 @@ impl Ext2Fs {
                 let temp_buf = match triple_ind_block_buf {
                     Some(ref buf) => buf.clone(),
                     None => {
-                        let buf = Box::new([0u8; BLOCK_SIZE as usize]);
+                        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
                         // should read the triple-indirect block pointer at index +2
-                        self.read_sectors(
-                            buf.clone(),
-                            inode.i_block[INODE_BLOCK_LIMIT as usize + 2] as i64,
-                        )
-                        .await?;
+                        buf = self
+                            .read_sectors(buf, inode.i_block[INODE_BLOCK_LIMIT as usize + 2] as i64)
+                            .await?;
                         buf
                     }
                 };
@@ -403,7 +400,7 @@ impl Ext2Fs {
         };
 
         while progress.bytes_written < buf.len() {
-            self.write_till_next_block(inode, buf.clone(), ctx, &mut progress)
+            self.write_till_next_block(inode, &buf, ctx, &mut progress)
                 .await?;
         }
 

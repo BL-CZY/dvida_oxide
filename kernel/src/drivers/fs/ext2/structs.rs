@@ -106,7 +106,7 @@ impl Ext2Fs {
         &self,
         buffer: Box<[u8]>,
         lba: i64,
-    ) -> Result<(), HalStorageOperationErr> {
+    ) -> Result<Box<[u8]>, HalStorageOperationErr> {
         storage::read_sectors(self.drive_id, buffer, self.entry.start_lba as i64 + lba).await
     }
 

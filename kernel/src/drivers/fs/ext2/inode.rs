@@ -56,8 +56,8 @@ impl Ext2Fs {
         let sector_offset = (idx as i64 * INODE_SIZE as i64) / SECTOR_SIZE as i64;
         let byte_offset = (idx as i64 * INODE_SIZE as i64) % SECTOR_SIZE as i64;
 
-        let buf = Box::new([0u8; SECTOR_SIZE]);
-        self.read_sectors(buf.clone(), lba + sector_offset).await?;
+        let mut buf: Box<[u8]> = Box::new([0u8; SECTOR_SIZE]);
+        buf = self.read_sectors(buf, lba + sector_offset).await?;
 
         Ok(InodePlus {
             inode: Inode::deserialize(
@@ -78,8 +78,8 @@ impl Ext2Fs {
         let sector_offset = (inode.relative_idx as i64 * INODE_SIZE as i64) / SECTOR_SIZE as i64;
         let byte_offset = (inode.relative_idx as i64 * INODE_SIZE as i64) % SECTOR_SIZE as i64;
 
-        let mut buf = Box::new([0u8; SECTOR_SIZE]);
-        self.read_sectors(buf.clone(), lba + sector_offset).await?;
+        let mut buf: Box<[u8]> = Box::new([0u8; SECTOR_SIZE]);
+        buf = self.read_sectors(buf, lba + sector_offset).await?;
 
         inode.inode.serialize(
             dvida_serialize::Endianness::Little,

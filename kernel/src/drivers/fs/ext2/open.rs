@@ -19,7 +19,7 @@ pub const SUPERBLOCK_SIZE: i64 = 2;
 pub const LBA_ADDR_LEN: usize = 4;
 
 struct IndBlockIter {
-    buf: Box<[u8; BLOCK_SIZE as usize]>,
+    buf: Box<[u8]>,
     acc: usize,
 }
 
@@ -52,12 +52,12 @@ impl Ext2Fs {
     async fn find_entry_by_name_in_block(
         &mut self,
         name: &str,
-        mut buf: Box<[u8; BLOCK_SIZE as usize]>,
+        mut buf: Box<[u8]>,
         lba: i64,
         delete: bool,
         find_is_empty: bool,
         remaining_size: &mut u32,
-    ) -> Result<(Option<i64>, bool), HalFsIOErr> {
+    ) -> Result<(Option<i64>, bool, Box<[u8]>), HalFsIOErr> {
         let mut progr = 0;
         let mut this_entry_idx = 0;
         let mut last_entry_idx = 0;
@@ -76,7 +76,7 @@ impl Ext2Fs {
             // skip the special entries "." and ".." when searching
             if entry.name.as_str() == "." || entry.name.as_str() == ".." {
                 if is_terminated {
-                    return Ok((None, true));
+                    return Ok((None, true, buf));
                 }
                 last_entry_idx = this_entry_idx;
                 this_entry_idx += bytes_read;
@@ -126,18 +126,18 @@ impl Ext2Fs {
                     }
                 }
 
-                return Ok((Some(entry.inode as i64), is_terminated));
+                return Ok((Some(entry.inode as i64), is_terminated, buf));
             }
 
             if is_terminated {
-                return Ok((None, false));
+                return Ok((None, false, buf));
             }
 
             last_entry_idx = this_entry_idx;
             this_entry_idx += bytes_read;
         }
 
-        Ok((None, false))
+        Ok((None, false, buf))
     }
 
     pub async fn find_entry_by_name(
@@ -179,7 +179,7 @@ impl Ext2Fs {
 
         let mut remaining = inode.i_size;
 
-        let buf = Box::new([0u8; BLOCK_SIZE as usize]);
+        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
 
         // compute number of data blocks represented by i_blocks (which counts 512-byte sectors)
         let sectors_per_block = (BLOCK_SIZE as usize) / (SECTOR_SIZE as usize);
@@ -191,28 +191,21 @@ impl Ext2Fs {
             if lba == 0 {
                 continue;
             }
-            self.read_sectors(buf.clone(), lba).await?;
+            buf = self.read_sectors(buf, lba).await?;
 
             match self
-                .find_entry_by_name_in_block(
-                    name,
-                    buf.clone(),
-                    lba,
-                    delete,
-                    find_is_empty,
-                    &mut remaining,
-                )
+                .find_entry_by_name_in_block(name, buf, lba, delete, find_is_empty, &mut remaining)
                 .await?
             {
-                (res, true) => {
+                (res, true, _) => {
                     if find_is_empty {
                         return Ok(None);
                     } else {
                         return Ok(res);
                     }
                 }
-                (Some(res), false) => return Ok(Some(res)),
-                _ => {}
+                (Some(res), false, _) => return Ok(Some(res)),
+                (_, _, b) => buf = b,
             }
         }
 
@@ -220,19 +213,19 @@ impl Ext2Fs {
         let lba = inode.i_block[12] as i64;
 
         if lba != 0 {
-            self.read_sectors(buf.clone(), lba).await?;
+            buf = self.read_sectors(buf, lba).await?;
 
             let iterator = IndBlockIter {
                 buf: buf.clone(),
                 acc: 0,
             };
 
-            let ind_buf = Box::new([0u8; BLOCK_SIZE as usize]);
+            let mut ind_buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
             for addr in iterator.into_iter() {
                 if addr == 0 {
                     continue;
                 }
-                self.read_sectors(ind_buf.clone(), addr).await?;
+                ind_buf = self.read_sectors(ind_buf, addr).await?;
 
                 match self
                     .find_entry_by_name_in_block(
@@ -245,7 +238,7 @@ impl Ext2Fs {
                     )
                     .await?
                 {
-                    (res, true) => {
+                    (res, true, _) => {
                         if find_is_empty {
                             return Ok(None);
                         } else {
@@ -253,8 +246,8 @@ impl Ext2Fs {
                         }
                     }
 
-                    (Some(res), false) => return Ok(Some(res)),
-                    _ => {}
+                    (Some(res), false, _) => return Ok(Some(res)),
+                    (_, _, b) => buf = b,
                 }
             }
         }
@@ -263,20 +256,20 @@ impl Ext2Fs {
         let lba = inode.i_block[13] as i64;
 
         if lba != 0 {
-            self.read_sectors(buf.clone(), lba).await?;
+            buf = self.read_sectors(buf, lba).await?;
 
             let iterator = IndBlockIter {
                 buf: buf.clone(),
                 acc: 0,
             };
 
-            let ind_buf = Box::new([0u8; BLOCK_SIZE as usize]);
-            let ind_ind_buf = Box::new([0u8; BLOCK_SIZE as usize]);
+            let mut ind_buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
+            let mut ind_ind_buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
             for addr in iterator.into_iter() {
                 if addr == 0 {
                     continue;
                 }
-                self.read_sectors(ind_buf.clone(), addr).await?;
+                ind_buf = self.read_sectors(ind_buf, addr).await?;
 
                 let ind_iterator = IndBlockIter {
                     buf: ind_buf.clone(),
@@ -287,7 +280,7 @@ impl Ext2Fs {
                     if ind_addr == 0 {
                         continue;
                     }
-                    self.read_sectors(ind_ind_buf.clone(), ind_addr).await?;
+                    ind_ind_buf = self.read_sectors(ind_ind_buf, ind_addr).await?;
                     match self
                         .find_entry_by_name_in_block(
                             name,
@@ -299,7 +292,7 @@ impl Ext2Fs {
                         )
                         .await?
                     {
-                        (res, true) => {
+                        (res, true, _) => {
                             if find_is_empty {
                                 return Ok(None);
                             } else {
@@ -307,8 +300,8 @@ impl Ext2Fs {
                             }
                         }
 
-                        (Some(res), false) => return Ok(Some(res)),
-                        _ => {}
+                        (Some(res), false, _) => return Ok(Some(res)),
+                        (_, _, b) => buf = b,
                     }
                 }
             }
@@ -317,19 +310,19 @@ impl Ext2Fs {
             let lba = inode.i_block[14] as i64;
 
             if lba != 0 {
-                self.read_sectors(buf.clone(), lba).await?;
+                buf = self.read_sectors(buf, lba).await?;
                 let iterator = IndBlockIter {
                     buf: buf.clone(),
                     acc: 0,
                 };
 
-                let ind_ind_ind_buf = Box::new([0u8; BLOCK_SIZE as usize]);
+                let mut ind_ind_ind_buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
 
                 for addr in iterator.into_iter() {
                     if addr == 0 {
                         continue;
                     }
-                    self.read_sectors(ind_buf.clone(), addr).await?;
+                    ind_buf = self.read_sectors(ind_buf, addr).await?;
 
                     let ind_iterator = IndBlockIter {
                         buf: ind_buf.clone(),
@@ -340,7 +333,7 @@ impl Ext2Fs {
                         if ind_addr == 0 {
                             continue;
                         }
-                        self.read_sectors(ind_ind_buf.clone(), ind_addr).await?;
+                        ind_ind_buf = self.read_sectors(ind_ind_buf, ind_addr).await?;
 
                         let ind_ind_iterator = IndBlockIter {
                             buf: ind_ind_buf.clone(),
@@ -351,8 +344,8 @@ impl Ext2Fs {
                             if ind_ind_addr == 0 {
                                 continue;
                             }
-                            self.read_sectors(ind_ind_ind_buf.clone(), ind_ind_addr)
-                                .await?;
+                            ind_ind_ind_buf =
+                                self.read_sectors(ind_ind_ind_buf, ind_ind_addr).await?;
                             match self
                                 .find_entry_by_name_in_block(
                                     name,
@@ -364,7 +357,7 @@ impl Ext2Fs {
                                 )
                                 .await?
                             {
-                                (res, true) => {
+                                (res, true, _) => {
                                     if find_is_empty {
                                         return Ok(None);
                                     } else {
@@ -372,8 +365,8 @@ impl Ext2Fs {
                                     }
                                 }
 
-                                (Some(res), false) => return Ok(Some(res)),
-                                _ => {}
+                                (Some(res), false, _) => return Ok(Some(res)),
+                                (_, _, b) => buf = b,
                             }
                         }
                     }
@@ -395,8 +388,8 @@ impl Ext2Fs {
         let superblock_loc = self.super_block.s_first_data_block;
         let inode_table_loc = superblock_loc as i64 + (block_size as i64 / SECTOR_SIZE as i64) * 3;
 
-        let buf = Box::new([0u8; 512]);
-        self.read_sectors(buf.clone(), inode_table_loc).await?;
+        let mut buf: Box<[u8]> = Box::new([0u8; 512]);
+        buf = self.read_sectors(buf, inode_table_loc).await?;
 
         let mut inode = Inode::deserialize(
             dvida_serialize::Endianness::Little,
@@ -412,7 +405,7 @@ impl Ext2Fs {
         while let Some(component) = it.next() {
             match self.find_entry_by_name(&component, &inode).await {
                 Ok(Some(res)) => {
-                    self.read_sectors(buf.clone(), res).await?;
+                    buf = self.read_sectors(buf, res).await?;
 
                     if it.peek().is_none() {
                         file_inode = Some(

@@ -58,17 +58,17 @@ impl Ext2Fs {
         let block_group_size = self.block_group_size();
 
         let mut inode_count = 0;
-        let mut buf = Box::new([0u8; BLOCK_SIZE as usize]);
+        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
 
         for (group_number, addr) in (RESERVED_BOOT_RECORD_OFFSET..self.len() + 1)
             .step_by(block_group_size as usize)
             .enumerate()
         {
             let inode_bitmap_loc = addr + 3 * BLOCK_SECTOR_SIZE;
-            self.read_sectors(buf.clone(), inode_bitmap_loc).await?;
+            buf = self.read_sectors(buf, inode_bitmap_loc).await?;
 
             let bit_iterator: BitIterator<u8> = BitIterator::<u8> {
-                num: buf.as_mut_slice(),
+                num: buf.as_mut(),
                 idx: 0,
                 bit_idx: 0,
             };
@@ -86,10 +86,9 @@ impl Ext2Fs {
                     continue;
                 }
 
-                let inode_table_buf = Box::new([0u8; BLOCK_SIZE as usize]);
+                let inode_table_buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
                 let inode_table_loc = addr + 4;
-                self.read_sectors(inode_table_buf.clone(), inode_table_loc)
-                    .await?;
+                let inode_table_buf = self.read_sectors(inode_table_buf, inode_table_loc).await?;
 
                 let ino = Inode::deserialize(
                     dvida_serialize::Endianness::Little,
@@ -106,7 +105,7 @@ impl Ext2Fs {
 
     pub async fn write_newly_allocated_blocks(
         &mut self,
-        mut buf: Box<[u8; BLOCK_SIZE as usize]>,
+        mut buf: Box<[u8]>,
         blocks: &[AllocatedBlock],
     ) -> Result<(), HalStorageOperationErr> {
         let mut cur_bitmap_lba = -1;
@@ -125,7 +124,7 @@ impl Ext2Fs {
                     self.write_sectors(buf.clone(), cur_bitmap_lba).await?;
                 }
 
-                self.read_sectors(buf.clone(), block_bitmap_lba).await?;
+                buf = self.read_sectors(buf, block_bitmap_lba).await?;
                 cur_bitmap_lba = block_bitmap_lba
             }
 
@@ -144,8 +143,7 @@ impl Ext2Fs {
         blocks: &[AllocatedBlock],
     ) -> Result<(), HalFsIOErr> {
         let buf = Box::new([0; BLOCK_SIZE as usize]);
-        self.write_newly_allocated_blocks(buf.clone(), blocks)
-            .await?;
+        self.write_newly_allocated_blocks(buf, blocks).await?;
 
         // Zero out newly allocated data blocks to avoid leaking data
         let zero_block = Box::new([0u8; BLOCK_SIZE as usize]);

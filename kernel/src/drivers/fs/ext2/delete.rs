@@ -38,13 +38,13 @@ impl Ext2Fs {
         &mut self,
         block_lba: i64,
         cur_bitmap_lba: &mut i64,
-        buf: &mut Box<[u8; BLOCK_SIZE as usize]>,
-    ) -> Result<(), HalFsIOErr> {
+        mut buf: Box<[u8]>,
+    ) -> Result<Box<[u8]>, HalFsIOErr> {
         let block_group = self.get_group_from_lba(block_lba);
         let bitmap_lba = block_group.get_block_bitmap_lba();
 
         if *cur_bitmap_lba != bitmap_lba {
-            self.read_sectors(buf.clone(), bitmap_lba).await?;
+            buf = self.read_sectors(buf, bitmap_lba).await?;
             *cur_bitmap_lba = bitmap_lba;
         }
 
@@ -55,17 +55,17 @@ impl Ext2Fs {
         buf[block_idx / 8] = buf[block_idx / 8] & !(1 << (block_idx % 8));
         self.write_sectors(buf.clone(), bitmap_lba).await?;
 
-        Ok(())
+        Ok(buf)
     }
 
     pub async fn free_indirect_block(
         &mut self,
         block_lba: i64,
         cur_bitmap_lba: &mut i64,
-        cur_buf: &mut Box<[u8; BLOCK_SIZE as usize]>,
-    ) -> Result<(), HalFsIOErr> {
-        let buf = Box::new([0u8; BLOCK_SIZE as usize]);
-        self.read_sectors(buf.clone(), block_lba).await?;
+        mut cur_buf: Box<[u8]>,
+    ) -> Result<Box<[u8]>, HalFsIOErr> {
+        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
+        buf = self.read_sectors(buf, block_lba).await?;
         for i in (0..BLOCK_SIZE).step_by(4) {
             let lba = u32::deserialize(dvida_serialize::Endianness::Little, &buf[i as usize..])?.0;
             if lba == 0 {
@@ -74,23 +74,23 @@ impl Ext2Fs {
                 break;
             }
 
-            self.free_block(lba as i64, cur_bitmap_lba, cur_buf).await?;
+            cur_buf = self.free_block(lba as i64, cur_bitmap_lba, cur_buf).await?;
         }
 
         // finally free the indirect block entry itself
-        self.free_block(block_lba, cur_bitmap_lba, cur_buf).await?;
+        cur_buf = self.free_block(block_lba, cur_bitmap_lba, cur_buf).await?;
 
-        Ok(())
+        Ok(cur_buf)
     }
 
     pub async fn free_double_indirect_block(
         &mut self,
         block_lba: i64,
         cur_bitmap_lba: &mut i64,
-        cur_buf: &mut Box<[u8; BLOCK_SIZE as usize]>,
-    ) -> Result<(), HalFsIOErr> {
-        let buf = Box::new([0u8; BLOCK_SIZE as usize]);
-        self.read_sectors(buf.clone(), block_lba).await?;
+        mut cur_buf: Box<[u8]>,
+    ) -> Result<Box<[u8]>, HalFsIOErr> {
+        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
+        buf = self.read_sectors(buf, block_lba).await?;
         for i in (0..BLOCK_SIZE).step_by(4) {
             let lba = u32::deserialize(dvida_serialize::Endianness::Little, &buf[i as usize..])?.0;
             if lba == 0 {
@@ -98,24 +98,25 @@ impl Ext2Fs {
             }
 
             // lba is the address of an indirect block
-            self.free_indirect_block(lba as i64, cur_bitmap_lba, cur_buf)
+            cur_buf = self
+                .free_indirect_block(lba as i64, cur_bitmap_lba, cur_buf)
                 .await?;
         }
 
         // finally free the double-indirect block itself
-        self.free_block(block_lba, cur_bitmap_lba, cur_buf).await?;
+        cur_buf = self.free_block(block_lba, cur_bitmap_lba, cur_buf).await?;
 
-        Ok(())
+        Ok(cur_buf)
     }
 
     pub async fn free_triple_indirect_block(
         &mut self,
         block_lba: i64,
         cur_bitmap_lba: &mut i64,
-        cur_buf: &mut Box<[u8; BLOCK_SIZE as usize]>,
-    ) -> Result<(), HalFsIOErr> {
-        let buf = Box::new([0u8; BLOCK_SIZE as usize]);
-        self.read_sectors(buf.clone(), block_lba).await?;
+        mut cur_buf: Box<[u8]>,
+    ) -> Result<Box<[u8]>, HalFsIOErr> {
+        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
+        buf = self.read_sectors(buf, block_lba).await?;
         for i in (0..BLOCK_SIZE).step_by(4) {
             let lba = u32::deserialize(dvida_serialize::Endianness::Little, &buf[i as usize..])?.0;
             if lba == 0 {
@@ -123,56 +124,57 @@ impl Ext2Fs {
             }
 
             // lba is the address of a double-indirect block
-            self.free_double_indirect_block(lba as i64, cur_bitmap_lba, cur_buf)
+            cur_buf = self
+                .free_double_indirect_block(lba as i64, cur_bitmap_lba, cur_buf)
                 .await?;
         }
 
         // finally free the triple-indirect block itself
-        self.free_block(block_lba, cur_bitmap_lba, cur_buf).await?;
+        cur_buf = self.free_block(block_lba, cur_bitmap_lba, cur_buf).await?;
 
-        Ok(())
+        Ok(cur_buf)
     }
 
     /// doesn't update the changes in the superblock to the filesystem
     pub async fn free_blocks(&mut self, inode: &mut InodePlus) -> Result<(), HalFsIOErr> {
-        let mut cur_buf = Box::new([0u8; BLOCK_SIZE as usize]);
+        let mut cur_buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
         let mut cur_bitmap_lba = 0;
         for i in 0..INODE_BLOCK_LIMIT as usize {
             if inode.inode.i_block[i] == 0 {
                 return Ok(());
             }
 
-            self.free_block(
-                inode.inode.i_block[i] as i64,
-                &mut cur_bitmap_lba,
-                &mut cur_buf,
-            )
-            .await?;
+            cur_buf = self
+                .free_block(inode.inode.i_block[i] as i64, &mut cur_bitmap_lba, cur_buf)
+                .await?;
         }
 
         if inode.inode.i_blocks > INODE_BLOCK_LIMIT {
-            self.free_indirect_block(
-                inode.inode.i_block[INODE_BLOCK_LIMIT as usize] as i64,
-                &mut cur_bitmap_lba,
-                &mut cur_buf,
-            )
-            .await?;
+            cur_buf = self
+                .free_indirect_block(
+                    inode.inode.i_block[INODE_BLOCK_LIMIT as usize] as i64,
+                    &mut cur_bitmap_lba,
+                    cur_buf,
+                )
+                .await?;
         }
         if inode.inode.i_blocks > INODE_IND_BLOCK_LIMIT {
-            self.free_double_indirect_block(
-                inode.inode.i_block[INODE_BLOCK_LIMIT as usize + 1] as i64,
-                &mut cur_bitmap_lba,
-                &mut cur_buf,
-            )
-            .await?;
+            cur_buf = self
+                .free_double_indirect_block(
+                    inode.inode.i_block[INODE_BLOCK_LIMIT as usize + 1] as i64,
+                    &mut cur_bitmap_lba,
+                    cur_buf,
+                )
+                .await?;
         }
         if inode.inode.i_blocks > INODE_DOUBLE_IND_BLOCK_LIMIT {
-            self.free_triple_indirect_block(
-                inode.inode.i_block[INODE_BLOCK_LIMIT as usize + 2] as i64,
-                &mut cur_bitmap_lba,
-                &mut cur_buf,
-            )
-            .await?;
+            cur_buf = self
+                .free_triple_indirect_block(
+                    inode.inode.i_block[INODE_BLOCK_LIMIT as usize + 2] as i64,
+                    &mut cur_bitmap_lba,
+                    cur_buf,
+                )
+                .await?;
         }
 
         self.super_block.s_free_blocks_count -= inode.inode.i_blocks;
@@ -197,8 +199,8 @@ impl Ext2Fs {
             .get_group(inode.group_number as i64)
             .get_inode_bitmap_lba();
 
-        let mut buf = Box::new([0u8; BLOCK_SIZE as usize]);
-        self.read_sectors(buf.clone(), inode_bitmap_lba).await?;
+        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
+        buf = self.read_sectors(buf, inode_bitmap_lba).await?;
 
         buf[inode.relative_idx as usize / 8] =
             buf[inode.relative_idx as usize / 8] & !(1 << (inode.relative_idx % 8));
