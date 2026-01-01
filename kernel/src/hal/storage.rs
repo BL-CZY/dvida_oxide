@@ -162,6 +162,7 @@ impl HalStorageDevice {
                         .await
                     {
                         Ok(_) => {
+                            log!("{:?}", buffer);
                             sender.send(Ok(()));
                         }
                         Err(e) => {

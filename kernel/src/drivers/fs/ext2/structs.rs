@@ -5,7 +5,7 @@ use crate::{
     drivers::fs::ext2::{
         GroupDescriptor, SuperBlock,
         create_file::{BLOCK_SECTOR_SIZE, RESERVED_BOOT_RECORD_OFFSET},
-        init::{identify_ext2, init_ext2},
+        init::identify_ext2,
     },
     hal::{
         gpt::GPTEntry,
@@ -84,18 +84,10 @@ pub struct Ext2Fs {
     pub entry: GPTEntry,
 
     pub super_block: SuperBlock,
-    pub group_descs: Vec<GroupDescriptor>,
 }
 
 impl Ext2Fs {
     pub async fn new(drive_id: usize, entry: GPTEntry) -> Self {
-        if identify_ext2(drive_id, &entry).await.is_none() {
-            init_ext2(drive_id, &entry)
-                .await
-                .expect("Failed to init ext2");
-            log!("Initialized ext2");
-        }
-
         let super_block = identify_ext2(drive_id, &entry)
             .await
             .expect("Failed to mount ext2");
@@ -106,7 +98,6 @@ impl Ext2Fs {
             drive_id,
             entry,
             super_block,
-            group_descs: vec![],
         }
     }
 
