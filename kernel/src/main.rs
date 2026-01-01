@@ -6,6 +6,7 @@
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 
+use alloc::boxed::Box;
 use terminal::{iprintln, log};
 
 extern crate alloc;
@@ -67,7 +68,10 @@ async fn kernel_main(executor: Executor) {
 
     let args = parse_args();
 
-    init_vfs(args.root_drive, args.root_entry).await;
+    let buf = Box::new([0u8; 512]);
+    let _ = crate::hal::storage::read_sectors(0, buf, 0).await;
+
+    // init_vfs(args.root_drive, args.root_entry).await;
 }
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
