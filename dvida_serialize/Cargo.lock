@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "dvida_serialize"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dvida_serialize_macros",
  "thiserror-core",
