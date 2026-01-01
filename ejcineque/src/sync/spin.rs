@@ -23,8 +23,8 @@ impl<T> SpinMutex<T> {
     pub fn lock<'a>(&'a self) -> SpinMutexGuard<'a, T> {
         let mut count = 10_000_000;
 
-        'wait_loop: loop {
-            if self
+        while self.is_locked.load(core::sync::atomic::Ordering::Relaxed)
+            || self
                 .is_locked
                 .compare_exchange(
                     false,
@@ -32,16 +32,14 @@ impl<T> SpinMutex<T> {
                     core::sync::atomic::Ordering::Acquire,
                     core::sync::atomic::Ordering::Relaxed,
                 )
-                .is_ok()
-            {
-                break 'wait_loop;
-            } else {
-                count -= 1;
-                if count == 0 {
-                    panic!("potential deadlock detected!")
-                }
-                core::hint::spin_loop();
+                .is_err()
+        {
+            count -= 1;
+            if count == 0 {
+                panic!("potential deadlock detected!")
             }
+
+            core::hint::spin_loop();
         }
 
         SpinMutexGuard { mutex: self }
