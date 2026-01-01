@@ -24,7 +24,7 @@ macro_rules! impl_serialize_deserialize {
                     Self: Sized,
                 {
                     const SIZE: usize = core::mem::size_of::<$t>();
-                    if input.len() != SIZE {
+                    if input.len() < SIZE {
                         return Err(DvDeErr::WrongBufferSize);
                     }
                     let mut bytes = [0u8; SIZE];
@@ -70,7 +70,7 @@ macro_rules! impl_serialize_deserialize_array {
                     const ELEM_SIZE: usize = core::mem::size_of::<$t>();
                     let total_size = ELEM_SIZE * N;
 
-                    if input.len() != total_size {
+                    if input.len() < total_size {
                         return Err(DvDeErr::WrongBufferSize);
                     }
 
