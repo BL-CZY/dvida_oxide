@@ -65,7 +65,7 @@ pub enum HalStorageOperation<'a> {
     Read {
         buffer: Box<[u8]>,
         lba: i64,
-        sender: UnboundedSender<Result<(), HalStorageOperationErr>>,
+        sender: UnboundedSender<Result<Box<[u8]>, HalStorageOperationErr>>,
     },
 
     Write {
@@ -163,7 +163,7 @@ impl HalStorageDevice {
                     {
                         Ok(_) => {
                             log!("{:?}", buffer);
-                            sender.send(Ok(()));
+                            sender.send(Ok(buffer));
                         }
                         Err(e) => {
                             sender.send(Err(HalStorageOperationErr::DriveErr(e.to_string())));
@@ -344,14 +344,14 @@ pub async fn read_sectors(
     index: usize,
     buffer: Box<[u8]>,
     lba: i64,
-) -> Result<(), HalStorageOperationErr> {
+) -> Result<Box<[u8]>, HalStorageOperationErr> {
     let sender = if index == PRIMARY {
         PRIMARY_STORAGE_SENDER.get().unwrap().clone()
     } else {
         SECONDARY_STORAGE_SENDER.get().unwrap().clone()
     };
 
-    let (tx, rx) = unbounded_channel::<Result<(), HalStorageOperationErr>>();
+    let (tx, rx) = unbounded_channel::<Result<Box<[u8]>, HalStorageOperationErr>>();
 
     sender.send(HalStorageOperation::Read {
         buffer,

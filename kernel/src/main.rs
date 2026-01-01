@@ -69,7 +69,7 @@ async fn kernel_main(executor: Executor) {
     let args = parse_args();
 
     let buf = Box::new([0u8; 512]);
-    let _ = crate::hal::storage::read_sectors(0, buf, 0).await;
+    let _ = crate::hal::storage::read_sectors(0, buf, 1).await;
 
     // init_vfs(args.root_drive, args.root_entry).await;
 }
