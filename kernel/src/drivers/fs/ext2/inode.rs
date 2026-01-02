@@ -19,6 +19,10 @@ pub struct InodePlus {
 }
 
 impl Ext2Fs {
+    pub fn inode_block_count(&self, inode: &Inode) -> u32 {
+        (self.super_block.block_size() / SECTOR_SIZE as u32) * inode.i_blocks
+    }
+
     pub fn global_idx_to_inode_plus(&self, inode: Inode, idx: u32) -> InodePlus {
         InodePlus {
             inode,
