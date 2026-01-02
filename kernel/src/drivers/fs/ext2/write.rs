@@ -20,7 +20,7 @@ impl Ext2Fs {
     pub async fn allocate_n_blocks(
         &self,
         mut remaining_blocks: usize,
-    ) -> Result<Vec<AllocatedBlock>, HalStorageOperationErr> {
+    ) -> Result<Vec<AllocatedBlock>, HalFsIOErr> {
         let mut blocks_allocated = vec![];
 
         // iterate over block groups
@@ -29,7 +29,7 @@ impl Ext2Fs {
                 break;
             }
 
-            let group = self.get_group(group_number as i64);
+            let group = self.get_group(group_number as i64).await?;
             let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
 
             // read block bitmap for the group
@@ -71,7 +71,7 @@ impl Ext2Fs {
         }
 
         if remaining_blocks > 0 {
-            return Err(HalStorageOperationErr::NoEnoughSpace);
+            return Err(HalFsIOErr::NoSpaceLeft);
         }
 
         Ok(blocks_allocated)
@@ -81,9 +81,9 @@ impl Ext2Fs {
         &self,
         group_number: i64,
         mut num: usize,
-    ) -> Result<Vec<AllocatedBlock>, HalStorageOperationErr> {
+    ) -> Result<Vec<AllocatedBlock>, HalFsIOErr> {
         let mut blocks_allocated = vec![];
-        let group = self.get_group(group_number);
+        let group = self.get_group(group_number).await?;
         let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
 
         // read the block bitmap for the group

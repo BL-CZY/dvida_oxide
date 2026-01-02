@@ -107,7 +107,7 @@ impl Ext2Fs {
         &mut self,
         mut buf: Box<[u8]>,
         blocks: &[AllocatedBlock],
-    ) -> Result<(), HalStorageOperationErr> {
+    ) -> Result<(), HalFsIOErr> {
         let mut cur_bitmap_lba = -1;
 
         for AllocatedBlock {
@@ -116,7 +116,7 @@ impl Ext2Fs {
             ..
         } in blocks.iter()
         {
-            let group = self.get_group(*gr_number);
+            let group = self.get_group(*gr_number).await?;
             let block_bitmap_lba = group.get_block_bitmap_lba();
 
             if cur_bitmap_lba != block_bitmap_lba {

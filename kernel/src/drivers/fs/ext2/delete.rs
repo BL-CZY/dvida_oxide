@@ -40,7 +40,7 @@ impl Ext2Fs {
         cur_bitmap_lba: &mut i64,
         mut buf: Box<[u8]>,
     ) -> Result<Box<[u8]>, HalFsIOErr> {
-        let block_group = self.get_group_from_lba(block_lba);
+        let block_group = self.get_group_from_lba(block_lba).await?;
         let bitmap_lba = block_group.get_block_bitmap_lba();
 
         if *cur_bitmap_lba != bitmap_lba {
@@ -197,6 +197,7 @@ impl Ext2Fs {
 
         let inode_bitmap_lba = self
             .get_group(inode.group_number as i64)
+            .await?
             .get_inode_bitmap_lba();
 
         let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);

@@ -326,7 +326,7 @@ pub const ROOT_ID: u16 = 0;
 pub const ALGO_BITMAP: u32 = 2;
 pub const BLOCKS_PER_GROUP: u32 = BLOCK_SIZE * 8;
 pub const INODES_PER_GROUP: u32 = BLOCKS_PER_GROUP;
-pub const INODE_SIZE: i64 = 32;
+pub const INODE_SIZE: i64 = 128;
 
 // Filesystem state values for s_state
 pub const EXT2_VALID_FS: u16 = 0x0001; // Unmounted cleanly

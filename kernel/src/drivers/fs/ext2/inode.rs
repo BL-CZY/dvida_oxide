@@ -50,7 +50,7 @@ impl Ext2Fs {
         group_number: u32,
         idx: u32,
     ) -> Result<InodePlus, HalFsIOErr> {
-        let block_group = self.get_group(group_number as i64);
+        let block_group = self.get_group(group_number as i64).await?;
         let lba = block_group.get_inode_table_lba();
 
         let sector_offset = (idx as i64 * INODE_SIZE as i64) / SECTOR_SIZE as i64;
@@ -72,7 +72,7 @@ impl Ext2Fs {
     }
 
     pub async fn write_inode(&mut self, inode: &InodePlus) -> Result<(), HalFsIOErr> {
-        let block_group = self.get_group(inode.group_number as i64);
+        let block_group = self.get_group(inode.group_number as i64).await?;
         let lba = block_group.get_inode_table_lba();
 
         let sector_offset = (inode.relative_idx as i64 * INODE_SIZE as i64) / SECTOR_SIZE as i64;

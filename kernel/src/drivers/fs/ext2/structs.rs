@@ -127,7 +127,7 @@ impl Ext2Fs {
     }
 
     pub async fn get_group(&self, gr_number: i64) -> Result<Ext2BlockGroup, HalFsIOErr> {
-        let bg_table_block_idx = self.super_block.s_first_data_block;
+        let bg_table_block_idx = self.super_block.s_first_data_block + 1;
         let lba = self.block_idx_to_lba(bg_table_block_idx);
         let lba_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) / SECTOR_SIZE as i64;
         let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;

@@ -66,6 +66,7 @@ impl Ext2Fs {
         while let Ok((entry, bytes_read)) =
             DirEntry::deserialize(dvida_serialize::Endianness::Little, &buf[progr..])
         {
+            log!("Read entry {:?} of size {}", entry, bytes_read);
             progr += bytes_read;
             *remaining_size -= bytes_read as u32;
             let mut is_terminated = false;
@@ -188,7 +189,8 @@ impl Ext2Fs {
 
         // the direct blocks (0..INODE_BLOCK_LIMIT-1)
         for i in 0..min(block_count, INODE_BLOCK_LIMIT as usize) {
-            let lba = inode.i_block[i] as i64;
+            log!("checking block {} of inode", i);
+            let lba = self.block_idx_to_lba(inode.i_block[i]);
             if lba == 0 {
                 continue;
             }
@@ -385,17 +387,16 @@ impl Ext2Fs {
         &mut self,
         path: &Path,
     ) -> Result<(InodePlus, Option<InodePlus>), HalFsIOErr> {
-        let block_size = self.super_block.block_size();
-        let superblock_loc = self.super_block.s_first_data_block * 2;
-        let inode_table_loc = superblock_loc as i64 + (block_size as i64 / SECTOR_SIZE as i64) * 4;
-        log!("{}", inode_table_loc);
+        let group = self.get_group(0).await?;
+        let inode_table_loc = group.get_inode_table_lba();
 
         let mut buf: Box<[u8]> = Box::new([0u8; 512]);
         buf = self.read_sectors(buf, inode_table_loc).await?;
+        log!("inode size: {:?}", self.super_block.s_inode_size);
 
         let mut inode = Inode::deserialize(
             dvida_serialize::Endianness::Little,
-            &buf[INODE_SIZE as usize..],
+            &buf[self.super_block.s_inode_size as usize..],
         )?
         .0;
 
@@ -407,6 +408,7 @@ impl Ext2Fs {
 
         let mut it = path.normalize().components().into_iter().peekable();
         while let Some(component) = it.next() {
+            log!("current component: {}", component);
             match self.find_entry_by_name(&component, &inode).await {
                 Ok(Some(res)) => {
                     buf = self.read_sectors(buf, res).await?;
