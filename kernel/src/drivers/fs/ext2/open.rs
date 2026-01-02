@@ -63,11 +63,12 @@ impl Ext2Fs {
         let mut this_entry_idx = 0;
         let mut last_entry_idx = 0;
 
-        while let Ok((entry, bytes_read)) =
-            DirEntry::deserialize(dvida_serialize::Endianness::Little, &buf[progr..])
-        {
+        while progr < self.super_block.block_size() {
+            let (entry, bytes_read) =
+                DirEntry::deserialize(dvida_serialize::Endianness::Little, &buf[progr as usize..])?;
+
             log!("Read entry {:?} of size {}", entry, bytes_read);
-            progr += bytes_read;
+            progr += bytes_read as u32;
             *remaining_size -= bytes_read as u32;
             let mut is_terminated = false;
 

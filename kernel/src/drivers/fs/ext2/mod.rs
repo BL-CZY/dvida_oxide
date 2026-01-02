@@ -12,6 +12,7 @@ use alloc::string::String;
 use bytemuck::{Pod, Zeroable};
 use dvida_serialize::*;
 pub use inode::InodePlus;
+use terminal::log;
 
 /// The ext2 superblock structure - located at byte offset 1024 from start
 /// All fields stored in little-endian format on disk
@@ -266,9 +267,6 @@ impl DvDeserialize for DirEntry {
 
         // set acc to be rec_len so it points to the next entry
         acc = rec_len as usize;
-        if acc >= input.len() {
-            return Err(DvDeErr::WrongBufferSize);
-        }
 
         Ok((
             DirEntry {
