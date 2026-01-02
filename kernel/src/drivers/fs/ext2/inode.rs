@@ -43,8 +43,8 @@ impl Ext2Fs {
     }
 
     pub async fn get_nth_inode(&self, idx: u32) -> Result<InodePlus, HalFsIOErr> {
-        let group_number = idx / self.super_block.s_inodes_per_group;
-        let offset = idx % self.super_block.s_inodes_per_group;
+        let group_number = (idx - 1) / self.super_block.s_inodes_per_group;
+        let offset = (idx - 1) % self.super_block.s_inodes_per_group;
 
         self.get_inode_in_group(group_number, offset).await
     }
@@ -71,11 +71,23 @@ impl Ext2Fs {
             .0,
             group_number,
             relative_idx: idx,
-            absolute_idx: self.super_block.s_inodes_per_group * group_number + idx,
+            absolute_idx: self.super_block.s_inodes_per_group * group_number + idx + 1,
         })
     }
 
     pub async fn write_inode(&mut self, inode: &InodePlus) -> Result<(), HalFsIOErr> {
+        self.do_write_inode(inode, false).await
+    }
+
+    pub async fn write_new_inode(&mut self, inode: &InodePlus) -> Result<(), HalFsIOErr> {
+        self.do_write_inode(inode, true).await
+    }
+
+    pub async fn do_write_inode(
+        &mut self,
+        inode: &InodePlus,
+        is_new: bool,
+    ) -> Result<(), HalFsIOErr> {
         let block_group = self.get_group(inode.group_number as i64).await?;
         let lba = block_group.get_inode_table_lba();
 
@@ -92,15 +104,23 @@ impl Ext2Fs {
 
         self.write_sectors(buf.clone(), lba + sector_offset).await?;
 
-        let gr_number = inode.group_number as i64;
-        let lba = self.get_block_group_table_lba();
-        let lba_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) / SECTOR_SIZE as i64;
-        let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
-        buf = self.read_sectors(buf, lba + lba_offset).await?;
-        let descriptor: &mut GroupDescriptor =
-            bytemuck::from_bytes_mut(&mut buf[byte_offset as usize..]);
-        descriptor.bg_free_inodes_count -= 1;
-        descriptor.bg_used_dirs_count += inode.inode.is_directory() as u16;
+        if is_new {
+            let gr_number = inode.group_number as i64;
+            let lba = self.get_block_group_table_lba();
+            let lba_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) / SECTOR_SIZE as i64;
+            let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
+            buf = self.read_sectors(buf, lba + lba_offset).await?;
+            let descriptor: &mut GroupDescriptor =
+                bytemuck::from_bytes_mut(&mut buf[byte_offset as usize..]);
+            descriptor.bg_free_inodes_count -= 1;
+            descriptor.bg_used_dirs_count += inode.inode.is_directory() as u16;
+            self.write_sectors(buf.clone(), lba + lba_offset).await?;
+
+            self.super_block.s_free_inodes_count -= 1;
+            self.super_block
+                .serialize(dvida_serialize::Endianness::Little, &mut buf)?;
+            self.write_sectors(buf, 3).await?;
+        }
 
         Ok(())
     }

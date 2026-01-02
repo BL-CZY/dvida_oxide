@@ -20,9 +20,7 @@ impl Ext2Fs {
         mut remaining_blocks: usize,
     ) -> Result<Vec<AllocatedBlock>, HalFsIOErr> {
         let mut blocks_allocated = vec![];
-        let group_count = self.super_block.block_size()
-            + self.super_block.s_blocks_per_group
-            + 1 / self.super_block.s_blocks_per_group;
+        let group_count = self.super_block.block_groups_count();
 
         // iterate over block groups
         for group_number in 0..(group_count as i64) {

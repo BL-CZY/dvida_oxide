@@ -1,9 +1,8 @@
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
-use dvida_serialize::DvDeserialize;
 
 use crate::{
     drivers::fs::ext2::{
-        BLOCK_GROUP_DESCRIPTOR_SIZE, BLOCK_SIZE, GroupDescriptor, INODE_SIZE, Inode, InodePlus,
+        BLOCK_GROUP_DESCRIPTOR_SIZE, BLOCK_SIZE, GroupDescriptor, Inode, InodePlus,
         structs::{Ext2Fs, block_group_size},
     },
     hal::{fs::HalFsIOErr, storage::SECTOR_SIZE},
@@ -67,6 +66,10 @@ impl Ext2Fs {
             }
 
             let block_group = self.get_group_from_buffer(group_idx as i64, &buf)?;
+
+            if block_group.descriptor.bg_free_inodes_count == 0 {
+                continue;
+            }
 
             let mut bitmap_buf = self.get_buffer();
             bitmap_buf = self
@@ -132,13 +135,13 @@ impl Ext2Fs {
             let byte_offset = (group_idx * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
 
             if lba + lba_offset != cur_group_buffer_lba {
-                cur_group_buffer_lba = lba + lba_offset;
-                buf = self.read_sectors(buf, lba + lba_offset).await?;
-
                 if cur_group_buffer_lba != -1 {
                     self.write_sectors(buf.clone(), cur_group_buffer_lba)
                         .await?;
                 }
+
+                cur_group_buffer_lba = lba + lba_offset;
+                buf = self.read_sectors(buf, lba + lba_offset).await?;
             }
 
             let descriptor: &mut GroupDescriptor =
@@ -146,6 +149,8 @@ impl Ext2Fs {
 
             descriptor.bg_free_blocks_count -= num_allocated as u16;
         }
+
+        self.write_sectors(buf, cur_group_buffer_lba).await?;
 
         Ok(())
     }
@@ -158,7 +163,7 @@ impl Ext2Fs {
         let buf = self.get_buffer();
         self.write_newly_allocated_blocks(buf, blocks).await?;
 
-        self.write_inode(inode).await?;
+        self.write_new_inode(inode).await?;
 
         Ok(())
     }
