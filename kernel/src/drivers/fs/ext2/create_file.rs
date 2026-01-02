@@ -27,7 +27,7 @@ impl Ext2Fs {
         )
     }
 
-    pub async fn allocated_blocks_for_inode(
+    pub async fn allocated_blocks_for_new_inode(
         &self,
         inode: &mut Inode,
         group_number: i64,
@@ -41,10 +41,10 @@ impl Ext2Fs {
             .allocate_n_blocks_in_group(group_number, num as usize)
             .await?;
 
-        for block in blocks_allocated.iter() {
-            inode.i_block[inode.i_blocks as usize] = block.addr as u32;
-            inode.i_blocks += 1;
+        for (idx, block) in blocks_allocated.iter().enumerate() {
+            inode.i_block[idx] = block.addr as u32;
         }
+        inode.i_blocks += blocks_allocated.len() as u32 * BLOCK_SIZE / SECTOR_SIZE as u32;
 
         Ok(blocks_allocated)
     }
@@ -225,7 +225,7 @@ impl Ext2Fs {
         inode.i_generation = 0;
 
         let blocks = self
-            .allocated_blocks_for_inode(
+            .allocated_blocks_for_new_inode(
                 inode,
                 allocated_inode.group_number.into(),
                 if is_dir {

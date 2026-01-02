@@ -37,11 +37,9 @@ impl Ext2Fs {
             idx = idx - INODE_BLOCK_LIMIT;
             buf = self.read_sectors(buf, inode.i_block[12] as i64).await?;
 
-            return Ok(u32::deserialize(
-                dvida_serialize::Endianness::Little,
-                &buf[idx as usize * 4..],
-            )?
-            .0);
+            return Ok(
+                self.block_idx_to_lba(*bytemuck::from_bytes(&buf[idx as usize * 4..])) as u32,
+            );
         }
 
         if idx < INODE_DOUBLE_IND_BLOCK_LIMIT {
@@ -58,11 +56,9 @@ impl Ext2Fs {
 
             buf = self.read_sectors(buf, ind_block_addr).await?;
 
-            return Ok(u32::deserialize(
-                dvida_serialize::Endianness::Little,
+            return Ok(self.block_idx_to_lba(*bytemuck::from_bytes(
                 &buf[(idx % ADDR_PER_BLOCK) as usize * 4..],
-            )?
-            .0);
+            )) as u32);
         }
 
         if idx < INODE_TRIPLE_IND_BLOCK_LIMIT {
@@ -89,11 +85,9 @@ impl Ext2Fs {
 
             buf = self.read_sectors(buf, ind_block_addr as i64).await?;
 
-            return Ok(u32::deserialize(
-                dvida_serialize::Endianness::Little,
-                &buf[block_idx as usize * 4..],
-            )?
-            .0);
+            return Ok(
+                self.block_idx_to_lba(*bytemuck::from_bytes(&buf[block_idx as usize * 4..])) as u32,
+            );
         }
 
         Err(HalFsIOErr::FileTooLarge)
