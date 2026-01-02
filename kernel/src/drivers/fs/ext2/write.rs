@@ -10,21 +10,26 @@ use crate::{
         read::{INODE_BLOCK_LIMIT, INODE_DOUBLE_IND_BLOCK_LIMIT, INODE_IND_BLOCK_LIMIT, Progress},
         structs::Ext2Fs,
     },
-    hal::{
-        fs::{HalFsIOErr, HalIOCtx},
-        storage::HalStorageOperationErr,
-    },
+    hal::fs::{HalFsIOErr, HalIOCtx},
 };
 
 impl Ext2Fs {
     pub async fn allocate_n_blocks(
         &self,
+        exclude_group_idx: i64,
         mut remaining_blocks: usize,
     ) -> Result<Vec<AllocatedBlock>, HalFsIOErr> {
         let mut blocks_allocated = vec![];
+        let group_count = self.super_block.block_size()
+            + self.super_block.s_blocks_per_group
+            + 1 / self.super_block.s_blocks_per_group;
 
         // iterate over block groups
-        for group_number in 0..(self.super_block.s_blocks_per_group as i64) {
+        for group_number in 0..(group_count as i64) {
+            if group_number == exclude_group_idx {
+                continue;
+            }
+
             if remaining_blocks == 0 {
                 break;
             }
@@ -37,19 +42,9 @@ impl Ext2Fs {
 
             let bit_iterator = BitIterator::new(buf.as_mut());
 
-            // compute index of first data block within the group (in bitmap block indices)
-            let first_data_block_lba = group.get_data_blocks_start_lba();
-            let first_data_block_idx =
-                ((first_data_block_lba - group.get_group_lba()) / group.sectors_per_block) as usize;
-
             for (idx, bit) in bit_iterator.into_iter().enumerate() {
                 if remaining_blocks == 0 {
                     break;
-                }
-
-                // skip metadata/reserved blocks before the data blocks start
-                if idx < first_data_block_idx {
-                    continue;
                 }
 
                 if bit == Bit::One {
@@ -57,8 +52,7 @@ impl Ext2Fs {
                 }
 
                 // map bitmap index to data block LBA
-                let block_lba = group.get_data_blocks_start_lba()
-                    + ((idx - first_data_block_idx) as i64) * group.sectors_per_block;
+                let block_lba = group.get_group_lba() + (idx as i64) * group.sectors_per_block;
 
                 remaining_blocks -= 1;
 
@@ -84,32 +78,22 @@ impl Ext2Fs {
     ) -> Result<Vec<AllocatedBlock>, HalFsIOErr> {
         let mut blocks_allocated = vec![];
         let group = self.get_group(group_number).await?;
-        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
+        let mut buf: Box<[u8]> = self.get_buffer();
 
         // read the block bitmap for the group
         buf = self.read_sectors(buf, group.get_block_bitmap_lba()).await?;
         let bit_iterator: BitIterator<u8> = BitIterator::new(buf.as_mut());
-
-        // index of first data block within the group
-        let first_data_block_lba = group.get_data_blocks_start_lba();
-        let first_data_block_idx =
-            ((first_data_block_lba - group.get_group_lba()) / group.sectors_per_block) as usize;
 
         for (idx, bit) in bit_iterator.into_iter().enumerate() {
             if num == 0 {
                 break;
             }
 
-            if idx < first_data_block_idx {
-                continue;
-            }
-
             if bit == Bit::One {
                 continue;
             }
 
-            let block_lba = group.get_data_blocks_start_lba()
-                + ((idx - first_data_block_idx) as i64) * group.sectors_per_block;
+            let block_lba = group.get_group_lba() + (idx as i64 * group.sectors_per_block);
 
             num -= 1;
             blocks_allocated.push(AllocatedBlock {
@@ -124,7 +108,7 @@ impl Ext2Fs {
         }
 
         // if this group didn't satisfy the request, fall back to scanning entire fs
-        blocks_allocated.extend(self.allocate_n_blocks(num).await?.into_iter());
+        blocks_allocated.extend(self.allocate_n_blocks(group_number, num).await?.into_iter());
 
         Ok(blocks_allocated)
     }

@@ -1,16 +1,12 @@
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
 use dvida_serialize::DvDeserialize;
 
 use crate::{
-    crypto::iterators::{Bit, BitIterator},
     drivers::fs::ext2::{
-        BLOCK_SIZE, INODE_SIZE, Inode, InodePlus,
+        BLOCK_GROUP_DESCRIPTOR_SIZE, BLOCK_SIZE, GroupDescriptor, INODE_SIZE, Inode, InodePlus,
         structs::{Ext2Fs, block_group_size},
     },
-    hal::{
-        fs::HalFsIOErr,
-        storage::{HalStorageOperationErr, SECTOR_SIZE},
-    },
+    hal::{fs::HalFsIOErr, storage::SECTOR_SIZE},
     time::{Rtc, formats::rtc_to_posix},
 };
 
@@ -55,48 +51,34 @@ impl Ext2Fs {
     }
 
     pub async fn find_available_inode(&self) -> Result<InodePlus, HalFsIOErr> {
-        let block_group_size = self.block_group_size();
+        let group_count = self.super_block.block_groups_count();
 
-        let mut inode_count = 0;
-        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
+        let cur_lba = 0;
+        let mut buf: Box<[u8]> = self.get_buffer();
+        let table_lba = self.get_block_group_table_lba();
 
-        for (group_number, addr) in (RESERVED_BOOT_RECORD_OFFSET..self.len() + 1)
-            .step_by(block_group_size as usize)
-            .enumerate()
-        {
-            let inode_bitmap_loc = addr + 3 * BLOCK_SECTOR_SIZE;
-            buf = self.read_sectors(buf, inode_bitmap_loc).await?;
+        for group_idx in 0..group_count {
+            let lba_offset =
+                (group_idx as i64 * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) / SECTOR_SIZE as i64;
 
-            let bit_iterator: BitIterator<u8> = BitIterator::<u8> {
-                num: buf.as_mut(),
-                idx: 0,
-                bit_idx: 0,
-            };
+            let lba = table_lba + lba_offset;
+            if cur_lba != lba {
+                buf = self.read_sectors(buf, lba).await?;
+            }
 
-            for (idx, bit) in bit_iterator.into_iter().enumerate() {
-                if inode_count as i64 * INODE_SIZE as i64 + addr + 4 * BLOCK_SECTOR_SIZE
-                    < self.super_block.s_first_ino as i64
-                {
-                    continue;
+            let block_group = self.get_group_from_buffer(group_idx as i64, &buf)?;
+
+            let mut bitmap_buf = self.get_buffer();
+            bitmap_buf = self
+                .read_sectors(bitmap_buf, block_group.get_inode_bitmap_lba())
+                .await?;
+
+            for idx in 0..self.super_block.s_inodes_per_group as usize {
+                if bitmap_buf[idx / 8] & 0x1 << (idx % 8) == 0 {
+                    let ino = Inode::default();
+
+                    return Ok(self.relative_idx_to_inode_plus(ino, group_idx, idx as u32));
                 }
-
-                inode_count += 1;
-
-                if bit != Bit::Zero {
-                    continue;
-                }
-
-                let inode_table_buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
-                let inode_table_loc = addr + 4;
-                let inode_table_buf = self.read_sectors(inode_table_buf, inode_table_loc).await?;
-
-                let ino = Inode::deserialize(
-                    dvida_serialize::Endianness::Little,
-                    &inode_table_buf[idx * INODE_SIZE as usize..],
-                )?
-                .0;
-
-                return Ok(self.relative_idx_to_inode_plus(ino, group_number as u32, idx as u32));
             }
         }
 
@@ -110,12 +92,19 @@ impl Ext2Fs {
     ) -> Result<(), HalFsIOErr> {
         let mut cur_bitmap_lba = -1;
 
+        let mut allocated_blocks_map: BTreeMap<i64, i64> = BTreeMap::new();
+
         for AllocatedBlock {
             block_idx,
             gr_number,
             ..
         } in blocks.iter()
         {
+            allocated_blocks_map
+                .entry(*gr_number)
+                .and_modify(|v| *v += 1)
+                .or_insert(1);
+
             let group = self.get_group(*gr_number).await?;
             let block_bitmap_lba = group.get_block_bitmap_lba();
 
@@ -134,6 +123,30 @@ impl Ext2Fs {
         }
 
         self.write_sectors(buf.clone(), cur_bitmap_lba).await?;
+
+        let mut cur_group_buffer_lba = -1;
+        for (group_idx, num_allocated) in allocated_blocks_map {
+            let bg_table_block_idx = self.super_block.s_first_data_block + 1;
+            let lba = self.block_idx_to_lba(bg_table_block_idx);
+            let lba_offset = (group_idx * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) / SECTOR_SIZE as i64;
+            let byte_offset = (group_idx * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
+
+            if lba + lba_offset != cur_group_buffer_lba {
+                cur_group_buffer_lba = lba + lba_offset;
+                buf = self.read_sectors(buf, lba + lba_offset).await?;
+
+                if cur_group_buffer_lba != -1 {
+                    self.write_sectors(buf.clone(), cur_group_buffer_lba)
+                        .await?;
+                }
+            }
+
+            let descriptor: &mut GroupDescriptor =
+                bytemuck::from_bytes_mut(&mut buf[byte_offset as usize..]);
+
+            descriptor.bg_free_blocks_count -= num_allocated as u16;
+        }
+
         Ok(())
     }
 
@@ -142,15 +155,8 @@ impl Ext2Fs {
         inode: &InodePlus,
         blocks: &[AllocatedBlock],
     ) -> Result<(), HalFsIOErr> {
-        let buf = Box::new([0; BLOCK_SIZE as usize]);
+        let buf = self.get_buffer();
         self.write_newly_allocated_blocks(buf, blocks).await?;
-
-        // Zero out newly allocated data blocks to avoid leaking data
-        let zero_block = Box::new([0u8; BLOCK_SIZE as usize]);
-        for b in blocks.iter() {
-            // `addr` is the LBA of the allocated block
-            self.write_sectors(zero_block.clone(), b.addr).await?;
-        }
 
         self.write_inode(inode).await?;
 
@@ -218,14 +224,12 @@ impl Ext2Fs {
                 inode,
                 allocated_inode.group_number.into(),
                 if is_dir {
-                    self.super_block.s_prealloc_blocks as usize
-                } else {
                     self.super_block.s_prealloc_dir_blocks as usize
+                } else {
+                    self.super_block.s_prealloc_blocks as usize
                 },
             )
             .await?;
-
-        self.write_changes(&allocated_inode, &blocks).await?;
 
         self.add_dir_entry(dir_inode, allocated_inode.absolute_idx as u32, name)
             .await?;
@@ -239,6 +243,8 @@ impl Ext2Fs {
             dir_inode.inode.i_links_count = dir_inode.inode.i_links_count.saturating_add(1);
             self.write_inode(dir_inode).await?;
         }
+
+        self.write_changes(&allocated_inode, &blocks).await?;
 
         Ok(allocated_inode)
     }

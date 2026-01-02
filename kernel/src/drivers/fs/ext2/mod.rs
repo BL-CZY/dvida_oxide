@@ -9,6 +9,7 @@ pub mod structs;
 pub mod write;
 
 use alloc::string::String;
+use bytemuck::{Pod, Zeroable};
 use dvida_serialize::*;
 pub use inode::InodePlus;
 
@@ -101,7 +102,8 @@ pub struct SuperBlock {
 pub const BLOCK_GROUP_DESCRIPTOR_SIZE: usize = 32;
 
 /// Block Group Descriptor structure
-#[derive(DvDeSer, Debug, Clone)]
+#[derive(Debug, Clone, Pod, Zeroable, Copy)]
+#[repr(C, packed)]
 pub struct GroupDescriptor {
     /// Block number of block bitmap
     bg_block_bitmap: u32,

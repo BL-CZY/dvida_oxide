@@ -1,4 +1,4 @@
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec};
 use dvida_serialize::DvDeserialize;
 use terminal::log;
 
@@ -148,12 +148,47 @@ impl Ext2Fs {
         })
     }
 
+    /// parses a block group from a buffer
+    /// will assume the buf's size to be BLOCK_SIZE and use
+    /// ```
+    /// let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE asi64;
+    /// ```
+    /// to index into the buffer
+    pub fn get_group_from_buffer(
+        &self,
+        gr_number: i64,
+        buf: &Box<[u8]>,
+    ) -> Result<Ext2BlockGroup, HalFsIOErr> {
+        let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
+        Ok(Ext2BlockGroup {
+            group_number: gr_number,
+            block_size: self.super_block.block_size() as i64,
+            blocks_per_group: self.super_block.s_blocks_per_group as i64,
+            sectors_per_block: self.super_block.block_size() as i64 / SECTOR_SIZE as i64,
+            descriptor_partial: GroupDescriptorPartial::deserialize(
+                dvida_serialize::Endianness::Little,
+                &buf[byte_offset as usize..],
+            )?
+            .0,
+        })
+    }
+
+    pub fn get_block_group_table_lba(&self) -> i64 {
+        let bg_table_block_idx = self.super_block.s_first_data_block + 1;
+        let lba = self.block_idx_to_lba(bg_table_block_idx);
+        lba
+    }
+
     pub fn block_idx_to_lba(&self, block_idx: u32) -> i64 {
         block_idx as i64 * self.super_block.block_size() as i64 / SECTOR_SIZE as i64
     }
 
     pub fn lba_to_block_idx(&self, lba: i64) -> u32 {
         (lba / self.super_block.block_size() as i64) as u32 * SECTOR_SIZE as u32
+    }
+
+    pub fn get_buffer(&self) -> Box<[u8]> {
+        vec![0u8; self.super_block.block_size() as usize].into()
     }
 }
 

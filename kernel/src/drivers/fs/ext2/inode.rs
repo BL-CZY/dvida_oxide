@@ -2,15 +2,19 @@ use alloc::boxed::Box;
 use dvida_serialize::{DvDeserialize, DvSerialize};
 
 use crate::{
-    drivers::fs::ext2::{INODE_SIZE, Inode, structs::Ext2Fs},
+    drivers::fs::ext2::{
+        BLOCK_GROUP_DESCRIPTOR_SIZE, GroupDescriptor, INODE_SIZE, Inode, structs::Ext2Fs,
+    },
     hal::{fs::HalFsIOErr, storage::SECTOR_SIZE},
 };
 
 #[derive(Debug, Clone, Default)]
 pub struct InodePlus {
     pub inode: Inode,
+    /// globally inode indicies start with 1
     pub absolute_idx: u32,
     pub group_number: u32,
+    /// relatively this implementaiton will trait it to start with 0
     pub relative_idx: u32,
 }
 
@@ -18,8 +22,8 @@ impl Ext2Fs {
     pub fn global_idx_to_inode_plus(&self, inode: Inode, idx: u32) -> InodePlus {
         InodePlus {
             inode,
-            relative_idx: idx % self.super_block.s_inodes_per_group,
-            group_number: idx / self.super_block.s_inodes_per_group,
+            relative_idx: (idx - 1) % self.super_block.s_inodes_per_group,
+            group_number: (idx - 1) / self.super_block.s_inodes_per_group,
             absolute_idx: idx,
         }
     }
@@ -34,7 +38,7 @@ impl Ext2Fs {
             inode,
             relative_idx: idx,
             group_number: group_number,
-            absolute_idx: group_number * self.super_block.s_inodes_per_group + idx,
+            absolute_idx: group_number * self.super_block.s_inodes_per_group + idx + 1,
         }
     }
 
@@ -87,6 +91,16 @@ impl Ext2Fs {
         )?;
 
         self.write_sectors(buf.clone(), lba + sector_offset).await?;
+
+        let gr_number = inode.group_number as i64;
+        let lba = self.get_block_group_table_lba();
+        let lba_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) / SECTOR_SIZE as i64;
+        let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
+        buf = self.read_sectors(buf, lba + lba_offset).await?;
+        let descriptor: &mut GroupDescriptor =
+            bytemuck::from_bytes_mut(&mut buf[byte_offset as usize..]);
+        descriptor.bg_free_inodes_count -= 1;
+        descriptor.bg_used_dirs_count += inode.inode.is_directory() as u16;
 
         Ok(())
     }
