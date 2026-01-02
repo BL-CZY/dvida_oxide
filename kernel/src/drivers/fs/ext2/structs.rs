@@ -133,7 +133,9 @@ impl Ext2Fs {
 
         let mut buf: Box<[u8]> = Box::new([0u8; SECTOR_SIZE]);
         buf = self.read_sectors(buf, lba + lba_offset).await?;
-        let descriptor: GroupDescriptor = *bytemuck::from_bytes(&buf[byte_offset as usize..]);
+        let descriptor: GroupDescriptor = *bytemuck::from_bytes(
+            &buf[byte_offset as usize..byte_offset as usize + size_of::<GroupDescriptor>()],
+        );
 
         Ok(Ext2BlockGroup {
             group_number: gr_number,
