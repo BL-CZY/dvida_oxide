@@ -119,16 +119,6 @@ pub struct GroupDescriptor {
     bg_used_dirs_count: u16,
 }
 
-#[derive(DvDeSer, Debug, Clone)]
-pub struct GroupDescriptorPartial {
-    /// Block number of block bitmap
-    bg_block_bitmap: u32,
-    /// Block number of inode bitmap
-    bg_inode_bitmap: u32,
-    /// Block number of inode table
-    bg_inode_table: u32,
-}
-
 /// Inode structure - represents a file, directory, or other filesystem object
 #[derive(DvDeSer, Debug, Clone, Default)]
 pub struct Inode {

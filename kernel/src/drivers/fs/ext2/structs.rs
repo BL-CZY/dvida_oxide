@@ -1,10 +1,9 @@
 use alloc::{boxed::Box, vec};
-use dvida_serialize::DvDeserialize;
 use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
-        BLOCK_GROUP_DESCRIPTOR_SIZE, GroupDescriptorPartial, SuperBlock,
+        BLOCK_GROUP_DESCRIPTOR_SIZE, GroupDescriptor, SuperBlock,
         create_file::RESERVED_BOOT_RECORD_OFFSET, init::identify_ext2,
     },
     hal::{
@@ -21,7 +20,7 @@ pub struct Ext2BlockGroup {
     pub block_size: i64,
     pub blocks_per_group: i64,
     pub sectors_per_block: i64,
-    pub descriptor_partial: GroupDescriptorPartial,
+    pub descriptor: GroupDescriptor,
 }
 
 impl Ext2BlockGroup {
@@ -49,15 +48,15 @@ impl Ext2BlockGroup {
     }
 
     pub fn get_block_bitmap_lba(&self) -> i64 {
-        self.block_idx_to_lba(self.descriptor_partial.bg_block_bitmap)
+        self.block_idx_to_lba(self.descriptor.bg_block_bitmap)
     }
 
     pub fn get_inode_bitmap_lba(&self) -> i64 {
-        self.block_idx_to_lba(self.descriptor_partial.bg_inode_bitmap)
+        self.block_idx_to_lba(self.descriptor.bg_inode_bitmap)
     }
 
     pub fn get_inode_table_lba(&self) -> i64 {
-        self.block_idx_to_lba(self.descriptor_partial.bg_inode_table)
+        self.block_idx_to_lba(self.descriptor.bg_inode_table)
     }
 
     pub fn get_data_blocks_start_lba(&self) -> i64 {
@@ -134,17 +133,14 @@ impl Ext2Fs {
 
         let mut buf: Box<[u8]> = Box::new([0u8; SECTOR_SIZE]);
         buf = self.read_sectors(buf, lba + lba_offset).await?;
+        let descriptor: GroupDescriptor = *bytemuck::from_bytes(&buf[byte_offset as usize..]);
 
         Ok(Ext2BlockGroup {
             group_number: gr_number,
             block_size: self.super_block.block_size() as i64,
             blocks_per_group: self.super_block.s_blocks_per_group as i64,
             sectors_per_block: self.super_block.block_size() as i64 / SECTOR_SIZE as i64,
-            descriptor_partial: GroupDescriptorPartial::deserialize(
-                dvida_serialize::Endianness::Little,
-                &buf[byte_offset as usize..],
-            )?
-            .0,
+            descriptor,
         })
     }
 
@@ -160,16 +156,14 @@ impl Ext2Fs {
         buf: &Box<[u8]>,
     ) -> Result<Ext2BlockGroup, HalFsIOErr> {
         let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
+        let descriptor: GroupDescriptor = *bytemuck::from_bytes(&buf[byte_offset as usize..]);
+
         Ok(Ext2BlockGroup {
             group_number: gr_number,
             block_size: self.super_block.block_size() as i64,
             blocks_per_group: self.super_block.s_blocks_per_group as i64,
             sectors_per_block: self.super_block.block_size() as i64 / SECTOR_SIZE as i64,
-            descriptor_partial: GroupDescriptorPartial::deserialize(
-                dvida_serialize::Endianness::Little,
-                &buf[byte_offset as usize..],
-            )?
-            .0,
+            descriptor,
         })
     }
 
