@@ -114,8 +114,9 @@ impl Ext2Fs {
             let lba_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) / SECTOR_SIZE as i64;
             let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
             buf = self.read_sectors(buf, lba + lba_offset).await?;
-            let descriptor: &mut GroupDescriptor =
-                bytemuck::from_bytes_mut(&mut buf[byte_offset as usize..]);
+            let descriptor: &mut GroupDescriptor = bytemuck::from_bytes_mut(
+                &mut buf[byte_offset as usize..byte_offset as usize + size_of::<GroupDescriptor>()],
+            );
             descriptor.bg_free_inodes_count -= 1;
             descriptor.bg_used_dirs_count += inode.inode.is_directory() as u16;
             self.write_sectors(buf.clone(), lba + lba_offset).await?;

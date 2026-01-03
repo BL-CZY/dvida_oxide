@@ -261,15 +261,16 @@ impl PataDevice {
             return Err(Box::new(IoErr::InputTooSmall));
         }
 
-        log!(
-            "read_data_async: prepared to read {} sectors ({} bytes)",
-            count,
-            bytes_needed
-        );
+        // log!(
+        //     "read_data_async: prepared to read {} sectors ({} bytes)",
+        //     count,
+        //     bytes_needed
+        // );
 
         for sector in 0..count {
             self.wait_io_async().await?;
             // log!("read_data_async: reading sector {}/{}", sector + 1, count);
+            self.wait_io()?;
 
             // Calculate offset for this sector
             let offset = sector as usize * 512;
@@ -336,6 +337,7 @@ impl PataDevice {
 
         for sector in 0..count as usize {
             self.wait_io_async().await?;
+            self.wait_io()?;
             // log!("write_data_async: writing sector {}/{}", sector + 1, count);
 
             for byte in 0..256usize {

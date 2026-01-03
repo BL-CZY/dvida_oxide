@@ -38,6 +38,8 @@ impl Ext2Fs {
             return Err(HalFsIOErr::Unsupported);
         }
 
+        log!("Preparing to allocate {num} blocks for the new inode");
+
         let blocks_allocated = self
             .allocate_n_blocks_in_group(group_number, num as usize)
             .await?;

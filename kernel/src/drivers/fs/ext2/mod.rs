@@ -213,8 +213,8 @@ impl DirEntry {
             + self.name.len(); // name
 
         // if the rec length read is larger than this we use the larger value
-        (length as u16 + EXT2_DIR_ENTRY_ALIGNMENT)
-            & !(EXT2_DIR_ENTRY_ALIGNMENT - 1).max(self.rec_len)
+        ((length as u16 + EXT2_DIR_ENTRY_ALIGNMENT - 1) & !(EXT2_DIR_ENTRY_ALIGNMENT - 1))
+            .max(self.rec_len)
     }
 
     pub fn serialize_till_end(

@@ -72,6 +72,7 @@ async fn kernel_main(executor: Executor) {
     init_vfs(args.root_drive, args.root_entry).await;
     let res = hal::vfs::open(
         Path::from_str("/test").unwrap(),
+        // OpenFlags::default(),
         OpenFlags {
             flags: OpenFlagsValue::CreateIfNotExist as i32,
             perms: Some(0),

@@ -1,5 +1,6 @@
 use alloc::{boxed::Box, string::ToString};
 use dvida_serialize::{DvDeserialize, DvSerialize};
+use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
@@ -55,6 +56,13 @@ impl Ext2Fs {
 
                 // if it can fit, shrink this entry
                 if entry_partial.rec_len - entry_partial.min_reclen() >= entry.record_length() {
+                    log!(
+                        "add_dir_entry: found entry that is long enough: {:?} for: {:?} with record length of: {:?}",
+                        entry_partial,
+                        entry,
+                        entry.record_length()
+                    );
+
                     entry.rec_len = entry_partial.rec_len as u16 - entry_partial.min_reclen();
                     entry_partial.rec_len = entry_partial.min_reclen();
 
@@ -67,7 +75,6 @@ impl Ext2Fs {
                     self.io_handler.write_block(buf.clone(), block_idx).await?;
 
                     inode.inode.i_mtime = time;
-                    self.write_inode(inode).await?;
 
                     return Ok(());
                 }
@@ -98,7 +105,6 @@ impl Ext2Fs {
         self.write_sectors(buf, lba as i64).await?;
 
         inode.inode.i_mtime = time;
-        self.write_inode(inode).await?;
 
         Ok(())
     }
