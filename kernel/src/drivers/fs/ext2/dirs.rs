@@ -59,7 +59,6 @@ impl Ext2Fs {
                     entry_partial.rec_len = entry_partial.min_reclen();
 
                     let new_reclen = entry_partial.rec_len as usize;
-                    drop(entry_partial);
 
                     entry.serialize(
                         dvida_serialize::Endianness::Little,

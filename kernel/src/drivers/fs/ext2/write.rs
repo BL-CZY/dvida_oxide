@@ -1,4 +1,4 @@
-use crate::time;
+use crate::{hal::storage::SECTOR_SIZE, time};
 use alloc::{boxed::Box, vec, vec::Vec};
 use dvida_serialize::{DvDeserialize, DvSerialize};
 
@@ -157,6 +157,7 @@ impl Ext2Fs {
         group_number: i64,
         newly_allocated_blocks: &mut Vec<AllocatedBlock>,
         block: &AllocatedBlock,
+        num_blocks: &mut u32,
     ) -> Result<Box<[u8]>, HalFsIOErr> {
         if addr == 0 {
             let ind_block = self
@@ -171,7 +172,7 @@ impl Ext2Fs {
 
             block.addr.serialize(
                 dvida_serialize::Endianness::Little,
-                &mut cur_ind_block_buf[(inode.i_blocks - INODE_BLOCK_LIMIT) as usize * 4..],
+                &mut cur_ind_block_buf[(*num_blocks - INODE_BLOCK_LIMIT) as usize * 4..],
             )?;
 
             return Ok(cur_ind_block_buf);
@@ -190,9 +191,11 @@ impl Ext2Fs {
 
             block.addr.serialize(
                 dvida_serialize::Endianness::Little,
-                &mut cur_ind_block_buf[(inode.i_blocks - INODE_BLOCK_LIMIT) as usize * 4..],
+                &mut cur_ind_block_buf[(*num_blocks - INODE_BLOCK_LIMIT) as usize * 4..],
             )?;
         }
+
+        *num_blocks += 1;
 
         Ok(cur_ind_block_buf)
     }
@@ -207,6 +210,7 @@ impl Ext2Fs {
         cur_ind_block_lba: &mut i64,
         mut cur_ind_block_buf: Box<[u8]>,
         block: &AllocatedBlock,
+        num_blocks: &mut u32,
     ) -> Result<Box<[u8]>, HalFsIOErr> {
         if addr == 0 {
             let double_ind_block = self
@@ -232,7 +236,7 @@ impl Ext2Fs {
 
         let addr = u32::deserialize(
             dvida_serialize::Endianness::Little,
-            &temp_buf[((inode.i_blocks - INODE_IND_BLOCK_LIMIT) / (BLOCK_SIZE / 4)) as usize..],
+            &temp_buf[4 * ((*num_blocks - INODE_IND_BLOCK_LIMIT) / (BLOCK_SIZE / 4)) as usize..],
         )?
         .0;
 
@@ -245,13 +249,14 @@ impl Ext2Fs {
                 group_number,
                 newly_allocated_blocks,
                 block,
+                num_blocks,
             )
             .await?;
 
         Ok(cur_ind_block_buf)
     }
 
-    /// doesn't write inodes
+    /// doesn't write inodes and i_size
     pub async fn expand_inode(
         &mut self,
         inode: &mut Inode,
@@ -263,6 +268,9 @@ impl Ext2Fs {
             .allocate_n_blocks_in_group(group_number, block_count)
             .await?;
 
+        let mut num_blocks =
+            (inode.i_size + self.super_block.block_size() - 1) / self.super_block.block_size();
+
         let mut cur_ind_block_lba = 0;
         let mut cur_ind_block_buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
 
@@ -272,10 +280,10 @@ impl Ext2Fs {
         let mut newly_allocated_blocks: Vec<AllocatedBlock> = vec![];
 
         for block in blocks.iter() {
-            if inode.i_blocks < INODE_BLOCK_LIMIT {
-                inode.i_block[inode.i_blocks as usize] = block.addr as u32;
-                inode.i_blocks += 1;
-            } else if inode.i_blocks < INODE_IND_BLOCK_LIMIT {
+            if num_blocks < INODE_BLOCK_LIMIT {
+                inode.i_block[num_blocks as usize] = block.addr as u32;
+                num_blocks += 1;
+            } else if num_blocks < INODE_IND_BLOCK_LIMIT {
                 self.handle_indirect_block(
                     inode.i_block[INODE_BLOCK_LIMIT as usize],
                     inode,
@@ -284,9 +292,10 @@ impl Ext2Fs {
                     group_number,
                     &mut newly_allocated_blocks,
                     block,
+                    &mut num_blocks,
                 )
                 .await?;
-            } else if inode.i_blocks < INODE_DOUBLE_IND_BLOCK_LIMIT {
+            } else if num_blocks < INODE_DOUBLE_IND_BLOCK_LIMIT {
                 cur_ind_block_buf = self
                     .handle_double_indirect_block(
                         inode.i_block[INODE_BLOCK_LIMIT as usize + 1],
@@ -297,6 +306,7 @@ impl Ext2Fs {
                         &mut cur_ind_block_lba,
                         cur_ind_block_buf,
                         block,
+                        &mut num_blocks,
                     )
                     .await?;
             } else {
@@ -325,9 +335,10 @@ impl Ext2Fs {
 
                 let addr = u32::deserialize(
                     dvida_serialize::Endianness::Little,
-                    &temp_buf[((inode.i_blocks - INODE_DOUBLE_IND_BLOCK_LIMIT)
-                        / ((BLOCK_SIZE / 4) * (BLOCK_SIZE / 4)))
-                        as usize..],
+                    &temp_buf[4
+                        * ((num_blocks - INODE_DOUBLE_IND_BLOCK_LIMIT)
+                            / ((BLOCK_SIZE / 4) * (BLOCK_SIZE / 4)))
+                            as usize..],
                 )?
                 .0;
 
@@ -340,10 +351,18 @@ impl Ext2Fs {
                     &mut cur_ind_block_lba,
                     cur_ind_block_buf.clone(),
                     block,
+                    &mut num_blocks,
                 )
                 .await?;
             }
         }
+
+        inode.i_blocks += (blocks.len() + newly_allocated_blocks.len()) as u32
+            * self.super_block.block_size()
+            / SECTOR_SIZE as u32;
+
+        self.write_sectors(cur_ind_block_buf.clone(), cur_ind_block_lba)
+            .await?;
 
         // repurpose the buffer as the buffer for the write_newly_allocated_blocks function;
         let buf = cur_ind_block_buf;
