@@ -2,6 +2,7 @@ use alloc::{boxed::Box, vec, vec::Vec};
 use terminal::log;
 
 use crate::{
+    crypto::iterators::{Bit, BitIterator},
     drivers::fs::ext2::{
         BLOCK_GROUP_DESCRIPTOR_SIZE, BLOCK_SIZE, GroupDescriptor, Inode, InodePlus, SuperBlock,
         create_file::{AllocatedBlock, RESERVED_BOOT_RECORD_OFFSET},
@@ -85,8 +86,12 @@ pub struct IoHandler {
 }
 
 impl IoHandler {
-    fn block_idx_to_lba(&self, block_idx: u32) -> i64 {
+    pub fn block_idx_to_lba(&self, block_idx: u32) -> i64 {
         block_idx as i64 * self.block_size as i64 / SECTOR_SIZE as i64
+    }
+
+    pub fn lba_to_block_idx(&self, lba: i64) -> u32 {
+        (lba / self.block_size as i64) as u32 * SECTOR_SIZE as u32
     }
 
     pub async fn read_sectors(
@@ -133,19 +138,202 @@ impl IoHandler {
     }
 }
 
-#[derive(Debug)]
-pub struct BlockAllocator {}
+#[derive(Debug, Clone)]
+pub struct GroupManager {
+    io_handler: IoHandler,
 
-#[derive(Debug)]
-pub struct GroupManager {}
+    blocks_per_group: u32,
+    first_data_block: u32,
+    block_size: u32,
+}
 
-#[derive(Debug)]
+impl GroupManager {
+    pub async fn get_group_from_lba(&self, lba: i64) -> Result<Ext2BlockGroup, HalFsIOErr> {
+        let group_number = self.io_handler.lba_to_block_idx(lba) / self.blocks_per_group;
+
+        self.get_group(group_number as i64).await
+    }
+
+    pub async fn get_group(&self, gr_number: i64) -> Result<Ext2BlockGroup, HalFsIOErr> {
+        let bg_table_block_idx = self.first_data_block + 1;
+        let lba = self.io_handler.block_idx_to_lba(bg_table_block_idx);
+        let lba_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) / SECTOR_SIZE as i64;
+        let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
+
+        let mut buf: Box<[u8]> = Box::new([0u8; SECTOR_SIZE]);
+        buf = self.io_handler.read_sectors(buf, lba + lba_offset).await?;
+        let descriptor: GroupDescriptor = *bytemuck::from_bytes(
+            &buf[byte_offset as usize..byte_offset as usize + size_of::<GroupDescriptor>()],
+        );
+
+        Ok(Ext2BlockGroup {
+            group_number: gr_number,
+            block_size: self.block_size as i64,
+            blocks_per_group: self.blocks_per_group as i64,
+            sectors_per_block: self.block_size as i64 / SECTOR_SIZE as i64,
+            descriptor,
+        })
+    }
+
+    /// parses a block group from a buffer
+    /// will assume the buf's size to be BLOCK_SIZE and use
+    /// ```
+    /// let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE asi64;
+    /// ```
+    /// to index into the buffer
+    pub fn get_group_from_buffer(
+        &self,
+        gr_number: i64,
+        buf: &Box<[u8]>,
+    ) -> Result<Ext2BlockGroup, HalFsIOErr> {
+        let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
+        let descriptor: GroupDescriptor = *bytemuck::from_bytes(
+            &buf[byte_offset as usize..byte_offset as usize + size_of::<GroupDescriptor>()],
+        );
+
+        Ok(Ext2BlockGroup {
+            group_number: gr_number,
+            block_size: self.block_size as i64,
+            blocks_per_group: self.blocks_per_group as i64,
+            sectors_per_block: self.block_size as i64 / SECTOR_SIZE as i64,
+            descriptor,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockAllocator {
+    block_groups_count: i64,
+
+    group_manager: GroupManager,
+    io_handler: IoHandler,
+    buffer_manager: BufferManager,
+}
+
+impl BlockAllocator {
+    pub async fn allocate_n_blocks(
+        &self,
+        exclude_group_idx: i64,
+        mut remaining_blocks: usize,
+    ) -> Result<Vec<AllocatedBlock>, HalFsIOErr> {
+        let mut blocks_allocated = vec![];
+        let group_count = self.block_groups_count;
+
+        // iterate over block groups
+        for group_number in 0..(group_count as i64) {
+            if group_number == exclude_group_idx {
+                continue;
+            }
+
+            if remaining_blocks == 0 {
+                break;
+            }
+
+            let group = self.group_manager.get_group(group_number as i64).await?;
+            let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
+
+            // read block bitmap for the group
+            buf = self
+                .io_handler
+                .read_sectors(buf, group.get_block_bitmap_lba())
+                .await?;
+
+            let bit_iterator = BitIterator::new(buf.as_mut());
+
+            for (idx, bit) in bit_iterator.into_iter().enumerate() {
+                if remaining_blocks == 0 {
+                    break;
+                }
+
+                if bit == Bit::One {
+                    continue;
+                }
+
+                // map bitmap index to data block LBA
+                let block_lba = group.get_group_lba() + (idx as i64) * group.sectors_per_block;
+
+                remaining_blocks -= 1;
+
+                blocks_allocated.push(AllocatedBlock {
+                    addr: block_lba,
+                    block_idx: idx as i64,
+                    gr_number: group_number as i64,
+                });
+            }
+        }
+
+        if remaining_blocks > 0 {
+            return Err(HalFsIOErr::NoSpaceLeft);
+        }
+
+        Ok(blocks_allocated)
+    }
+
+    pub async fn allocate_n_blocks_in_group(
+        &self,
+        group_number: i64,
+        mut num: usize,
+    ) -> Result<Vec<AllocatedBlock>, HalFsIOErr> {
+        let mut blocks_allocated = vec![];
+        let group = self.group_manager.get_group(group_number).await?;
+        let mut buf: Box<[u8]> = self.buffer_manager.get_buffer();
+
+        // read the block bitmap for the group
+        buf = self
+            .io_handler
+            .read_sectors(buf, group.get_block_bitmap_lba())
+            .await?;
+        let bit_iterator: BitIterator<u8> = BitIterator::new(buf.as_mut());
+
+        for (idx, bit) in bit_iterator.into_iter().enumerate() {
+            if num == 0 {
+                break;
+            }
+
+            if bit == Bit::One {
+                continue;
+            }
+
+            let block_lba = group.get_group_lba() + (idx as i64 * group.sectors_per_block);
+
+            num -= 1;
+            blocks_allocated.push(AllocatedBlock {
+                addr: block_lba,
+                block_idx: idx as i64,
+                gr_number: group_number,
+            });
+        }
+
+        if num == 0 {
+            return Ok(blocks_allocated);
+        }
+
+        // if this group didn't satisfy the request, fall back to scanning entire fs
+        blocks_allocated.extend(self.allocate_n_blocks(group_number, num).await?.into_iter());
+
+        Ok(blocks_allocated)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BufferManager {
+    block_size: usize,
+}
+
+impl BufferManager {
+    pub fn get_buffer(&self) -> Box<[u8]> {
+        vec![0u8; self.block_size].into()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Ext2Fs {
     pub drive_id: usize,
     pub entry: GPTEntry,
     pub io_handler: IoHandler,
     pub block_allocator: BlockAllocator,
     pub group_manager: GroupManager,
+    pub buffer_manager: BufferManager,
 
     pub super_block: SuperBlock,
 }
@@ -158,13 +346,36 @@ impl Ext2Fs {
 
         log!("Mounted ext2");
 
+        let io_handler = IoHandler {
+            drive_id: drive_id,
+            start_lba: entry.start_lba as i64,
+            block_size: super_block.block_size(),
+        };
+
+        let group_manager = GroupManager {
+            block_size: super_block.block_size(),
+            blocks_per_group: super_block.s_blocks_per_group,
+            first_data_block: super_block.s_first_data_block,
+            io_handler: io_handler.clone(),
+        };
+
+        let buffer_manager = BufferManager {
+            block_size: super_block.block_size() as usize,
+        };
+
+        let block_allocator = BlockAllocator {
+            block_groups_count: super_block.block_groups_count() as i64,
+            group_manager: group_manager.clone(),
+            io_handler: io_handler.clone(),
+            buffer_manager: buffer_manager.clone(),
+        };
+
         Self {
             drive_id,
-            io_handler: IoHandler {
-                drive_id: drive_id,
-                start_lba: entry.start_lba as i64,
-                block_size: super_block.block_size(),
-            },
+            io_handler,
+            group_manager,
+            block_allocator,
+            buffer_manager,
             entry,
             super_block,
         }
@@ -195,30 +406,11 @@ impl Ext2Fs {
     }
 
     pub async fn get_group_from_lba(&self, lba: i64) -> Result<Ext2BlockGroup, HalFsIOErr> {
-        let group_number = self.lba_to_block_idx(lba) / self.super_block.s_blocks_per_group;
-
-        self.get_group(group_number as i64).await
+        self.group_manager.get_group_from_lba(lba).await
     }
 
     pub async fn get_group(&self, gr_number: i64) -> Result<Ext2BlockGroup, HalFsIOErr> {
-        let bg_table_block_idx = self.super_block.s_first_data_block + 1;
-        let lba = self.block_idx_to_lba(bg_table_block_idx);
-        let lba_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) / SECTOR_SIZE as i64;
-        let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
-
-        let mut buf: Box<[u8]> = Box::new([0u8; SECTOR_SIZE]);
-        buf = self.read_sectors(buf, lba + lba_offset).await?;
-        let descriptor: GroupDescriptor = *bytemuck::from_bytes(
-            &buf[byte_offset as usize..byte_offset as usize + size_of::<GroupDescriptor>()],
-        );
-
-        Ok(Ext2BlockGroup {
-            group_number: gr_number,
-            block_size: self.super_block.block_size() as i64,
-            blocks_per_group: self.super_block.s_blocks_per_group as i64,
-            sectors_per_block: self.super_block.block_size() as i64 / SECTOR_SIZE as i64,
-            descriptor,
-        })
+        self.group_manager.get_group(gr_number).await
     }
 
     /// parses a block group from a buffer
@@ -232,18 +424,7 @@ impl Ext2Fs {
         gr_number: i64,
         buf: &Box<[u8]>,
     ) -> Result<Ext2BlockGroup, HalFsIOErr> {
-        let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
-        let descriptor: GroupDescriptor = *bytemuck::from_bytes(
-            &buf[byte_offset as usize..byte_offset as usize + size_of::<GroupDescriptor>()],
-        );
-
-        Ok(Ext2BlockGroup {
-            group_number: gr_number,
-            block_size: self.super_block.block_size() as i64,
-            blocks_per_group: self.super_block.s_blocks_per_group as i64,
-            sectors_per_block: self.super_block.block_size() as i64 / SECTOR_SIZE as i64,
-            descriptor,
-        })
+        self.group_manager.get_group_from_buffer(gr_number, buf)
     }
 
     pub fn get_block_group_table_lba(&self) -> i64 {
@@ -253,15 +434,15 @@ impl Ext2Fs {
     }
 
     pub fn block_idx_to_lba(&self, block_idx: u32) -> i64 {
-        block_idx as i64 * self.super_block.block_size() as i64 / SECTOR_SIZE as i64
+        self.io_handler.block_idx_to_lba(block_idx)
     }
 
     pub fn lba_to_block_idx(&self, lba: i64) -> u32 {
-        (lba / self.super_block.block_size() as i64) as u32 * SECTOR_SIZE as u32
+        self.io_handler.lba_to_block_idx(lba)
     }
 
     pub fn get_buffer(&self) -> Box<[u8]> {
-        vec![0u8; self.super_block.block_size() as usize].into()
+        self.buffer_manager.get_buffer()
     }
 
     pub fn create_block_iterator(&self, inode: &Inode) -> InodeBlockIterator {
