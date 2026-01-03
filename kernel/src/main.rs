@@ -6,6 +6,7 @@
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 
+use alloc::boxed::Box;
 use terminal::{iprintln, log};
 
 extern crate alloc;
@@ -30,7 +31,7 @@ use crate::{
     crypto::random::run_random,
     debug::terminal::WRITER,
     hal::{
-        fs::{OpenFlags, OpenFlagsValue},
+        fs::{HalIOCtx, OpenFlags, OpenFlagsValue},
         path::Path,
         storage::{PRIMARY, SECONDARY, run_storage_device},
         vfs::init_vfs,
@@ -70,7 +71,7 @@ async fn kernel_main(executor: Executor) {
     let args = parse_args();
 
     init_vfs(args.root_drive, args.root_entry).await;
-    let res = hal::vfs::open(
+    let mut inode = hal::vfs::open(
         Path::from_str("/test").unwrap(),
         // OpenFlags::default(),
         OpenFlags {
@@ -79,8 +80,16 @@ async fn kernel_main(executor: Executor) {
             ..Default::default()
         },
     )
-    .await;
-    log!("{:?}", res);
+    .await
+    .unwrap();
+
+    let mut context = HalIOCtx { head: 0 };
+    let buf: Box<[u8]> = Box::new([b't', b'e', b's', b't', b's', b't', b'r']);
+    hal::vfs::write(&mut inode, buf, &mut context)
+        .await
+        .unwrap();
+    // let buf: Box<[u8]> = Box::new([0; 7]);
+    // hal::vfs::read(&mut inode, buf, &mut context).await.unwrap();
 }
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.

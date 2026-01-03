@@ -1,9 +1,10 @@
+use alloc::boxed::Box;
 use terminal::log;
 
 use crate::{
     drivers::fs::ext2::structs::Ext2Fs,
     hal::{
-        fs::{FILE_SYSTEM, HalFsIOErr, HalInode, OpenFlags},
+        fs::{FILE_SYSTEM, HalFsIOErr, HalIOCtx, HalInode, OpenFlags},
         path::Path,
         storage::read_gpt,
     },
@@ -38,6 +39,42 @@ pub async fn open(path: Path, flags: OpenFlags) -> Result<HalInode, HalFsIOErr> 
 
     match fs.fs_impl {
         crate::hal::fs::HalFs::Ext2(ref mut ext2) => Ok(ext2.open_file(path, flags).await?),
+        super::fs::HalFs::Unidentified => panic!("No file system detected"),
+    }
+}
+
+pub async fn write(
+    inode: &mut HalInode,
+    buf: Box<[u8]>,
+    ctx: &mut HalIOCtx,
+) -> Result<usize, HalFsIOErr> {
+    let mut fs = FILE_SYSTEM.lock().await;
+
+    match fs.fs_impl {
+        crate::hal::fs::HalFs::Ext2(ref mut ext2) => {
+            let ino = match inode {
+                HalInode::Ext2(ino) => ino,
+            };
+            Ok(ext2.write(ino, buf, ctx).await?)
+        }
+        super::fs::HalFs::Unidentified => panic!("No file system detected"),
+    }
+}
+
+pub async fn read(
+    inode: &mut HalInode,
+    buf: Box<[u8]>,
+    ctx: &mut HalIOCtx,
+) -> Result<usize, HalFsIOErr> {
+    let mut fs = FILE_SYSTEM.lock().await;
+
+    match fs.fs_impl {
+        crate::hal::fs::HalFs::Ext2(ref mut ext2) => {
+            let ino = match inode {
+                HalInode::Ext2(ino) => ino,
+            };
+            Ok(ext2.read(ino, buf, ctx).await?)
+        }
         super::fs::HalFs::Unidentified => panic!("No file system detected"),
     }
 }

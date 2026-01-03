@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 use dvida_serialize::DvDeserialize;
+use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{BLOCK_SIZE, Inode, InodePlus, structs::Ext2Fs},
@@ -161,14 +162,7 @@ impl Ext2Fs {
                 .await?;
         }
 
-        let time = time::formats::rtc_to_posix(
-            &time::Rtc::new()
-                .read_datetime()
-                .expect("Failed to get time"),
-        );
-        inode.i_atime = time;
-
-        self.write_inode(victim_inode).await?;
+        log!("{:?}", buf);
 
         Ok(progress.bytes_written)
     }
