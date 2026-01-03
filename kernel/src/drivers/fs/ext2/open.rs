@@ -231,7 +231,13 @@ impl Ext2Fs {
 
                     directory_inode_idx = res as u32;
                 }
-                Ok(None) => return Err(HalFsIOErr::NoSuchFileOrDirectory),
+                Ok(None) => {
+                    if it.peek().is_none() {
+                        file_inode = None;
+                    } else {
+                        return Err(HalFsIOErr::NoSuchFileOrDirectory);
+                    }
+                }
                 Err(e) => return Err(e),
             }
         }
@@ -276,4 +282,4 @@ impl Ext2Fs {
     }
 }
 
-pub const ROOT_DIRECTORY_INODE_IDX: usize = 1;
+pub const ROOT_DIRECTORY_INODE_IDX: usize = 2;

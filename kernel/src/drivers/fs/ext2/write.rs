@@ -257,6 +257,7 @@ impl Ext2Fs {
     }
 
     /// doesn't write inodes and i_size
+    /// TODO: fix it later
     pub async fn expand_inode(
         &mut self,
         inode: &mut Inode,

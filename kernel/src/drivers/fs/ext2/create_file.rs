@@ -1,4 +1,5 @@
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
+use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
@@ -144,8 +145,9 @@ impl Ext2Fs {
                 buf = self.read_sectors(buf, lba + lba_offset).await?;
             }
 
-            let descriptor: &mut GroupDescriptor =
-                bytemuck::from_bytes_mut(&mut buf[byte_offset as usize..]);
+            let descriptor: &mut GroupDescriptor = bytemuck::from_bytes_mut(
+                &mut buf[byte_offset as usize..byte_offset as usize + size_of::<GroupDescriptor>()],
+            );
 
             descriptor.bg_free_blocks_count -= num_allocated as u16;
         }
@@ -188,6 +190,8 @@ impl Ext2Fs {
             return Err(HalFsIOErr::NameTooLong);
         }
 
+        log!("Creating inode under: {:?}", dir_inode);
+
         let dir = &dir_inode.inode;
 
         if !dir.is_directory() {
@@ -199,6 +203,8 @@ impl Ext2Fs {
             .map_or_else(|| 0, |dt| rtc_to_posix(&dt));
 
         let mut allocated_inode = self.find_available_inode().await?;
+
+        log!("Found availble inode: {:?}", allocated_inode);
 
         let inode = &mut allocated_inode.inode;
 

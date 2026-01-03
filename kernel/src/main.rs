@@ -30,7 +30,7 @@ use crate::{
     crypto::random::run_random,
     debug::terminal::WRITER,
     hal::{
-        fs::OpenFlags,
+        fs::{OpenFlags, OpenFlagsValue},
         path::Path,
         storage::{PRIMARY, SECONDARY, run_storage_device},
         vfs::init_vfs,
@@ -70,7 +70,15 @@ async fn kernel_main(executor: Executor) {
     let args = parse_args();
 
     init_vfs(args.root_drive, args.root_entry).await;
-    let res = hal::vfs::open(Path::from_str("/test").unwrap(), OpenFlags::default()).await;
+    let res = hal::vfs::open(
+        Path::from_str("/test").unwrap(),
+        OpenFlags {
+            flags: OpenFlagsValue::CreateIfNotExist as i32,
+            perms: Some(0),
+            ..Default::default()
+        },
+    )
+    .await;
     log!("{:?}", res);
 }
 /// Sets the base revision to the latest revision supported by the crate.

@@ -225,7 +225,9 @@ impl Ext2Fs {
         buf: &Box<[u8]>,
     ) -> Result<Ext2BlockGroup, HalFsIOErr> {
         let byte_offset = (gr_number * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
-        let descriptor: GroupDescriptor = *bytemuck::from_bytes(&buf[byte_offset as usize..]);
+        let descriptor: GroupDescriptor = *bytemuck::from_bytes(
+            &buf[byte_offset as usize..byte_offset as usize + size_of::<GroupDescriptor>()],
+        );
 
         Ok(Ext2BlockGroup {
             group_number: gr_number,
