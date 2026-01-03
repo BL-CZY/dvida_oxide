@@ -388,11 +388,14 @@ impl Ext2Fs {
             return Err(HalFsIOErr::IsDirectory);
         }
 
-        if ctx.head + buf.len() >= inode.i_size as usize {
+        let aligned_up_size = ((inode.i_size + self.super_block.block_size() - 1)
+            & !(self.super_block.block_size() - 1)) as usize;
+
+        if ctx.head + buf.len() >= aligned_up_size {
             self.expand_inode(
                 inode,
                 victim_inode.group_number as i64,
-                ctx.head + buf.len(),
+                ctx.head + buf.len() - aligned_up_size,
             )
             .await?;
         }

@@ -1,10 +1,10 @@
-use alloc::{boxed::Box, vec};
+use alloc::{boxed::Box, vec, vec::Vec};
 use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
         BLOCK_GROUP_DESCRIPTOR_SIZE, BLOCK_SIZE, GroupDescriptor, Inode, InodePlus, SuperBlock,
-        create_file::RESERVED_BOOT_RECORD_OFFSET,
+        create_file::{AllocatedBlock, RESERVED_BOOT_RECORD_OFFSET},
         init::identify_ext2,
         read::{
             INODE_BLOCK_LIMIT, INODE_DOUBLE_IND_BLOCK_LIMIT, INODE_IND_BLOCK_LIMIT,
@@ -134,10 +134,18 @@ impl IoHandler {
 }
 
 #[derive(Debug)]
+pub struct BlockAllocator {}
+
+#[derive(Debug)]
+pub struct GroupManager {}
+
+#[derive(Debug)]
 pub struct Ext2Fs {
     pub drive_id: usize,
     pub entry: GPTEntry,
     pub io_handler: IoHandler,
+    pub block_allocator: BlockAllocator,
+    pub group_manager: GroupManager,
 
     pub super_block: SuperBlock,
 }
@@ -392,9 +400,24 @@ impl InodeBlockIterator {
             .await?)
     }
 
+    pub async fn next(&mut self, buf: Box<[u8]>) -> Result<BlockIterElement, HalFsIOErr> {
+        let res = self.get(buf).await?;
+        self.cur_idx += 1;
+
+        Ok(res)
+    }
+
+    pub fn skip(&mut self, count: usize) {
+        self.cur_idx += count;
+    }
+
+    pub fn cur_idx(&mut self) -> usize {
+        self.cur_idx
+    }
+
     /// takes in a buffer and returns a struct BlockIterElement
     /// if the array is terminated the buffer won't be modified
-    pub async fn next(&mut self, mut buf: Box<[u8]>) -> Result<BlockIterElement, HalFsIOErr> {
+    pub async fn get(&mut self, mut buf: Box<[u8]>) -> Result<BlockIterElement, HalFsIOErr> {
         if self.cur_idx >= self.blocks_limit {
             return Ok(BlockIterElement {
                 buf,
@@ -481,13 +504,18 @@ impl InodeBlockIterator {
             });
         }
 
-        self.cur_idx += 1;
-
         Ok(BlockIterElement {
             buf: buf,
             is_terminated: false,
             block_idx: self.cur_block_idx,
         })
+    }
+
+    pub async fn set<T>(&mut self, allocate_block: T) -> Result<(), HalFsIOErr>
+    where
+        T: AsyncFnOnce(usize) -> Result<Vec<AllocatedBlock>, HalFsIOErr>,
+    {
+        todo!()
     }
 }
 
