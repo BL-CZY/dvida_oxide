@@ -105,7 +105,7 @@ impl Ext2Fs {
             block_size: super_block.block_size(),
             blocks_per_group: super_block.s_blocks_per_group,
             first_data_block: super_block.s_first_data_block,
-            io_handler: io_handler.clone(),
+            io_handler: io_handler,
         };
 
         let buffer_manager = BufferManager {
@@ -114,9 +114,9 @@ impl Ext2Fs {
 
         let block_allocator = BlockAllocator {
             block_groups_count: super_block.block_groups_count() as i64,
-            group_manager: group_manager.clone(),
-            io_handler: io_handler.clone(),
-            buffer_manager: buffer_manager.clone(),
+            group_manager: group_manager,
+            io_handler: io_handler,
+            buffer_manager: buffer_manager,
         };
 
         Self {

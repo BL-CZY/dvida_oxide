@@ -69,7 +69,7 @@ impl IoHandler {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct GroupManager {
     pub io_handler: IoHandler,
 
@@ -132,7 +132,7 @@ impl GroupManager {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct BufferManager {
     pub block_size: usize,
 }

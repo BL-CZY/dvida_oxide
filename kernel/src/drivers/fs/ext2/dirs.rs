@@ -28,7 +28,8 @@ impl Ext2Fs {
                 .expect("Failed to get time"),
         );
 
-        let mut blocks_iterator = self.create_block_iterator(&inode.inode);
+        let mut blocks_iterator =
+            self.create_block_iterator(&inode.inode, inode.group_number as i64);
 
         let mut entry = DirEntry::new(child_inode_idx, name.to_string());
 

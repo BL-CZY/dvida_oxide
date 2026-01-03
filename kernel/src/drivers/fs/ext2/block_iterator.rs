@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use alloc::{vec, vec::Vec};
 
 use crate::drivers::fs::ext2::Inode;
-use crate::drivers::fs::ext2::structs::Ext2Fs;
+use crate::drivers::fs::ext2::structs::{BlockAllocator, Ext2Fs};
 use crate::{
     drivers::fs::ext2::{
         create_file::AllocatedBlock,
@@ -16,11 +16,15 @@ use crate::{
 };
 
 impl Ext2Fs {
-    pub fn create_block_iterator(&self, inode: &Inode) -> InodeBlockIterator {
+    pub fn create_block_iterator(&self, inode: &Inode, group_number: i64) -> InodeBlockIterator {
         InodeBlockIterator {
             blocks: inode.i_block,
+            group_number,
+
             block_size: self.super_block.block_size() as usize,
-            io_handler: self.io_handler.clone(),
+            io_handler: self.io_handler,
+            block_allocator: self.block_allocator.clone(),
+
             cur_ind_buf: None,
             cur_ind_buf_block_idx: 0,
             cur_double_ind_buf: None,
@@ -36,8 +40,12 @@ impl Ext2Fs {
 
 pub struct InodeBlockIterator {
     blocks: [u32; 15],
+    group_number: i64,
+
     block_size: usize,
     io_handler: IoHandler,
+    block_allocator: BlockAllocator,
+
     cur_ind_buf: Option<Box<[u8]>>,
     cur_ind_buf_block_idx: u32,
 
@@ -159,6 +167,10 @@ impl InodeBlockIterator {
         self.cur_idx += count;
     }
 
+    pub fn skip_to_end(&mut self) {
+        self.cur_idx = self.blocks_limit;
+    }
+
     pub fn cur_idx(&mut self) -> usize {
         self.cur_idx
     }
@@ -259,11 +271,31 @@ impl InodeBlockIterator {
         })
     }
 
-    pub async fn set<T>(&mut self, allocate_block: T) -> Result<(), HalFsIOErr>
-    where
-        T: AsyncFnOnce(usize) -> Result<Vec<AllocatedBlock>, HalFsIOErr>,
-    {
+    async fn handle_set_block(
+        &mut self,
+        idx: usize,
+        allocated_blocks: &mut Vec<AllocatedBlock>,
+    ) -> Result<(), HalFsIOErr> {
+        if self.blocks[idx] == 0 {
+            let block = self.block_allocator.allocate_n_blocks_in_group(group_number, num)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// allocate a block for the current location
+    pub async fn set(&mut self) -> Result<BlockIterSetRes, HalFsIOErr> {
+        if self.cur_idx < INODE_BLOCK_LIMIT as usize {
+        } else if self.cur_idx < INODE_IND_BLOCK_LIMIT as usize {
+        } else if self.cur_idx < INODE_DOUBLE_IND_BLOCK_LIMIT as usize {
+        } else {
+        }
+
         todo!()
+    }
+
+    pub fn get_blocks_array(&self) -> [u32; 15] {
+        self.blocks
     }
 }
 
@@ -272,5 +304,14 @@ pub struct BlockIterElement {
     pub is_terminated: bool,
     /// if the array is not terminated it will contain the block index of the block, else the value
     /// is undefined
+    pub block_idx: u32,
+}
+
+pub struct BlockIterSetRes {
+    /// if it is empty it means that there was lba originally
+    pub allocated_blocks: Vec<AllocatedBlock>,
+    /// if the array is empty this value will be 0
+    /// otherwise, it is the block idx of the newly allocated block since the allocated_blocks can
+    /// contain more than 1 element due to indirect blocks
     pub block_idx: u32,
 }
