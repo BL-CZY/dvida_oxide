@@ -312,10 +312,15 @@ impl InodeBlockIterator {
 
     async fn handle_ind_block(
         &mut self,
-        buf: Box<[u8]>,
+        mut buf: Box<[u8]>,
         offset_in_ind_block: usize,
         ind_block_idx: u32,
     ) -> Result<Box<[u8]>, HalFsIOErr> {
+        if ind_block_idx == 0 {
+            buf.fill(0);
+            return Ok(buf);
+        }
+
         if self.cur_ind_buf.is_none() {
             let mut ind_buf = vec![0u8; self.block_size].into_boxed_slice();
             ind_buf = self
@@ -342,11 +347,16 @@ impl InodeBlockIterator {
 
     async fn handle_double_ind_block(
         &mut self,
-        buf: Box<[u8]>,
+        mut buf: Box<[u8]>,
         offset_in_double_ind_block: usize,
         offset_in_ind_block: usize,
         double_ind_block_idx: u32,
     ) -> Result<Box<[u8]>, HalFsIOErr> {
+        if double_ind_block_idx == 0 {
+            buf.fill(0);
+            return Ok(buf);
+        }
+
         if self.cur_double_ind_buf.is_none() {
             let mut double_ind_buf = vec![0u8; self.block_size].into_boxed_slice();
             double_ind_buf = self
@@ -417,46 +427,50 @@ impl InodeBlockIterator {
                 )
                 .await?;
         } else if (self.cur_idx as u32) < INODE_TRIPLE_IND_BLOCK_LIMIT {
-            if self.cur_triple_ind_buf.is_none() {
-                let mut triple_ind_buf = vec![0u8; self.block_size].into_boxed_slice();
-                triple_ind_buf = self
-                    .io_handler
-                    .read_block(
-                        triple_ind_buf,
-                        self.blocks[(INODE_BLOCK_LIMIT + 2) as usize],
+            if self.blocks[INODE_BLOCK_LIMIT as usize + 2] == 0 {
+                buf.fill(0);
+            } else {
+                if self.cur_triple_ind_buf.is_none() {
+                    let mut triple_ind_buf = vec![0u8; self.block_size].into_boxed_slice();
+                    triple_ind_buf = self
+                        .io_handler
+                        .read_block(
+                            triple_ind_buf,
+                            self.blocks[(INODE_BLOCK_LIMIT + 2) as usize],
+                        )
+                        .await?;
+                    self.cur_triple_ind_buf = Some(triple_ind_buf);
+                }
+
+                let triple_ind_buf = self.cur_triple_ind_buf.as_ref().unwrap();
+                let offset_in_ind_block = ((self.cur_idx - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
+                    % num_idx_per_block as usize)
+                    * 4;
+
+                let offset_in_double_ind_block = (((self.cur_idx
+                    - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
+                    / num_idx_per_block as usize)
+                    % num_idx_per_block as usize)
+                    * 4;
+
+                let offset_in_triple_ind_block = ((self.cur_idx
+                    - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
+                    / (num_idx_per_block * num_idx_per_block) as usize)
+                    * 4;
+
+                let double_ind_block_idx: u32 = *bytemuck::from_bytes(
+                    &triple_ind_buf[offset_in_triple_ind_block..offset_in_triple_ind_block + 4],
+                );
+
+                buf = self
+                    .handle_double_ind_block(
+                        buf,
+                        offset_in_double_ind_block,
+                        offset_in_ind_block,
+                        double_ind_block_idx,
                     )
                     .await?;
-                self.cur_triple_ind_buf = Some(triple_ind_buf);
             }
-
-            let triple_ind_buf = self.cur_triple_ind_buf.as_ref().unwrap();
-            let offset_in_ind_block = ((self.cur_idx - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
-                % num_idx_per_block as usize)
-                * 4;
-
-            let offset_in_double_ind_block = (((self.cur_idx
-                - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
-                / num_idx_per_block as usize)
-                % num_idx_per_block as usize)
-                * 4;
-
-            let offset_in_triple_ind_block = ((self.cur_idx
-                - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
-                / (num_idx_per_block * num_idx_per_block) as usize)
-                * 4;
-
-            let double_ind_block_idx: u32 = *bytemuck::from_bytes(
-                &triple_ind_buf[offset_in_triple_ind_block..offset_in_triple_ind_block + 4],
-            );
-
-            buf = self
-                .handle_double_ind_block(
-                    buf,
-                    offset_in_double_ind_block,
-                    offset_in_ind_block,
-                    double_ind_block_idx,
-                )
-                .await?;
         } else {
             return Ok(BlockIterElement {
                 buf,
