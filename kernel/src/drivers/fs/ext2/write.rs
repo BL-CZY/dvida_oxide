@@ -1,7 +1,6 @@
 use crate::{hal::storage::SECTOR_SIZE, time};
 use alloc::{boxed::Box, vec, vec::Vec};
 use dvida_serialize::{DvDeserialize, DvSerialize};
-use terminal::log;
 
 use crate::{
     crypto::iterators::{Bit, BitIterator},

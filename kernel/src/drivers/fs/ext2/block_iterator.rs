@@ -1,0 +1,276 @@
+use alloc::boxed::Box;
+use alloc::{vec, vec::Vec};
+
+use crate::drivers::fs::ext2::Inode;
+use crate::drivers::fs::ext2::structs::Ext2Fs;
+use crate::{
+    drivers::fs::ext2::{
+        create_file::AllocatedBlock,
+        read::{
+            INODE_BLOCK_LIMIT, INODE_DOUBLE_IND_BLOCK_LIMIT, INODE_IND_BLOCK_LIMIT,
+            INODE_TRIPLE_IND_BLOCK_LIMIT,
+        },
+        structs::IoHandler,
+    },
+    hal::fs::HalFsIOErr,
+};
+
+impl Ext2Fs {
+    pub fn create_block_iterator(&self, inode: &Inode) -> InodeBlockIterator {
+        InodeBlockIterator {
+            blocks: inode.i_block,
+            block_size: self.super_block.block_size() as usize,
+            io_handler: self.io_handler.clone(),
+            cur_ind_buf: None,
+            cur_ind_buf_block_idx: 0,
+            cur_double_ind_buf: None,
+            cur_double_ind_buf_block_idx: 0,
+            cur_triple_ind_buf: None,
+            blocks_limit: ((inode.i_size + self.super_block.block_size() - 1)
+                / self.super_block.block_size()) as usize,
+            cur_idx: 0,
+            cur_block_idx: 0,
+        }
+    }
+}
+
+pub struct InodeBlockIterator {
+    blocks: [u32; 15],
+    block_size: usize,
+    io_handler: IoHandler,
+    cur_ind_buf: Option<Box<[u8]>>,
+    cur_ind_buf_block_idx: u32,
+
+    cur_double_ind_buf: Option<Box<[u8]>>,
+    cur_double_ind_buf_block_idx: u32,
+
+    cur_triple_ind_buf: Option<Box<[u8]>>,
+
+    /// will be initialized as aligned up i_size
+    blocks_limit: usize,
+    cur_idx: usize,
+    cur_block_idx: u32,
+}
+
+impl InodeBlockIterator {
+    async fn handle_block(
+        &mut self,
+        mut buf: Box<[u8]>,
+        block_idx: u32,
+    ) -> Result<Box<[u8]>, HalFsIOErr> {
+        self.cur_block_idx = block_idx;
+        if block_idx == 0 {
+            buf.fill(0);
+        } else {
+            buf = self.io_handler.read_block(buf, block_idx).await?;
+        }
+
+        Ok(buf)
+    }
+
+    async fn handle_ind_block(
+        &mut self,
+        mut buf: Box<[u8]>,
+        offset_in_ind_block: usize,
+        ind_block_idx: u32,
+    ) -> Result<Box<[u8]>, HalFsIOErr> {
+        if ind_block_idx == 0 {
+            buf.fill(0);
+            return Ok(buf);
+        }
+
+        if self.cur_ind_buf.is_none() {
+            let mut ind_buf = vec![0u8; self.block_size].into_boxed_slice();
+            ind_buf = self
+                .io_handler
+                .read_block(ind_buf, self.blocks[INODE_BLOCK_LIMIT as usize])
+                .await?;
+            self.cur_ind_buf_block_idx = self.blocks[INODE_BLOCK_LIMIT as usize];
+            self.cur_ind_buf = Some(ind_buf);
+        }
+
+        if ind_block_idx != self.cur_ind_buf_block_idx {
+            let mut ind_buf = self.cur_ind_buf.take().unwrap();
+            self.cur_ind_buf_block_idx = ind_block_idx;
+            ind_buf = self.io_handler.read_block(ind_buf, ind_block_idx).await?;
+            self.cur_ind_buf = Some(ind_buf);
+        }
+
+        let ind_buf = self.cur_ind_buf.as_ref().unwrap();
+        let block_idx: u32 =
+            *bytemuck::from_bytes(&ind_buf[offset_in_ind_block..offset_in_ind_block + 4]);
+
+        Ok(self.handle_block(buf, block_idx).await?)
+    }
+
+    async fn handle_double_ind_block(
+        &mut self,
+        mut buf: Box<[u8]>,
+        offset_in_double_ind_block: usize,
+        offset_in_ind_block: usize,
+        double_ind_block_idx: u32,
+    ) -> Result<Box<[u8]>, HalFsIOErr> {
+        if double_ind_block_idx == 0 {
+            buf.fill(0);
+            return Ok(buf);
+        }
+
+        if self.cur_double_ind_buf.is_none() {
+            let mut double_ind_buf = vec![0u8; self.block_size].into_boxed_slice();
+            double_ind_buf = self
+                .io_handler
+                .read_block(
+                    double_ind_buf,
+                    self.blocks[(INODE_BLOCK_LIMIT + 1) as usize],
+                )
+                .await?;
+            self.cur_double_ind_buf_block_idx = self.blocks[(INODE_BLOCK_LIMIT + 1) as usize];
+            self.cur_double_ind_buf = Some(double_ind_buf);
+        }
+
+        if double_ind_block_idx != self.cur_double_ind_buf_block_idx {
+            let mut double_ind_buf = self.cur_double_ind_buf.take().unwrap();
+            self.cur_double_ind_buf_block_idx = double_ind_block_idx;
+            double_ind_buf = self
+                .io_handler
+                .read_block(double_ind_buf, double_ind_block_idx)
+                .await?;
+            self.cur_double_ind_buf = Some(double_ind_buf);
+        }
+
+        let double_ind_buf = self.cur_double_ind_buf.as_ref().unwrap();
+        let ind_block_idx: u32 = *bytemuck::from_bytes(
+            &double_ind_buf[offset_in_double_ind_block..offset_in_double_ind_block + 4],
+        );
+
+        Ok(self
+            .handle_ind_block(buf, offset_in_ind_block, ind_block_idx)
+            .await?)
+    }
+
+    pub async fn next(&mut self, buf: Box<[u8]>) -> Result<BlockIterElement, HalFsIOErr> {
+        let res = self.get(buf).await?;
+        self.cur_idx += 1;
+
+        Ok(res)
+    }
+
+    pub fn skip(&mut self, count: usize) {
+        self.cur_idx += count;
+    }
+
+    pub fn cur_idx(&mut self) -> usize {
+        self.cur_idx
+    }
+
+    /// takes in a buffer and returns a struct BlockIterElement
+    /// if the array is terminated the buffer won't be modified
+    pub async fn get(&mut self, mut buf: Box<[u8]>) -> Result<BlockIterElement, HalFsIOErr> {
+        if self.cur_idx >= self.blocks_limit {
+            return Ok(BlockIterElement {
+                buf,
+                is_terminated: true,
+                block_idx: 0,
+            });
+        }
+
+        let num_idx_per_block = self.block_size / 4;
+
+        if (self.cur_idx as u32) < INODE_BLOCK_LIMIT {
+            buf = self.handle_block(buf, self.blocks[self.cur_idx]).await?;
+        } else if (self.cur_idx as u32) < INODE_IND_BLOCK_LIMIT {
+            buf = self
+                .handle_ind_block(
+                    buf,
+                    self.cur_idx % INODE_BLOCK_LIMIT as usize,
+                    self.blocks[INODE_BLOCK_LIMIT as usize],
+                )
+                .await?;
+        } else if (self.cur_idx as u32) < INODE_DOUBLE_IND_BLOCK_LIMIT {
+            let offset_in_ind_block =
+                ((self.cur_idx - INODE_IND_BLOCK_LIMIT as usize) % num_idx_per_block as usize) * 4;
+            let offset_in_double_ind_block =
+                ((self.cur_idx - INODE_IND_BLOCK_LIMIT as usize) / num_idx_per_block as usize) * 4;
+            buf = self
+                .handle_double_ind_block(
+                    buf,
+                    offset_in_double_ind_block,
+                    offset_in_ind_block,
+                    self.blocks[INODE_BLOCK_LIMIT as usize + 1],
+                )
+                .await?;
+        } else if (self.cur_idx as u32) < INODE_TRIPLE_IND_BLOCK_LIMIT {
+            if self.blocks[INODE_BLOCK_LIMIT as usize + 2] == 0 {
+                buf.fill(0);
+            } else {
+                if self.cur_triple_ind_buf.is_none() {
+                    let mut triple_ind_buf = vec![0u8; self.block_size].into_boxed_slice();
+                    triple_ind_buf = self
+                        .io_handler
+                        .read_block(
+                            triple_ind_buf,
+                            self.blocks[(INODE_BLOCK_LIMIT + 2) as usize],
+                        )
+                        .await?;
+                    self.cur_triple_ind_buf = Some(triple_ind_buf);
+                }
+
+                let triple_ind_buf = self.cur_triple_ind_buf.as_ref().unwrap();
+                let offset_in_ind_block = ((self.cur_idx - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
+                    % num_idx_per_block as usize)
+                    * 4;
+
+                let offset_in_double_ind_block = (((self.cur_idx
+                    - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
+                    / num_idx_per_block as usize)
+                    % num_idx_per_block as usize)
+                    * 4;
+
+                let offset_in_triple_ind_block = ((self.cur_idx
+                    - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
+                    / (num_idx_per_block * num_idx_per_block) as usize)
+                    * 4;
+
+                let double_ind_block_idx: u32 = *bytemuck::from_bytes(
+                    &triple_ind_buf[offset_in_triple_ind_block..offset_in_triple_ind_block + 4],
+                );
+
+                buf = self
+                    .handle_double_ind_block(
+                        buf,
+                        offset_in_double_ind_block,
+                        offset_in_ind_block,
+                        double_ind_block_idx,
+                    )
+                    .await?;
+            }
+        } else {
+            return Ok(BlockIterElement {
+                buf,
+                is_terminated: true,
+                block_idx: 0,
+            });
+        }
+
+        Ok(BlockIterElement {
+            buf: buf,
+            is_terminated: false,
+            block_idx: self.cur_block_idx,
+        })
+    }
+
+    pub async fn set<T>(&mut self, allocate_block: T) -> Result<(), HalFsIOErr>
+    where
+        T: AsyncFnOnce(usize) -> Result<Vec<AllocatedBlock>, HalFsIOErr>,
+    {
+        todo!()
+    }
+}
+
+pub struct BlockIterElement {
+    pub buf: Box<[u8]>,
+    pub is_terminated: bool,
+    /// if the array is not terminated it will contain the block index of the block, else the value
+    /// is undefined
+    pub block_idx: u32,
+}

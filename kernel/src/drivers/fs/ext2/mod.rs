@@ -1,8 +1,11 @@
+pub mod allocator;
+pub mod block_iterator;
 pub mod create_file;
 pub mod delete;
 pub mod dirs;
 pub mod init;
 pub mod inode;
+pub mod managers;
 pub mod open;
 pub mod read;
 pub mod structs;
