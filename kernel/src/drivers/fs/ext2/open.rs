@@ -1,5 +1,5 @@
 use alloc::boxed::Box;
-use dvida_serialize::{DvDeserialize, DvSerialize};
+use dvida_serialize::DvDeserialize;
 use terminal::log;
 
 use crate::{
@@ -61,38 +61,24 @@ impl Ext2Fs {
                     // if this is the first entry
                     if this_entry_idx == last_entry_idx {
                         // set it to a padding entry
-                        let raw_entry = DirEntryPartial {
-                            inode: 0,
-                            rec_len: entry.record_length(),
-                            name_len: 0,
-                        };
+                        let raw_entry: &mut DirEntryPartial =
+                            bytemuck::from_bytes_mut(&mut buf[0..size_of::<DirEntryPartial>()]);
 
-                        raw_entry.serialize(dvida_serialize::Endianness::Little, &mut buf[0..])?;
+                        raw_entry.inode = 0;
+                        raw_entry.rec_len = entry.record_length();
+                        raw_entry.name_len = 0;
+
                         self.write_sectors(buf.clone(), lba).await?;
                     } else {
-                        let this_raw_entry = DirEntryPartial::deserialize(
-                            dvida_serialize::Endianness::Little,
-                            &mut buf[this_entry_idx..],
-                        )?
-                        .0;
+                        let this_raw_entry: DirEntryPartial = *bytemuck::from_bytes(
+                            &buf[this_entry_idx..this_entry_idx + size_of::<DirEntryPartial>()],
+                        );
 
-                        let mut last_raw_entry = DirEntryPartial::deserialize(
-                            dvida_serialize::Endianness::Little,
-                            &mut buf[last_entry_idx..],
-                        )?
-                        .0;
+                        let last_raw_entry: &mut DirEntryPartial = bytemuck::from_bytes_mut(
+                            &mut buf[last_entry_idx..last_entry_idx + size_of::<DirEntryPartial>()],
+                        );
 
                         last_raw_entry.rec_len += this_raw_entry.rec_len;
-
-                        last_raw_entry.serialize(
-                            dvida_serialize::Endianness::Little,
-                            &mut buf[last_entry_idx..],
-                        )?;
-
-                        this_raw_entry.serialize(
-                            dvida_serialize::Endianness::Little,
-                            &mut buf[this_entry_idx..],
-                        )?;
 
                         self.write_sectors(buf.clone(), lba).await?;
                     }
