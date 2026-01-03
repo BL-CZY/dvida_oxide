@@ -16,7 +16,7 @@ impl Ext2Fs {
         let (directory_inode, file_inode) = self.walk_path(&path).await?;
         self.find_entry_by_name_and_delete(
             &path.file_name().ok_or(HalFsIOErr::BadPath)?,
-            &directory_inode.inode,
+            &directory_inode,
         )
         .await?;
 

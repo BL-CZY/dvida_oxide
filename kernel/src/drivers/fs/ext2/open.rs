@@ -101,7 +101,7 @@ impl Ext2Fs {
     pub async fn find_entry_by_name(
         &mut self,
         name: &str,
-        inode: &Inode,
+        inode: &InodePlus,
     ) -> Result<Option<i64>, HalFsIOErr> {
         self.do_find_entry_by_name(name, inode, false, false).await
     }
@@ -109,13 +109,13 @@ impl Ext2Fs {
     pub async fn find_entry_by_name_and_delete(
         &mut self,
         name: &str,
-        inode: &Inode,
+        inode: &InodePlus,
     ) -> Result<Option<i64>, HalFsIOErr> {
         self.do_find_entry_by_name(name, inode, true, false).await
     }
 
     // TODO: refactor this
-    pub async fn is_dir_empty(&mut self, inode: &Inode) -> Result<bool, HalFsIOErr> {
+    pub async fn is_dir_empty(&mut self, inode: &InodePlus) -> Result<bool, HalFsIOErr> {
         Ok(self
             .do_find_entry_by_name("", inode, false, false)
             .await?
@@ -127,10 +127,12 @@ impl Ext2Fs {
     pub async fn do_find_entry_by_name(
         &mut self,
         name: &str,
-        inode: &Inode,
+        victim_inode: &InodePlus,
         delete: bool,
         find_is_empty: bool,
     ) -> Result<Option<i64>, HalFsIOErr> {
+        let inode = &victim_inode.inode;
+
         if !inode.is_directory() {
             return Err(HalFsIOErr::NotADirectory);
         }
@@ -139,7 +141,8 @@ impl Ext2Fs {
 
         let mut buf: Box<[u8]> = self.get_buffer();
 
-        let mut blocks_iterator = self.create_block_iterator(inode);
+        let mut blocks_iterator =
+            self.create_block_iterator(inode, victim_inode.group_number.into());
 
         loop {
             let BlockIterElement {
@@ -193,11 +196,7 @@ impl Ext2Fs {
         buf = self.read_sectors(buf, inode_table_loc).await?;
         log!("inode size: {:?}", self.super_block.s_inode_size);
 
-        let mut inode = Inode::deserialize(
-            dvida_serialize::Endianness::Little,
-            &buf[self.super_block.s_inode_size as usize..],
-        )?
-        .0;
+        let mut inode = self.get_nth_inode(2).await?;
 
         log!("Root directory Inode: {:?}", inode);
 
@@ -210,8 +209,6 @@ impl Ext2Fs {
             log!("current component: {}", component);
             match self.find_entry_by_name(&component, &inode).await {
                 Ok(Some(res)) => {
-                    buf = self.read_sectors(buf, res).await?;
-
                     if it.peek().is_none() {
                         file_inode = Some(
                             self.global_idx_to_inode_plus(
@@ -226,8 +223,7 @@ impl Ext2Fs {
                         break;
                     }
 
-                    inode =
-                        Inode::deserialize(dvida_serialize::Endianness::Little, buf.as_ref())?.0;
+                    inode = self.get_nth_inode(res as u32).await?;
 
                     directory_inode_idx = res as u32;
                 }

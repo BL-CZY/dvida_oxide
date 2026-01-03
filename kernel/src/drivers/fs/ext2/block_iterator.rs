@@ -277,7 +277,15 @@ impl InodeBlockIterator {
         allocated_blocks: &mut Vec<AllocatedBlock>,
     ) -> Result<(), HalFsIOErr> {
         if self.blocks[idx] == 0 {
-            let block = self.block_allocator.allocate_n_blocks_in_group(group_number, num)
+            let block = self
+                .block_allocator
+                .allocate_n_blocks_in_group(self.group_number, 1)
+                .await?
+                .remove(0);
+
+            self.blocks[idx] = block.block_idx as u32;
+            allocated_blocks.push(block);
+            Ok(())
         } else {
             Ok(())
         }
@@ -285,7 +293,11 @@ impl InodeBlockIterator {
 
     /// allocate a block for the current location
     pub async fn set(&mut self) -> Result<BlockIterSetRes, HalFsIOErr> {
+        let mut allocated_blocks = vec![];
+
         if self.cur_idx < INODE_BLOCK_LIMIT as usize {
+            self.handle_set_block(self.cur_idx, &mut allocated_blocks)
+                .await?;
         } else if self.cur_idx < INODE_IND_BLOCK_LIMIT as usize {
         } else if self.cur_idx < INODE_DOUBLE_IND_BLOCK_LIMIT as usize {
         } else {

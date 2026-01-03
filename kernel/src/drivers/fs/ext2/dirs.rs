@@ -138,7 +138,7 @@ impl Ext2Fs {
             return Err(HalFsIOErr::NotADirectory);
         }
 
-        if !self.is_dir_empty(&dir_inode.inode).await? {
+        if !self.is_dir_empty(&dir_inode).await? {
             return Err(HalFsIOErr::DirectoryNotEmpty);
         }
 
