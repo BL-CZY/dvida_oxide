@@ -12,7 +12,6 @@ use alloc::string::String;
 use bytemuck::{Pod, Zeroable};
 use dvida_serialize::*;
 pub use inode::InodePlus;
-use terminal::log;
 
 /// The ext2 superblock structure - located at byte offset 1024 from start
 /// All fields stored in little-endian format on disk
