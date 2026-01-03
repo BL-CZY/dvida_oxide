@@ -3,7 +3,7 @@ use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
-        BLOCK_GROUP_DESCRIPTOR_SIZE, BLOCK_SIZE, GroupDescriptor, InodePlus, SuperBlock,
+        BLOCK_GROUP_DESCRIPTOR_SIZE, BLOCK_SIZE, GroupDescriptor, Inode, InodePlus, SuperBlock,
         create_file::RESERVED_BOOT_RECORD_OFFSET,
         init::identify_ext2,
         read::{
@@ -254,9 +254,9 @@ impl Ext2Fs {
         vec![0u8; self.super_block.block_size() as usize].into()
     }
 
-    pub fn create_block_iterator(&self, inode: &InodePlus) -> InodeBlockIterator {
+    pub fn create_block_iterator(&self, inode: &Inode) -> InodeBlockIterator {
         InodeBlockIterator {
-            blocks: inode.inode.i_block,
+            blocks: inode.i_block,
             block_size: self.super_block.block_size() as usize,
             io_handler: self.io_handler.clone(),
             cur_ind_buf: None,
@@ -264,9 +264,10 @@ impl Ext2Fs {
             cur_double_ind_buf: None,
             cur_double_ind_buf_block_idx: 0,
             cur_triple_ind_buf: None,
-            blocks_limit: ((inode.inode.i_size + self.super_block.block_size() - 1)
+            blocks_limit: ((inode.i_size + self.super_block.block_size() - 1)
                 / self.super_block.block_size()) as usize,
             cur_idx: 0,
+            cur_block_idx: 0,
         }
     }
 }
@@ -290,6 +291,7 @@ pub struct InodeBlockIterator {
     /// will be initialized as aligned up i_size
     blocks_limit: usize,
     cur_idx: usize,
+    cur_block_idx: u32,
 }
 
 impl InodeBlockIterator {
@@ -298,6 +300,7 @@ impl InodeBlockIterator {
         mut buf: Box<[u8]>,
         block_idx: u32,
     ) -> Result<Box<[u8]>, HalFsIOErr> {
+        self.cur_block_idx = block_idx;
         if block_idx == 0 {
             buf.fill(0);
         } else {
@@ -377,9 +380,15 @@ impl InodeBlockIterator {
             .await?)
     }
 
-    pub async fn next(&mut self, mut buf: Box<[u8]>) -> Result<Option<Box<[u8]>>, HalFsIOErr> {
+    /// takes in a buffer and returns a struct BlockIterElement
+    /// if the array is terminated the buffer won't be modified
+    pub async fn next(&mut self, mut buf: Box<[u8]>) -> Result<BlockIterElement, HalFsIOErr> {
         if self.cur_idx >= self.blocks_limit {
-            return Ok(None);
+            return Ok(BlockIterElement {
+                buf,
+                is_terminated: true,
+                block_idx: 0,
+            });
         }
 
         let num_idx_per_block = self.block_size / 4;
@@ -449,11 +458,27 @@ impl InodeBlockIterator {
                 )
                 .await?;
         } else {
-            return Ok(None);
+            return Ok(BlockIterElement {
+                buf,
+                is_terminated: true,
+                block_idx: 0,
+            });
         }
 
         self.cur_idx += 1;
 
-        Ok(Some(buf))
+        Ok(BlockIterElement {
+            buf: buf,
+            is_terminated: false,
+            block_idx: self.cur_block_idx,
+        })
     }
+}
+
+pub struct BlockIterElement {
+    pub buf: Box<[u8]>,
+    pub is_terminated: bool,
+    /// if the array is not terminated it will contain the block index of the block, else the value
+    /// is undefined
+    pub block_idx: u32,
 }

@@ -182,7 +182,31 @@ impl Ext2Fs {
 
         let mut remaining = inode.i_size;
 
-        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
+        let mut buf: Box<[u8]> = self.get_buffer();
+
+        let mut blocks_iterator = self.create_block_iterator(inode);
+
+        loop {
+            let (buf, is_terminated) = blocks_iterator.next(buf).await?;
+            if is_terminated {
+                break;
+            }
+
+            match self
+                .find_entry_by_name_in_block(name, buf, lba, delete, find_is_empty, &mut remaining)
+                .await?
+            {
+                (res, true, _) => {
+                    if find_is_empty {
+                        return Ok(None);
+                    } else {
+                        return Ok(res);
+                    }
+                }
+                (Some(res), false, _) => return Ok(Some(res)),
+                (_, _, b) => buf = b,
+            }
+        }
 
         // compute number of data blocks represented by i_blocks (which counts 512-byte sectors)
         let sectors_per_block = (BLOCK_SIZE as usize) / (SECTOR_SIZE as usize);
