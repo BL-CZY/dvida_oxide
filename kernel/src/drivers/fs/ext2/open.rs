@@ -1,13 +1,11 @@
-use core::cmp::min;
-
 use alloc::boxed::Box;
 use dvida_serialize::{DvDeserialize, DvSerialize};
 use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
-        BLOCK_SIZE, DirEntry, DirEntryPartial, INODE_SIZE, Inode, InodePlus,
-        read::INODE_BLOCK_LIMIT, structs::Ext2Fs,
+        DirEntry, DirEntryPartial, Inode, InodePlus,
+        structs::{BlockIterElement, Ext2Fs},
     },
     hal::{
         fs::{HalFsIOErr, HalInode, OpenFlags, OpenFlagsValue},
@@ -18,35 +16,6 @@ use crate::{
 
 pub const SUPERBLOCK_SIZE: i64 = 2;
 pub const LBA_ADDR_LEN: usize = 4;
-
-struct IndBlockIter {
-    buf: Box<[u8]>,
-    acc: usize,
-}
-
-impl Iterator for IndBlockIter {
-    type Item = i64;
-
-    /// it skips everything that is 0
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut lba = 0;
-
-        while lba == 0 {
-            if self.acc >= BLOCK_SIZE as usize {
-                return None;
-            }
-
-            lba =
-                Self::Item::deserialize(dvida_serialize::Endianness::Little, &self.buf[self.acc..])
-                    .ok()?
-                    .0;
-
-            self.acc += LBA_ADDR_LEN;
-        }
-
-        Some(lba as i64)
-    }
-}
 
 impl Ext2Fs {
     /// returns (Some(lba) if found, is_terminated)
@@ -187,13 +156,26 @@ impl Ext2Fs {
         let mut blocks_iterator = self.create_block_iterator(inode);
 
         loop {
-            let (buf, is_terminated) = blocks_iterator.next(buf).await?;
+            let BlockIterElement {
+                buf: buffer,
+                is_terminated,
+                block_idx,
+            } = blocks_iterator.next(buf).await?;
             if is_terminated {
                 break;
             }
 
+            buf = buffer;
+
             match self
-                .find_entry_by_name_in_block(name, buf, lba, delete, find_is_empty, &mut remaining)
+                .find_entry_by_name_in_block(
+                    name,
+                    buf,
+                    self.block_idx_to_lba(block_idx),
+                    delete,
+                    find_is_empty,
+                    &mut remaining,
+                )
                 .await?
             {
                 (res, true, _) => {
@@ -205,200 +187,6 @@ impl Ext2Fs {
                 }
                 (Some(res), false, _) => return Ok(Some(res)),
                 (_, _, b) => buf = b,
-            }
-        }
-
-        // compute number of data blocks represented by i_blocks (which counts 512-byte sectors)
-        let sectors_per_block = (BLOCK_SIZE as usize) / (SECTOR_SIZE as usize);
-        let block_count = (inode.i_blocks as usize) / sectors_per_block;
-
-        // the direct blocks (0..INODE_BLOCK_LIMIT-1)
-        for i in 0..min(block_count, INODE_BLOCK_LIMIT as usize) {
-            log!("checking block {} of inode", i);
-            let lba = self.block_idx_to_lba(inode.i_block[i]);
-            if lba == 0 {
-                continue;
-            }
-            buf = self.read_sectors(buf, lba).await?;
-
-            match self
-                .find_entry_by_name_in_block(name, buf, lba, delete, find_is_empty, &mut remaining)
-                .await?
-            {
-                (res, true, _) => {
-                    if find_is_empty {
-                        return Ok(None);
-                    } else {
-                        return Ok(res);
-                    }
-                }
-                (Some(res), false, _) => return Ok(Some(res)),
-                (_, _, b) => buf = b,
-            }
-        }
-
-        // single indirect (index 12)
-        let lba = inode.i_block[12] as i64;
-
-        if lba != 0 {
-            buf = self.read_sectors(buf, lba).await?;
-
-            let iterator = IndBlockIter {
-                buf: buf.clone(),
-                acc: 0,
-            };
-
-            let mut ind_buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
-            for addr in iterator.into_iter() {
-                if addr == 0 {
-                    continue;
-                }
-                ind_buf = self.read_sectors(ind_buf, addr).await?;
-
-                match self
-                    .find_entry_by_name_in_block(
-                        name,
-                        ind_buf.clone(),
-                        addr,
-                        delete,
-                        find_is_empty,
-                        &mut remaining,
-                    )
-                    .await?
-                {
-                    (res, true, _) => {
-                        if find_is_empty {
-                            return Ok(None);
-                        } else {
-                            return Ok(res);
-                        }
-                    }
-
-                    (Some(res), false, _) => return Ok(Some(res)),
-                    (_, _, b) => buf = b,
-                }
-            }
-        }
-
-        // double indirect (index 13)
-        let lba = inode.i_block[13] as i64;
-
-        if lba != 0 {
-            buf = self.read_sectors(buf, lba).await?;
-
-            let iterator = IndBlockIter {
-                buf: buf.clone(),
-                acc: 0,
-            };
-
-            let mut ind_buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
-            let mut ind_ind_buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
-            for addr in iterator.into_iter() {
-                if addr == 0 {
-                    continue;
-                }
-                ind_buf = self.read_sectors(ind_buf, addr).await?;
-
-                let ind_iterator = IndBlockIter {
-                    buf: ind_buf.clone(),
-                    acc: 0,
-                };
-
-                for ind_addr in ind_iterator.into_iter() {
-                    if ind_addr == 0 {
-                        continue;
-                    }
-                    ind_ind_buf = self.read_sectors(ind_ind_buf, ind_addr).await?;
-                    match self
-                        .find_entry_by_name_in_block(
-                            name,
-                            ind_ind_buf.clone(),
-                            ind_addr,
-                            delete,
-                            find_is_empty,
-                            &mut remaining,
-                        )
-                        .await?
-                    {
-                        (res, true, _) => {
-                            if find_is_empty {
-                                return Ok(None);
-                            } else {
-                                return Ok(res);
-                            }
-                        }
-
-                        (Some(res), false, _) => return Ok(Some(res)),
-                        (_, _, b) => buf = b,
-                    }
-                }
-            }
-
-            // triple indirect (index 14)
-            let lba = inode.i_block[14] as i64;
-
-            if lba != 0 {
-                buf = self.read_sectors(buf, lba).await?;
-                let iterator = IndBlockIter {
-                    buf: buf.clone(),
-                    acc: 0,
-                };
-
-                let mut ind_ind_ind_buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
-
-                for addr in iterator.into_iter() {
-                    if addr == 0 {
-                        continue;
-                    }
-                    ind_buf = self.read_sectors(ind_buf, addr).await?;
-
-                    let ind_iterator = IndBlockIter {
-                        buf: ind_buf.clone(),
-                        acc: 0,
-                    };
-
-                    for ind_addr in ind_iterator.into_iter() {
-                        if ind_addr == 0 {
-                            continue;
-                        }
-                        ind_ind_buf = self.read_sectors(ind_ind_buf, ind_addr).await?;
-
-                        let ind_ind_iterator = IndBlockIter {
-                            buf: ind_ind_buf.clone(),
-                            acc: 0,
-                        };
-
-                        for ind_ind_addr in ind_ind_iterator.into_iter() {
-                            if ind_ind_addr == 0 {
-                                continue;
-                            }
-                            ind_ind_ind_buf =
-                                self.read_sectors(ind_ind_ind_buf, ind_ind_addr).await?;
-                            match self
-                                .find_entry_by_name_in_block(
-                                    name,
-                                    ind_ind_ind_buf.clone(),
-                                    ind_ind_addr,
-                                    delete,
-                                    find_is_empty,
-                                    &mut remaining,
-                                )
-                                .await?
-                            {
-                                (res, true, _) => {
-                                    if find_is_empty {
-                                        return Ok(None);
-                                    } else {
-                                        return Ok(res);
-                                    }
-                                }
-
-                                (Some(res), false, _) => return Ok(Some(res)),
-                                (_, _, b) => buf = b,
-                            }
-                        }
-                    }
-                }
             }
         }
 
