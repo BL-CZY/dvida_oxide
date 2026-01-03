@@ -175,11 +175,18 @@ pub struct DirEntry {
 
 /// A partial entry that can be deserialized and serialized quickly without the involvement of the
 /// name
-#[derive(Debug, Clone, DvDeSer)]
+#[derive(Debug, Clone, Pod, Zeroable, Copy)]
+#[repr(C, packed)]
 pub struct DirEntryPartial {
     inode: u32,
     rec_len: u16,
-    name_len: u8,
+    name_len: u16,
+}
+
+impl DirEntryPartial {
+    pub fn min_reclen(&self) -> u16 {
+        (size_of::<DirEntryPartial>() as u16 + self.name_len + 0b11) & !0b11
+    }
 }
 
 pub const EXT2_DIR_ENTRY_ALIGNMENT: u16 = 4;

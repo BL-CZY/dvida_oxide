@@ -251,6 +251,7 @@ impl Ext2Fs {
         Ok(cur_ind_block_buf)
     }
 
+    /// doesn't write inodes
     pub async fn expand_inode(
         &mut self,
         inode: &mut Inode,

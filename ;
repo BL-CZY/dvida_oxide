@@ -21,85 +21,30 @@ impl Ext2Fs {
         name: &str,
     ) -> Result<(), HalFsIOErr> {
         let mut buf: Box<[u8]> = self.get_buffer();
-        let time = crate::time::formats::rtc_to_posix(
-            &crate::time::Rtc::new()
-                .read_datetime()
-                .expect("Failed to get time"),
-        );
 
         let mut blocks_iterator = self.create_block_iterator(&inode.inode);
-
-        let mut entry = DirEntry::new(child_inode_idx, name.to_string());
 
         loop {
             let BlockIterElement {
                 buf: buffer,
                 is_terminated,
-                block_idx,
+                ..
             } = blocks_iterator.next(buf).await?;
-
-            buf = buffer;
             if is_terminated {
                 break;
             }
 
+            buf = buffer;
+
             let mut progr = 0;
 
             while progr < buf.len() {
-                let entry_partial: &mut DirEntryPartial =
-                    bytemuck::from_bytes_mut(&mut buf[progr..progr + size_of::<DirEntryPartial>()]);
+                let entry_partial: &DirEntryPartial =
+                    bytemuck::from_bytes(&buf[progr..progr + size_of::<DirEntryPartial>()]);
 
-                if entry_partial.rec_len + progr as u16 > self.super_block.block_size() as u16 {
-                    return Err(HalFsIOErr::Corrupted);
-                }
-
-                // if it can fit, shrink this entry
-                if entry_partial.rec_len - entry_partial.min_reclen() >= entry.record_length() {
-                    entry.rec_len = entry_partial.rec_len as u16 - entry_partial.min_reclen();
-                    entry_partial.rec_len = entry_partial.min_reclen();
-
-                    let new_reclen = entry_partial.rec_len as usize;
-                    drop(entry_partial);
-
-                    entry.serialize(
-                        dvida_serialize::Endianness::Little,
-                        &mut buf[progr + new_reclen..],
-                    )?;
-                    self.io_handler.write_block(buf.clone(), block_idx).await?;
-
-                    inode.inode.i_mtime = time;
-                    self.write_inode(inode).await?;
-
-                    return Ok(());
-                }
-
-                progr += entry_partial.rec_len as usize;
+                progr += entry_partial.rec_len;
             }
         }
-
-        // if we are here we need to allocate a new block
-        self.expand_inode(&mut inode.inode, inode.group_number as i64, 1)
-            .await?;
-
-        entry.rec_len = self.super_block.block_size() as u16;
-
-        let lba = self
-            .get_block_lba(
-                &inode.inode,
-                inode.inode.i_size / self.super_block.block_size(),
-            )
-            .await?;
-
-        buf = self.read_sectors(buf, lba as i64).await?;
-        buf.fill(0);
-
-        entry.serialize(dvida_serialize::Endianness::Little, &mut buf)?;
-
-        inode.inode.i_size += self.super_block.block_size();
-        self.write_sectors(buf, lba as i64).await?;
-
-        inode.inode.i_mtime = time;
-        self.write_inode(inode).await?;
 
         Ok(())
     }

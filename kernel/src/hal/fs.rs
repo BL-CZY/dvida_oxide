@@ -153,6 +153,7 @@ pub enum HalFsIOErr {
     DeserializationErr(DvDeErr),
     SerializationErr(DvSerErr),
     DirectoryNotEmpty,
+    Corrupted,
     NoPermsProvided,
     FileTooLarge,
     BadPath,
