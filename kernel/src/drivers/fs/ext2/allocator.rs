@@ -25,7 +25,7 @@ pub struct BlockAllocator {
     pub io_handler: IoHandler,
     pub buffer_manager: BufferManager,
 
-    pub allocated_block_indices: RefCell<BTreeSet<u32>>,
+    pub allocated_block_indices: RefCell<BTreeSet<AllocatedBlock>>,
 }
 
 impl BlockAllocator {
@@ -59,9 +59,6 @@ impl BlockAllocator {
             let bit_iterator = BitIterator::new(buf.as_mut());
 
             for (idx, bit) in bit_iterator.into_iter().enumerate() {
-                let global_idx =
-                    group_number as u32 * self.group_manager.blocks_per_group as u32 + idx as u32;
-
                 if remaining_blocks == 0 {
                     break;
                 }
@@ -70,27 +67,34 @@ impl BlockAllocator {
                     continue;
                 }
 
-                if self
-                    .allocated_block_indices
-                    .borrow_mut()
-                    .contains(&global_idx)
-                {
-                    continue;
-                }
-
                 // map bitmap index to data block LBA
                 let block_lba = group.get_group_lba() + (idx as i64) * group.sectors_per_block;
 
-                remaining_blocks -= 1;
+                let global_idx =
+                    group_number as u32 * self.group_manager.blocks_per_group as u32 + idx as u32;
 
-                self.allocated_block_indices.borrow_mut().insert(global_idx);
-
-                blocks_allocated.push(AllocatedBlock {
+                let allocated_block = AllocatedBlock {
                     addr: block_lba,
                     block_relatve_idx: idx as u32,
                     gr_number: group_number as i64,
                     block_global_idx: global_idx,
-                });
+                };
+
+                if self
+                    .allocated_block_indices
+                    .borrow_mut()
+                    .contains(&allocated_block)
+                {
+                    continue;
+                }
+
+                remaining_blocks -= 1;
+
+                self.allocated_block_indices
+                    .borrow_mut()
+                    .insert(allocated_block.clone());
+
+                blocks_allocated.push(allocated_block);
             }
         }
 
@@ -118,9 +122,6 @@ impl BlockAllocator {
         let bit_iterator: BitIterator<u8> = BitIterator::new(buf.as_mut());
 
         for (idx, bit) in bit_iterator.into_iter().enumerate() {
-            let global_idx =
-                group_number as u32 * self.group_manager.blocks_per_group as u32 + idx as u32;
-
             if num == 0 {
                 break;
             }
@@ -129,25 +130,34 @@ impl BlockAllocator {
                 continue;
             }
 
+            // map bitmap index to data block LBA
+            let block_lba = group.get_group_lba() + (idx as i64) * group.sectors_per_block;
+
+            let global_idx =
+                group_number as u32 * self.group_manager.blocks_per_group as u32 + idx as u32;
+
+            let allocated_block = AllocatedBlock {
+                addr: block_lba,
+                block_relatve_idx: idx as u32,
+                gr_number: group_number as i64,
+                block_global_idx: global_idx,
+            };
+
             if self
                 .allocated_block_indices
                 .borrow_mut()
-                .contains(&global_idx)
+                .contains(&allocated_block)
             {
                 continue;
             }
 
-            let block_lba = group.get_group_lba() + (idx as i64 * group.sectors_per_block);
-
             num -= 1;
 
-            self.allocated_block_indices.borrow_mut().insert(global_idx);
-            blocks_allocated.push(AllocatedBlock {
-                addr: block_lba,
-                block_relatve_idx: idx as u32,
-                gr_number: group_number,
-                block_global_idx: global_idx,
-            });
+            self.allocated_block_indices
+                .borrow_mut()
+                .insert(allocated_block.clone());
+
+            blocks_allocated.push(allocated_block);
         }
 
         if num == 0 {
@@ -163,7 +173,6 @@ impl BlockAllocator {
     pub async fn write_newly_allocated_blocks(
         &mut self,
         mut buf: Box<[u8]>,
-        blocks: &[AllocatedBlock],
     ) -> Result<(), HalFsIOErr> {
         let mut cur_bitmap_lba = -1;
 
@@ -173,9 +182,8 @@ impl BlockAllocator {
             gr_number,
             block_global_idx: block_idx,
             ..
-        } in blocks.iter()
+        } in self.allocated_block_indices.borrow().iter()
         {
-            self.allocated_block_indices.borrow_mut().remove(block_idx);
             allocated_blocks_map
                 .entry(*gr_number)
                 .and_modify(|v| *v += 1)
@@ -232,6 +240,8 @@ impl BlockAllocator {
         self.io_handler
             .write_sectors(buf, cur_group_buffer_lba)
             .await?;
+
+        self.allocated_block_indices.borrow_mut().clear();
 
         Ok(())
     }

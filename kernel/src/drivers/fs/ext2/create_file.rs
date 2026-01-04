@@ -13,12 +13,19 @@ use crate::{
 pub const RESERVED_BOOT_RECORD_OFFSET: i64 = 2;
 pub const BLOCK_SECTOR_SIZE: i64 = (BLOCK_SIZE as i64 / SECTOR_SIZE as i64) as i64;
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
 pub struct AllocatedBlock {
     pub addr: i64,
     pub block_global_idx: u32,
     // relative to the block group
     pub block_relatve_idx: u32,
     pub gr_number: i64,
+}
+
+impl Ord for AllocatedBlock {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.addr.cmp(&other.addr)
+    }
 }
 
 impl Ext2Fs {
@@ -95,11 +102,9 @@ impl Ext2Fs {
     pub async fn write_newly_allocated_blocks(
         &mut self,
         buf: Box<[u8]>,
-        blocks: &[AllocatedBlock],
+        _blocks: &[AllocatedBlock],
     ) -> Result<(), HalFsIOErr> {
-        self.block_allocator
-            .write_newly_allocated_blocks(buf, blocks)
-            .await
+        self.block_allocator.write_newly_allocated_blocks(buf).await
     }
 
     async fn write_changes(

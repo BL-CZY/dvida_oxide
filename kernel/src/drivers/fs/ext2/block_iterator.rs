@@ -173,6 +173,13 @@ impl InodeBlockIterator {
         Ok(res)
     }
 
+    pub async fn next_set(&mut self) -> Result<BlockIterSetRes, HalFsIOErr> {
+        let res = self.set().await?;
+        self.cur_idx += 1;
+
+        Ok(res)
+    }
+
     pub fn skip(&mut self, count: usize) {
         self.cur_idx += count;
     }

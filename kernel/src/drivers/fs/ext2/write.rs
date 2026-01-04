@@ -1,4 +1,7 @@
-use crate::{hal::storage::SECTOR_SIZE, time};
+use crate::{
+    crypto::iterators, drivers::fs::ext2::structs::InodeBlockIterator, hal::storage::SECTOR_SIZE,
+    time,
+};
 use alloc::{boxed::Box, vec, vec::Vec};
 use dvida_serialize::{DvDeserialize, DvSerialize};
 
@@ -309,28 +312,14 @@ impl Ext2Fs {
             return Err(HalFsIOErr::IsDirectory);
         }
 
-        let aligned_up_size = ((inode.i_size + self.super_block.block_size() - 1)
-            & !(self.super_block.block_size() - 1)) as usize;
-
-        if ctx.head + buf.len() >= aligned_up_size {
-            self.expand_inode(
-                inode,
-                victim_inode.group_number as i64,
-                ctx.head + buf.len() - aligned_up_size,
-            )
-            .await?;
-        }
-
         let mut progress = Progress {
             block_idx: ctx.head as u32 / self.super_block.block_size(),
             offset: ctx.head as u32 % self.super_block.block_size(),
             bytes_written: 0,
         };
 
-        while progress.bytes_written < buf.len() {
-            self.write_till_next_block(inode, &buf, ctx, &mut progress)
-                .await?;
-        }
+        let iterator = self.create_block_iterator(inode, victim_inode.group_number.into());
+        while progress.bytes_written < buf.len() {}
 
         let time = time::formats::rtc_to_posix(
             &time::Rtc::new()
