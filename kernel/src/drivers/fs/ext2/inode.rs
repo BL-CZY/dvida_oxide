@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 use dvida_serialize::{DvDeserialize, DvSerialize};
+use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
@@ -24,12 +25,13 @@ impl Ext2Fs {
     }
 
     pub fn global_idx_to_inode_plus(&self, inode: Inode, idx: u32) -> InodePlus {
-        InodePlus {
+        let res = InodePlus {
             inode,
             relative_idx: (idx - 1) % self.super_block.s_inodes_per_group,
             group_number: (idx - 1) / self.super_block.s_inodes_per_group,
             absolute_idx: idx,
-        }
+        };
+        res
     }
 
     pub fn relative_idx_to_inode_plus(

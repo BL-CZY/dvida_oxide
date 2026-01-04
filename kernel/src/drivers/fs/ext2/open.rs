@@ -83,6 +83,7 @@ impl Ext2Fs {
                         self.write_sectors(buf.clone(), lba).await?;
                     }
                 }
+                log!("Found entry: {:?}", entry.inode);
 
                 return Ok((Some(entry.inode as i64), is_terminated, buf));
             }
@@ -210,16 +211,7 @@ impl Ext2Fs {
             match self.find_entry_by_name(&component, &inode).await {
                 Ok(Some(res)) => {
                     if it.peek().is_none() {
-                        file_inode = Some(
-                            self.global_idx_to_inode_plus(
-                                Inode::deserialize(
-                                    dvida_serialize::Endianness::Little,
-                                    buf.as_ref(),
-                                )?
-                                .0,
-                                res as u32,
-                            ),
-                        );
+                        file_inode = Some(self.get_nth_inode(res as u32).await?);
                         break;
                     }
 

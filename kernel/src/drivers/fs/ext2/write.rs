@@ -1,6 +1,7 @@
 use crate::{hal::storage::SECTOR_SIZE, time};
 use alloc::{boxed::Box, vec, vec::Vec};
 use dvida_serialize::{DvDeserialize, DvSerialize};
+use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
@@ -41,6 +42,7 @@ impl Ext2Fs {
         block_idx: u32,
         progress: &mut Progress,
     ) -> Result<(), HalFsIOErr> {
+        log!("Prepared to write input for block {block_idx}");
         let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
 
         // if we are not at the start of a block we need to make sure the existing data doesn't
@@ -55,7 +57,7 @@ impl Ext2Fs {
             }
 
             if progress.bytes_written >= input.len() {
-                return Ok(());
+                break;
             }
 
             buf[i as usize] = input[progress.bytes_written];
@@ -303,6 +305,7 @@ impl Ext2Fs {
         buf: Box<[u8]>,
         ctx: &mut HalIOCtx,
     ) -> Result<usize, HalFsIOErr> {
+        log!("write: input: {:?}", buf);
         let inode = &mut victim_inode.inode;
 
         if inode.is_directory() {
@@ -315,10 +318,13 @@ impl Ext2Fs {
             bytes_written: 0,
         };
 
+        let mut blocks_allocated_count = 0;
+
         let mut iterator = self.create_block_iterator(inode, victim_inode.group_number.into());
         iterator.skip(progress.block_idx as usize);
         while progress.bytes_written < buf.len() {
             let res = iterator.next_set().await?;
+            blocks_allocated_count += res.allocated_blocks.len();
             self.write_till_next_block(inode, &buf, ctx, res.block_idx, &mut progress)
                 .await?;
         }
@@ -328,10 +334,15 @@ impl Ext2Fs {
                 .read_datetime()
                 .expect("Failed to get time"),
         );
-        inode.i_atime = time;
-        inode.i_ctime = time;
+        inode.i_mtime = time;
+        inode.i_block = iterator.into_blocks_array();
+        inode.i_blocks += blocks_allocated_count as u32 * self.super_block.block_size() as u32;
 
         self.write_inode(victim_inode).await?;
+        let buf = self.get_buffer();
+        self.block_allocator
+            .write_newly_allocated_blocks(buf)
+            .await?;
 
         Ok(progress.bytes_written)
     }
