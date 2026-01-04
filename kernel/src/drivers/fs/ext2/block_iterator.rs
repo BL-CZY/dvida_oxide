@@ -157,6 +157,14 @@ impl InodeBlockIterator {
     }
 
     pub async fn next(&mut self, buf: Box<[u8]>) -> Result<BlockIterElement, HalFsIOErr> {
+        if self.cur_idx >= self.blocks_limit {
+            return Ok(BlockIterElement {
+                buf,
+                is_terminated: true,
+                block_idx: 0,
+            });
+        }
+
         let res = self.get(buf).await?;
         self.cur_idx += 1;
 
@@ -178,14 +186,6 @@ impl InodeBlockIterator {
     /// takes in a buffer and returns a struct BlockIterElement
     /// if the array is terminated the buffer won't be modified
     pub async fn get(&mut self, mut buf: Box<[u8]>) -> Result<BlockIterElement, HalFsIOErr> {
-        if self.cur_idx >= self.blocks_limit {
-            return Ok(BlockIterElement {
-                buf,
-                is_terminated: true,
-                block_idx: 0,
-            });
-        }
-
         let num_idx_per_block = self.block_size / 4;
 
         if (self.cur_idx as u32) < INODE_BLOCK_LIMIT {
@@ -194,7 +194,7 @@ impl InodeBlockIterator {
             buf = self
                 .handle_ind_block(
                     buf,
-                    self.cur_idx % INODE_BLOCK_LIMIT as usize,
+                    self.cur_idx - INODE_BLOCK_LIMIT as usize,
                     self.blocks[INODE_BLOCK_LIMIT as usize],
                 )
                 .await?;
@@ -273,6 +273,142 @@ impl InodeBlockIterator {
 
     async fn handle_set_block(
         &mut self,
+        // guaranteed to not be 0
+        ind_block_idx: u32,
+        offset_in_ind_block: usize,
+        allocated_blocks: &mut Vec<AllocatedBlock>,
+    ) -> Result<(), HalFsIOErr> {
+        if self.cur_ind_buf_block_idx != ind_block_idx {
+            let mut buf = vec![0u8; self.block_size].into_boxed_slice();
+            buf = self.io_handler.read_block(buf, ind_block_idx).await?;
+            self.cur_ind_buf_block_idx = ind_block_idx;
+            self.cur_ind_buf = Some(buf);
+        }
+
+        let buf = self.cur_ind_buf.as_mut().unwrap();
+
+        let num: &mut u32 = bytemuck::from_bytes_mut(
+            &mut buf[offset_in_ind_block * 4..offset_in_ind_block * 4 + 4],
+        );
+
+        let mut res = *num;
+
+        if *num == 0 {
+            let block = self
+                .block_allocator
+                .allocate_n_blocks_in_group(self.group_number, 1)
+                .await?
+                .remove(0);
+
+            *num = block.block_global_idx;
+            res = *num;
+
+            self.io_handler
+                .write_block(buf.clone(), self.cur_ind_buf_block_idx)
+                .await?;
+
+            allocated_blocks.push(block);
+        }
+
+        self.cur_block_idx = res;
+
+        Ok(())
+    }
+
+    async fn handle_set_indirect_block(
+        &mut self,
+        // guaranteed to not be 0
+        double_ind_block_idx: u32,
+        offset_in_double_ind_block: usize,
+        offset_in_ind_block: usize,
+        allocated_blocks: &mut Vec<AllocatedBlock>,
+    ) -> Result<(), HalFsIOErr> {
+        if self.cur_double_ind_buf_block_idx != double_ind_block_idx {
+            let mut buf = vec![0u8; self.block_size].into_boxed_slice();
+            buf = self
+                .io_handler
+                .read_block(buf, double_ind_block_idx)
+                .await?;
+            self.cur_double_ind_buf_block_idx = double_ind_block_idx;
+            self.cur_double_ind_buf = Some(buf);
+        }
+
+        let buf = self.cur_double_ind_buf.as_mut().unwrap();
+
+        let num: &mut u32 = bytemuck::from_bytes_mut(
+            &mut buf[offset_in_double_ind_block * 4..offset_in_double_ind_block * 4 + 4],
+        );
+
+        let mut ind_block_idx = *num;
+
+        if *num == 0 {
+            let block = self
+                .block_allocator
+                .allocate_n_blocks_in_group(self.group_number, 1)
+                .await?
+                .remove(0);
+
+            *num = block.block_global_idx;
+            ind_block_idx = *num;
+
+            self.io_handler
+                .write_block(buf.clone(), self.cur_double_ind_buf_block_idx)
+                .await?;
+
+            allocated_blocks.push(block);
+        }
+
+        self.handle_set_block(ind_block_idx, offset_in_ind_block, allocated_blocks)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn handle_set_double_indirect_block(
+        &mut self,
+        offset_in_triple_ind_block: usize,
+        offset_in_double_ind_block: usize,
+        offset_in_ind_block: usize,
+        allocated_blocks: &mut Vec<AllocatedBlock>,
+    ) -> Result<(), HalFsIOErr> {
+        let buf = self.cur_triple_ind_buf.as_mut().unwrap();
+
+        let num: &mut u32 = bytemuck::from_bytes_mut(
+            &mut buf[offset_in_triple_ind_block * 4..offset_in_triple_ind_block * 4 + 4],
+        );
+
+        let mut double_ind_block_idx = *num;
+
+        if *num == 0 {
+            let block = self
+                .block_allocator
+                .allocate_n_blocks_in_group(self.group_number, 1)
+                .await?
+                .remove(0);
+
+            *num = block.block_global_idx;
+            double_ind_block_idx = *num;
+
+            self.io_handler
+                .write_block(buf.clone(), self.cur_double_ind_buf_block_idx)
+                .await?;
+
+            allocated_blocks.push(block);
+        }
+
+        self.handle_set_indirect_block(
+            double_ind_block_idx,
+            offset_in_double_ind_block,
+            offset_in_ind_block,
+            allocated_blocks,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    async fn handle_block_in_blocks_array(
+        &mut self,
         idx: usize,
         allocated_blocks: &mut Vec<AllocatedBlock>,
     ) -> Result<(), HalFsIOErr> {
@@ -283,58 +419,131 @@ impl InodeBlockIterator {
                 .await?
                 .remove(0);
 
-            self.blocks[idx] = block.block_relatve_idx as u32;
-            allocated_blocks.push(block);
-            Ok(())
-        } else {
-            Ok(())
-        }
-    }
+            self.blocks[idx] = block.block_global_idx as u32;
 
-    async fn handle_set_indirect_block(
-        &mut self,
-        block_idx: usize,
-        allocated_blocks: &mut Vec<AllocatedBlock>,
-    ) -> Result<(), HalFsIOErr> {
+            let mut buf = vec![0u8; self.block_size].into_boxed_slice();
+            buf = self.io_handler.read_block(buf, self.blocks[idx]).await?;
+            buf.fill(0);
+            self.io_handler
+                .write_block(buf.clone(), self.blocks[idx])
+                .await?;
+
+            allocated_blocks.push(block);
+        }
+
+        Ok(())
     }
 
     /// allocate a block for the current location
     pub async fn set(&mut self) -> Result<BlockIterSetRes, HalFsIOErr> {
+        let blocks_per_group = self.block_size / 4;
         let mut allocated_blocks = vec![];
 
         if self.cur_idx < INODE_BLOCK_LIMIT as usize {
-            self.handle_set_block(self.cur_idx, &mut allocated_blocks)
-                .await?;
-        } else if self.cur_idx < INODE_IND_BLOCK_LIMIT as usize {
-            if self.blocks[INODE_BLOCK_LIMIT as usize] == 0 {
-                let mut blocks = self
+            if self.blocks[self.cur_idx] == 0 {
+                let block = self
                     .block_allocator
-                    .allocate_n_blocks_in_group(self.group_number, 2)
-                    .await?;
+                    .allocate_n_blocks_in_group(self.group_number, 1)
+                    .await?
+                    .remove(0);
 
-                self.blocks[INODE_BLOCK_LIMIT as usize] =
-                    blocks.pop().ok_or(HalFsIOErr::Internal)?.block_relatve_idx as u32;
-            } else {
-                if self.cur_ind_buf.is_none() {
-                    let mut buf = vec![0u8; self.block_size].into_boxed_slice();
-                    buf = self
-                        .io_handler
-                        .read_block(buf, self.blocks[INODE_BLOCK_LIMIT as usize])
-                        .await?;
-                    self.cur_ind_buf = Some(buf);
-                    self.cur_ind_buf_block_idx = self.blocks[INODE_BLOCK_LIMIT as usize];
-                }
-
-                let buf = self.cur_ind_buf.as_ref().unwrap();
+                self.blocks[self.cur_idx] = block.block_global_idx as u32;
+                allocated_blocks.push(block);
             }
+
+            self.cur_block_idx = self.blocks[self.cur_idx];
+        } else if self.cur_idx < INODE_IND_BLOCK_LIMIT as usize {
+            self.handle_block_in_blocks_array(
+                INODE_IND_BLOCK_LIMIT as usize,
+                &mut allocated_blocks,
+            )
+            .await?;
+
+            if self.cur_ind_buf.is_none() {
+                let mut buf = vec![0u8; self.block_size].into_boxed_slice();
+                buf = self
+                    .io_handler
+                    .read_block(buf, self.blocks[INODE_BLOCK_LIMIT as usize])
+                    .await?;
+                self.cur_ind_buf = Some(buf);
+                self.cur_ind_buf_block_idx = self.blocks[INODE_BLOCK_LIMIT as usize];
+            }
+
+            let ind_block_idx = self.blocks[INODE_BLOCK_LIMIT as usize];
+            let offset_in_ind_block = self.cur_idx - INODE_BLOCK_LIMIT as usize;
+
+            self.handle_set_block(ind_block_idx, offset_in_ind_block, &mut allocated_blocks)
+                .await?;
         } else if self.cur_idx < INODE_DOUBLE_IND_BLOCK_LIMIT as usize {
+            self.handle_block_in_blocks_array(
+                INODE_IND_BLOCK_LIMIT as usize + 1,
+                &mut allocated_blocks,
+            )
+            .await?;
+
+            if self.cur_double_ind_buf.is_none() {
+                let mut buf = vec![0u8; self.block_size].into_boxed_slice();
+                buf = self
+                    .io_handler
+                    .read_block(buf, self.blocks[INODE_BLOCK_LIMIT as usize + 1])
+                    .await?;
+                self.cur_double_ind_buf = Some(buf);
+                self.cur_double_ind_buf_block_idx = self.blocks[INODE_BLOCK_LIMIT as usize + 1];
+            }
+
+            let offset_in_double_ind_block =
+                (self.cur_idx - INODE_IND_BLOCK_LIMIT as usize) / blocks_per_group;
+            let offset_in_ind_block =
+                (self.cur_idx - INODE_IND_BLOCK_LIMIT as usize) % blocks_per_group;
+
+            self.handle_set_indirect_block(
+                self.blocks[INODE_BLOCK_LIMIT as usize + 1],
+                offset_in_double_ind_block,
+                offset_in_ind_block,
+                &mut allocated_blocks,
+            )
+            .await?;
         } else {
+            self.handle_block_in_blocks_array(
+                INODE_TRIPLE_IND_BLOCK_LIMIT as usize + 2,
+                &mut allocated_blocks,
+            )
+            .await?;
+
+            if self.cur_triple_ind_buf.is_none() {
+                let mut buf = vec![0u8; self.block_size].into_boxed_slice();
+                buf = self
+                    .io_handler
+                    .read_block(buf, self.blocks[INODE_BLOCK_LIMIT as usize + 2])
+                    .await?;
+                self.cur_triple_ind_buf = Some(buf);
+            }
+
+            let offset_in_triple_ind_block = (self.cur_idx - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
+                / (blocks_per_group * blocks_per_group);
+            let offset_in_double_ind_block = (self.cur_idx - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
+                / blocks_per_group
+                % blocks_per_group;
+            let offset_in_ind_block =
+                (self.cur_idx - INODE_DOUBLE_IND_BLOCK_LIMIT as usize) % blocks_per_group;
+
+            self.handle_set_double_indirect_block(
+                offset_in_triple_ind_block,
+                offset_in_double_ind_block,
+                offset_in_ind_block,
+                &mut allocated_blocks,
+            )
+            .await?;
         }
 
         todo!()
     }
 
     pub fn get_blocks_array(&self) -> [u32; 15] {
+        self.blocks
+    }
+
+    pub fn into_blocks_array(self) -> [u32; 15] {
         self.blocks
     }
 }
@@ -350,8 +559,6 @@ pub struct BlockIterElement {
 pub struct BlockIterSetRes {
     /// if it is empty it means that there was lba originally
     pub allocated_blocks: Vec<AllocatedBlock>,
-    /// if the array is empty this value will be 0
-    /// otherwise, it is the block idx of the newly allocated block since the allocated_blocks can
-    /// contain more than 1 element due to indirect blocks
+    /// the address of the block at this index
     pub block_idx: u32,
 }
