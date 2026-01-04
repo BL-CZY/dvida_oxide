@@ -63,7 +63,7 @@ pub async fn write(
 
 pub async fn read(
     inode: &mut HalInode,
-    buf: Box<[u8]>,
+    buf: &mut Box<[u8]>,
     ctx: &mut HalIOCtx,
 ) -> Result<usize, HalFsIOErr> {
     let mut fs = FILE_SYSTEM.lock().await;

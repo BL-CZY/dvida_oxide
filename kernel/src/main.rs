@@ -97,13 +97,19 @@ async fn kernel_main(executor: Executor) {
 
     log!("created inode: {:?}\n read: {:?}", inode, inode);
 
-    // let mut context = HalIOCtx { head: 0 };
+    let mut context = HalIOCtx { head: 0 };
     // let buf: Box<[u8]> = Box::new([b't', b'e', b's', b't', b's', b't', b'r']);
     // hal::vfs::write(&mut inode, buf, &mut context)
     //     .await
     //     .unwrap();
-    // let buf: Box<[u8]> = Box::new([0; 7]);
-    // hal::vfs::read(&mut inode, buf, &mut context).await.unwrap();
+    let mut buf: Box<[u8]> = Box::new([0; 7]);
+    hal::vfs::read(&mut inode, &mut buf, &mut context)
+        .await
+        .unwrap();
+    log!(
+        "{:?}",
+        alloc::string::String::from_utf8_lossy(&buf.to_vec())
+    );
 }
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.

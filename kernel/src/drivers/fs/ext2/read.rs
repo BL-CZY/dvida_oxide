@@ -1,11 +1,12 @@
 use alloc::boxed::Box;
 use dvida_serialize::DvDeserialize;
-use terminal::log;
 
 use crate::{
-    drivers::fs::ext2::{BLOCK_SIZE, Inode, InodePlus, structs::Ext2Fs},
+    drivers::fs::ext2::{
+        BLOCK_SIZE, Inode, InodePlus,
+        structs::{BlockIterElement, Ext2Fs},
+    },
     hal::fs::{HalFsIOErr, HalIOCtx},
-    time,
 };
 
 #[derive(Debug)]
@@ -100,17 +101,8 @@ impl Ext2Fs {
         target: &mut [u8],
         ctx: &mut HalIOCtx,
         progress: &mut Progress,
+        buf: &Box<[u8]>,
     ) -> Result<(), HalFsIOErr> {
-        let lba = self.get_block_lba(inode, progress.block_idx as u32).await?;
-        let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
-
-        // if the block is not allocated (sparse file/hole), treat it as zero-filled
-        if lba == 0 {
-            // buf is already zeroed
-        } else {
-            buf = self.read_sectors(buf, lba as i64).await?;
-        }
-
         for i in progress.offset..self.super_block.block_size() {
             if ctx.head as u32 >= inode.i_size {
                 return Ok(());
@@ -134,7 +126,7 @@ impl Ext2Fs {
     pub async fn read(
         &mut self,
         victim_inode: &mut InodePlus,
-        mut buf: Box<[u8]>,
+        buf: &mut Box<[u8]>,
         ctx: &mut HalIOCtx,
     ) -> Result<usize, HalFsIOErr> {
         let inode = &mut victim_inode.inode;
@@ -160,12 +152,24 @@ impl Ext2Fs {
         let mut block_iterator =
             self.create_block_iterator(inode, victim_inode.group_number.into());
 
+        let mut block_buf = self.get_buffer();
+
         while (ctx.head as u32) < inode.i_size && progress.bytes_written < buf.len() {
-            self.read_till_next_block(inode, &mut buf, ctx, &mut progress)
+            let BlockIterElement {
+                buf: buffer,
+                is_terminated,
+                ..
+            } = block_iterator.next(block_buf).await?;
+
+            block_buf = buffer;
+
+            if is_terminated {
+                break;
+            }
+
+            self.read_till_next_block(inode, buf, ctx, &mut progress, &block_buf)
                 .await?;
         }
-
-        log!("{:?}", buf);
 
         Ok(progress.bytes_written)
     }
