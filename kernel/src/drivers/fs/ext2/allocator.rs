@@ -170,11 +170,12 @@ impl BlockAllocator {
         let mut allocated_blocks_map: BTreeMap<i64, i64> = BTreeMap::new();
 
         for AllocatedBlock {
-            block_relatve_idx: block_idx,
             gr_number,
+            block_global_idx: block_idx,
             ..
         } in blocks.iter()
         {
+            self.allocated_block_indices.borrow_mut().remove(block_idx);
             allocated_blocks_map
                 .entry(*gr_number)
                 .and_modify(|v| *v += 1)
@@ -231,8 +232,6 @@ impl BlockAllocator {
         self.io_handler
             .write_sectors(buf, cur_group_buffer_lba)
             .await?;
-
-        self.allocated_block_indices.borrow_mut().clear();
 
         Ok(())
     }

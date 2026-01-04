@@ -30,6 +30,7 @@ impl Ext2Fs {
             cur_double_ind_buf: None,
             cur_double_ind_buf_block_idx: 0,
             cur_triple_ind_buf: None,
+            cur_triple_ind_buf_block_idx: 0,
             blocks_limit: ((inode.i_size + self.super_block.block_size() - 1)
                 / self.super_block.block_size()) as usize,
             cur_idx: 0,
@@ -53,6 +54,7 @@ pub struct InodeBlockIterator {
     cur_double_ind_buf_block_idx: u32,
 
     cur_triple_ind_buf: Option<Box<[u8]>>,
+    cur_triple_ind_buf_block_idx: u32,
 
     /// will be initialized as aligned up i_size
     blocks_limit: usize,
@@ -355,6 +357,7 @@ impl InodeBlockIterator {
                 .write_block(buf.clone(), self.cur_double_ind_buf_block_idx)
                 .await?;
 
+            self.clear_block(block.block_global_idx).await?;
             allocated_blocks.push(block);
         }
 
@@ -390,9 +393,10 @@ impl InodeBlockIterator {
             double_ind_block_idx = *num;
 
             self.io_handler
-                .write_block(buf.clone(), self.cur_double_ind_buf_block_idx)
+                .write_block(buf.clone(), self.cur_triple_ind_buf_block_idx)
                 .await?;
 
+            self.clear_block(block.block_global_idx).await?;
             allocated_blocks.push(block);
         }
 
@@ -421,17 +425,18 @@ impl InodeBlockIterator {
 
             self.blocks[idx] = block.block_global_idx as u32;
 
-            let mut buf = vec![0u8; self.block_size].into_boxed_slice();
-            buf = self.io_handler.read_block(buf, self.blocks[idx]).await?;
-            buf.fill(0);
-            self.io_handler
-                .write_block(buf.clone(), self.blocks[idx])
-                .await?;
+            self.clear_block(self.blocks[idx]).await?;
 
             allocated_blocks.push(block);
         }
 
         Ok(())
+    }
+
+    async fn clear_block(&self, block_idx: u32) -> Result<(), HalFsIOErr> {
+        let mut buf = vec![0u8; self.block_size].into_boxed_slice();
+        buf.fill(0);
+        Ok(self.io_handler.write_block(buf.clone(), block_idx).await?)
     }
 
     /// allocate a block for the current location
@@ -453,11 +458,8 @@ impl InodeBlockIterator {
 
             self.cur_block_idx = self.blocks[self.cur_idx];
         } else if self.cur_idx < INODE_IND_BLOCK_LIMIT as usize {
-            self.handle_block_in_blocks_array(
-                INODE_IND_BLOCK_LIMIT as usize,
-                &mut allocated_blocks,
-            )
-            .await?;
+            self.handle_block_in_blocks_array(INODE_BLOCK_LIMIT as usize, &mut allocated_blocks)
+                .await?;
 
             if self.cur_ind_buf.is_none() {
                 let mut buf = vec![0u8; self.block_size].into_boxed_slice();
@@ -476,7 +478,7 @@ impl InodeBlockIterator {
                 .await?;
         } else if self.cur_idx < INODE_DOUBLE_IND_BLOCK_LIMIT as usize {
             self.handle_block_in_blocks_array(
-                INODE_IND_BLOCK_LIMIT as usize + 1,
+                INODE_BLOCK_LIMIT as usize + 1,
                 &mut allocated_blocks,
             )
             .await?;
@@ -505,7 +507,7 @@ impl InodeBlockIterator {
             .await?;
         } else {
             self.handle_block_in_blocks_array(
-                INODE_TRIPLE_IND_BLOCK_LIMIT as usize + 2,
+                INODE_BLOCK_LIMIT as usize + 2,
                 &mut allocated_blocks,
             )
             .await?;
@@ -517,6 +519,7 @@ impl InodeBlockIterator {
                     .read_block(buf, self.blocks[INODE_BLOCK_LIMIT as usize + 2])
                     .await?;
                 self.cur_triple_ind_buf = Some(buf);
+                self.cur_triple_ind_buf_block_idx = self.blocks[INODE_BLOCK_LIMIT as usize + 2];
             }
 
             let offset_in_triple_ind_block = (self.cur_idx - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
@@ -536,7 +539,10 @@ impl InodeBlockIterator {
             .await?;
         }
 
-        todo!()
+        Ok(BlockIterSetRes {
+            allocated_blocks,
+            block_idx: self.cur_block_idx,
+        })
     }
 
     pub fn get_blocks_array(&self) -> [u32; 15] {
