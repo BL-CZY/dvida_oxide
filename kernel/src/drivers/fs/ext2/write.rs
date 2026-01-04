@@ -1,7 +1,4 @@
-use crate::{
-    crypto::iterators, drivers::fs::ext2::structs::InodeBlockIterator, hal::storage::SECTOR_SIZE,
-    time,
-};
+use crate::{hal::storage::SECTOR_SIZE, time};
 use alloc::{boxed::Box, vec, vec::Vec};
 use dvida_serialize::{DvDeserialize, DvSerialize};
 
@@ -41,15 +38,15 @@ impl Ext2Fs {
         inode: &mut Inode,
         input: &Box<[u8]>,
         ctx: &mut HalIOCtx,
+        block_idx: u32,
         progress: &mut Progress,
     ) -> Result<(), HalFsIOErr> {
         let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
-        let lba = self.get_block_lba(inode, progress.block_idx).await? as i64;
 
         // if we are not at the start of a block we need to make sure the existing data doesn't
         // get overwritten
         if progress.offset != 0 {
-            buf = self.read_sectors(buf, lba).await?;
+            buf = self.io_handler.read_block(buf, block_idx).await?;
         }
 
         for i in progress.offset..self.super_block.block_size() {
@@ -66,7 +63,7 @@ impl Ext2Fs {
             ctx.head += 1;
         }
 
-        self.write_sectors(buf.clone(), lba).await?;
+        self.io_handler.write_block(buf.clone(), block_idx).await?;
         progress.block_idx += 1;
         progress.offset = 0;
 
@@ -318,8 +315,13 @@ impl Ext2Fs {
             bytes_written: 0,
         };
 
-        let iterator = self.create_block_iterator(inode, victim_inode.group_number.into());
-        while progress.bytes_written < buf.len() {}
+        let mut iterator = self.create_block_iterator(inode, victim_inode.group_number.into());
+        iterator.skip(progress.block_idx as usize);
+        while progress.bytes_written < buf.len() {
+            let res = iterator.next_set().await?;
+            self.write_till_next_block(inode, &buf, ctx, res.block_idx, &mut progress)
+                .await?;
+        }
 
         let time = time::formats::rtc_to_posix(
             &time::Rtc::new()
