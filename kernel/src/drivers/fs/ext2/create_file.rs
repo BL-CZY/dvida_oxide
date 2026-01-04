@@ -206,6 +206,7 @@ impl Ext2Fs {
         }
 
         self.write_changes(&allocated_inode, &blocks).await?;
+        self.write_inode(&dir_inode).await?;
 
         Ok(allocated_inode)
     }

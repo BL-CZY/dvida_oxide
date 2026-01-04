@@ -157,6 +157,9 @@ impl Ext2Fs {
             bytes_written: 0,
         };
 
+        let mut block_iterator =
+            self.create_block_iterator(inode, victim_inode.group_number.into());
+
         while (ctx.head as u32) < inode.i_size && progress.bytes_written < buf.len() {
             self.read_till_next_block(inode, &mut buf, ctx, &mut progress)
                 .await?;

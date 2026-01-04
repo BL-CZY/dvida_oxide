@@ -4,7 +4,7 @@ use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
-        BLOCK_SIZE, DirEntry, DirEntryPartial, Inode, InodePlus,
+        BLOCK_SIZE, DirEntry, DirEntryPartial, Inode, InodePlus, block_iterator,
         read::Progress,
         structs::{BlockIterElement, Ext2Fs},
     },
@@ -85,27 +85,22 @@ impl Ext2Fs {
         }
 
         // if we are here we need to allocate a new block
-        self.expand_inode(&mut inode.inode, inode.group_number as i64, 1)
-            .await?;
+        let res = blocks_iterator.set().await?;
 
         entry.rec_len = self.super_block.block_size() as u16;
 
-        let lba = self
-            .get_block_lba(
-                &inode.inode,
-                inode.inode.i_size / self.super_block.block_size(),
-            )
-            .await?;
-
-        buf = self.read_sectors(buf, lba as i64).await?;
+        let block_idx = res.block_idx;
+        buf = self.io_handler.read_block(buf, block_idx).await?;
         buf.fill(0);
 
         entry.serialize(dvida_serialize::Endianness::Little, &mut buf)?;
 
         inode.inode.i_size += self.super_block.block_size();
-        self.write_sectors(buf, lba as i64).await?;
+        self.io_handler.write_block(buf.clone(), block_idx).await?;
 
-        inode.inode.i_mtime = time;
+        self.block_allocator
+            .write_newly_allocated_blocks(buf)
+            .await?;
 
         Ok(())
     }
