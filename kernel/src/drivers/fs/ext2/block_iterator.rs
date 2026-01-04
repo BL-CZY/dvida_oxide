@@ -283,12 +283,19 @@ impl InodeBlockIterator {
                 .await?
                 .remove(0);
 
-            self.blocks[idx] = block.block_idx as u32;
+            self.blocks[idx] = block.block_relatve_idx as u32;
             allocated_blocks.push(block);
             Ok(())
         } else {
             Ok(())
         }
+    }
+
+    async fn handle_set_indirect_block(
+        &mut self,
+        block_idx: usize,
+        allocated_blocks: &mut Vec<AllocatedBlock>,
+    ) -> Result<(), HalFsIOErr> {
     }
 
     /// allocate a block for the current location
@@ -299,6 +306,27 @@ impl InodeBlockIterator {
             self.handle_set_block(self.cur_idx, &mut allocated_blocks)
                 .await?;
         } else if self.cur_idx < INODE_IND_BLOCK_LIMIT as usize {
+            if self.blocks[INODE_BLOCK_LIMIT as usize] == 0 {
+                let mut blocks = self
+                    .block_allocator
+                    .allocate_n_blocks_in_group(self.group_number, 2)
+                    .await?;
+
+                self.blocks[INODE_BLOCK_LIMIT as usize] =
+                    blocks.pop().ok_or(HalFsIOErr::Internal)?.block_relatve_idx as u32;
+            } else {
+                if self.cur_ind_buf.is_none() {
+                    let mut buf = vec![0u8; self.block_size].into_boxed_slice();
+                    buf = self
+                        .io_handler
+                        .read_block(buf, self.blocks[INODE_BLOCK_LIMIT as usize])
+                        .await?;
+                    self.cur_ind_buf = Some(buf);
+                    self.cur_ind_buf_block_idx = self.blocks[INODE_BLOCK_LIMIT as usize];
+                }
+
+                let buf = self.cur_ind_buf.as_ref().unwrap();
+            }
         } else if self.cur_idx < INODE_DOUBLE_IND_BLOCK_LIMIT as usize {
         } else {
         }

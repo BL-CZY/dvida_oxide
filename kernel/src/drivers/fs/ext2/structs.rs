@@ -1,4 +1,6 @@
-use alloc::boxed::Box;
+use core::cell::RefCell;
+
+use alloc::{boxed::Box, collections::btree_set::BTreeSet};
 use terminal::log;
 
 use crate::{
@@ -117,6 +119,7 @@ impl Ext2Fs {
             group_manager: group_manager,
             io_handler: io_handler,
             buffer_manager: buffer_manager,
+            allocated_block_indices: RefCell::new(BTreeSet::new()),
         };
 
         Self {

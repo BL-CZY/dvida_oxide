@@ -14,7 +14,7 @@ use crate::{
 
 impl Ext2Fs {
     pub async fn allocate_n_blocks(
-        &self,
+        &mut self,
         exclude_group_idx: i64,
         remaining_blocks: usize,
     ) -> Result<Vec<AllocatedBlock>, HalFsIOErr> {
@@ -24,7 +24,7 @@ impl Ext2Fs {
     }
 
     pub async fn allocate_n_blocks_in_group(
-        &self,
+        &mut self,
         group_number: i64,
         num: usize,
     ) -> Result<Vec<AllocatedBlock>, HalFsIOErr> {

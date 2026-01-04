@@ -1,9 +1,9 @@
-use alloc::{boxed::Box, collections::btree_map::BTreeMap, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
-        BLOCK_GROUP_DESCRIPTOR_SIZE, BLOCK_SIZE, GroupDescriptor, Inode, InodePlus,
+        BLOCK_GROUP_DESCRIPTOR_SIZE, BLOCK_SIZE, Inode, InodePlus,
         structs::{Ext2Fs, block_group_size},
     },
     hal::{fs::HalFsIOErr, storage::SECTOR_SIZE},
@@ -15,8 +15,9 @@ pub const BLOCK_SECTOR_SIZE: i64 = (BLOCK_SIZE as i64 / SECTOR_SIZE as i64) as i
 
 pub struct AllocatedBlock {
     pub addr: i64,
+    pub block_global_idx: u32,
     // relative to the block group
-    pub block_idx: i64,
+    pub block_relatve_idx: u32,
     pub gr_number: i64,
 }
 
@@ -29,7 +30,7 @@ impl Ext2Fs {
     }
 
     pub async fn allocated_blocks_for_new_inode(
-        &self,
+        &mut self,
         inode: &mut Inode,
         group_number: i64,
         num: usize,
@@ -93,70 +94,12 @@ impl Ext2Fs {
 
     pub async fn write_newly_allocated_blocks(
         &mut self,
-        mut buf: Box<[u8]>,
+        buf: Box<[u8]>,
         blocks: &[AllocatedBlock],
     ) -> Result<(), HalFsIOErr> {
-        let mut cur_bitmap_lba = -1;
-
-        let mut allocated_blocks_map: BTreeMap<i64, i64> = BTreeMap::new();
-
-        for AllocatedBlock {
-            block_idx,
-            gr_number,
-            ..
-        } in blocks.iter()
-        {
-            allocated_blocks_map
-                .entry(*gr_number)
-                .and_modify(|v| *v += 1)
-                .or_insert(1);
-
-            let group = self.get_group(*gr_number).await?;
-            let block_bitmap_lba = group.get_block_bitmap_lba();
-
-            if cur_bitmap_lba != block_bitmap_lba {
-                if cur_bitmap_lba != -1 {
-                    self.write_sectors(buf.clone(), cur_bitmap_lba).await?;
-                }
-
-                buf = self.read_sectors(buf, block_bitmap_lba).await?;
-                cur_bitmap_lba = block_bitmap_lba
-            }
-
-            let mut target = buf[*block_idx as usize / 8];
-            target = target | 0x1 << *block_idx as usize % 8;
-            buf[*block_idx as usize / 8] = target;
-        }
-
-        self.write_sectors(buf.clone(), cur_bitmap_lba).await?;
-
-        let mut cur_group_buffer_lba = -1;
-        for (group_idx, num_allocated) in allocated_blocks_map {
-            let bg_table_block_idx = self.super_block.s_first_data_block + 1;
-            let lba = self.block_idx_to_lba(bg_table_block_idx);
-            let lba_offset = (group_idx * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) / SECTOR_SIZE as i64;
-            let byte_offset = (group_idx * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
-
-            if lba + lba_offset != cur_group_buffer_lba {
-                if cur_group_buffer_lba != -1 {
-                    self.write_sectors(buf.clone(), cur_group_buffer_lba)
-                        .await?;
-                }
-
-                cur_group_buffer_lba = lba + lba_offset;
-                buf = self.read_sectors(buf, lba + lba_offset).await?;
-            }
-
-            let descriptor: &mut GroupDescriptor = bytemuck::from_bytes_mut(
-                &mut buf[byte_offset as usize..byte_offset as usize + size_of::<GroupDescriptor>()],
-            );
-
-            descriptor.bg_free_blocks_count -= num_allocated as u16;
-        }
-
-        self.write_sectors(buf, cur_group_buffer_lba).await?;
-
-        Ok(())
+        self.block_allocator
+            .write_newly_allocated_blocks(buf, blocks)
+            .await
     }
 
     async fn write_changes(
