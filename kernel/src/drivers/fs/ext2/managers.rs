@@ -85,6 +85,12 @@ impl GroupManager {
         self.get_group(group_number as i64).await
     }
 
+    pub async fn get_group_from_block_idx(&self, idx: u32) -> Result<Ext2BlockGroup, HalFsIOErr> {
+        let group_number = idx / self.blocks_per_group;
+
+        self.get_group(group_number as i64).await
+    }
+
     pub async fn get_group(&self, gr_number: i64) -> Result<Ext2BlockGroup, HalFsIOErr> {
         let bg_table_block_idx = self.first_data_block + 1;
         let lba = self.io_handler.block_idx_to_lba(bg_table_block_idx);

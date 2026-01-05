@@ -26,6 +26,7 @@ pub struct BlockAllocator {
     pub buffer_manager: BufferManager,
 
     pub allocated_block_indices: RefCell<BTreeSet<AllocatedBlock>>,
+    pub unwritten_freed_blocks: RefCell<BTreeSet<u32>>,
 }
 
 impl BlockAllocator {
@@ -242,6 +243,47 @@ impl BlockAllocator {
             .await?;
 
         self.allocated_block_indices.borrow_mut().clear();
+
+        Ok(())
+    }
+
+    pub async fn add_freed_block(&mut self, block: u32) {
+        self.unwritten_freed_blocks.borrow_mut().insert(block);
+    }
+
+    pub async fn write_freed_blocks(&mut self) -> Result<(), HalFsIOErr> {
+        let mut buf = self.buffer_manager.get_buffer();
+        let mut cur_group_buffer_lba = -1;
+        for group_idx in self
+            .unwritten_freed_blocks
+            .borrow()
+            .iter()
+            .map(|e| *e as i64 / self.group_manager.blocks_per_group as i64)
+        {
+            let bg_table_block_idx = self.group_manager.first_data_block + 1;
+            let lba = self.io_handler.block_idx_to_lba(bg_table_block_idx);
+            let lba_offset = (group_idx * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) / SECTOR_SIZE as i64;
+            let byte_offset = (group_idx * BLOCK_GROUP_DESCRIPTOR_SIZE as i64) % SECTOR_SIZE as i64;
+
+            if lba + lba_offset != cur_group_buffer_lba {
+                if cur_group_buffer_lba != -1 {
+                    self.io_handler
+                        .write_sectors(buf.clone(), cur_group_buffer_lba)
+                        .await?;
+                }
+
+                cur_group_buffer_lba = lba + lba_offset;
+                buf = self.io_handler.read_sectors(buf, lba + lba_offset).await?;
+            }
+
+            let descriptor: &mut GroupDescriptor = bytemuck::from_bytes_mut(
+                &mut buf[byte_offset as usize..byte_offset as usize + size_of::<GroupDescriptor>()],
+            );
+
+            descriptor.bg_free_blocks_count -= 1;
+        }
+
+        self.unwritten_freed_blocks.borrow_mut().clear();
 
         Ok(())
     }
