@@ -5,8 +5,8 @@ pub struct SpscCell<T> {
     waker: RefCell<Option<Waker>>,
 }
 
-pub struct SpscCellGetter<'a, T> {
-    cell: &'a SpscCell<T>,
+pub struct SpscCellGetter<T> {
+    cell: RefCell<SpscCell<T>>,
 }
 
 impl<'a, T> SpscCellGetter<'a, T> {
@@ -17,6 +17,15 @@ impl<'a, T> SpscCellGetter<'a, T> {
 
 pub struct SpscCellSetter<'a, T> {
     cell: &'a SpscCell<T>,
+}
+
+impl<'a, T> SpscCellSetter<'a, T> {
+    pub fn set(&self, value: T) {
+        *self.cell.inner.borrow_mut() = Some(value);
+        if let Some(ref waker) = *self.cell.waker.borrow() {
+            waker.wake_by_ref();
+        }
+    }
 }
 
 pub struct SpscCellGetFuture<'a, T> {

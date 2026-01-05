@@ -3,7 +3,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 /// Represents an absolute Unix path
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Path {
     raw: String,
 }

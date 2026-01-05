@@ -1,5 +1,8 @@
 use alloc::boxed::Box;
-use ejcineque::sync::mpsc::unbounded::{UnboundedSender, unbounded_channel};
+use ejcineque::sync::{
+    mpsc::unbounded::{UnboundedSender, unbounded_channel},
+    spsc::cell::SpscCellSetter,
+};
 use once_cell_no_std::OnceCell;
 use terminal::log;
 
@@ -22,10 +25,21 @@ pub enum OpenErr {
     Unknown = -128,
 }
 
-pub enum VfsOperationType {}
+pub enum VfsOperationType {
+    Open {
+        path: Path,
+        cell: SpscCellSetter<u32>,
+    },
+}
 
 pub struct VfsOperation {
     operation_type: VfsOperationType,
+}
+
+pub struct HalOpenedInode {
+    inode: HalInode,
+    ctx: HalIOCtx,
+    mount_point: Option<Path>,
 }
 
 pub static VFS_SENDER: OnceCell<UnboundedSender<VfsOperation>> = OnceCell::new();
@@ -47,7 +61,21 @@ pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) {
     VFS_SENDER.set(tx).expect("Failed to set vfs task sender");
 
     while let Some(operation) = rx.recv().await {
-        match operation.operation_type {}
+        match operation.operation_type {
+            VfsOperationType::Open { path } => {
+                let path = path.normalize();
+                if fs.mnt_points.contains_key(&path) {
+                    todo!("open files in mount points");
+                }
+
+                match fs.fs_impl {
+                    crate::hal::fs::HalFs::Ext2(ref mut ext2) => {
+                        Ok(ext2.open_file(path, flags).await?)
+                    }
+                    super::fs::HalFs::Unidentified => panic!("No file system detected"),
+                }
+            }
+        }
     }
 }
 

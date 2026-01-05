@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 
-use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::{collections::btree_map::BTreeMap, string::String, sync::Arc, vec::Vec};
 use dvida_serialize::{DvDeErr, DvSerErr, DvSerialize};
 use ejcineque::sync::mutex::Mutex;
 use lazy_static::lazy_static;
@@ -75,7 +75,6 @@ impl DvSerialize for DirEnt64 {
 #[derive(Debug)]
 pub struct MountPoint {
     pub fs: FileSystem,
-    pub path: Path,
 }
 
 #[derive(Debug, Default)]
@@ -84,7 +83,7 @@ pub struct FileSystem {
     pub entry_idx: usize,
     pub entry: GPTEntry,
 
-    pub mnt_points: Vec<MountPoint>,
+    pub mnt_points: BTreeMap<Path, MountPoint>,
     pub fs_impl: HalFs,
 }
 
