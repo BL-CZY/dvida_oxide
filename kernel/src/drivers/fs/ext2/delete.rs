@@ -222,6 +222,7 @@ impl Ext2Fs {
             .serialize(dvida_serialize::Endianness::Little, &mut buf[0..])?;
 
         self.write_sectors(buf, RESERVED_BOOT_RECORD_OFFSET).await?;
+        self.block_allocator.write_freed_blocks().await?;
 
         Ok(())
     }
