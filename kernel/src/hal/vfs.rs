@@ -31,7 +31,8 @@ pub enum OpenErr {
 pub enum VfsOperationType {
     Open {
         path: Path,
-        cell: SpscCellSetter<u32>,
+        flags: OpenFlags,
+        cell: SpscCellSetter<u64>,
     },
 }
 
@@ -47,7 +48,7 @@ pub struct HalOpenedInode {
 
 pub static VFS_SENDER: OnceCell<UnboundedSender<VfsOperation>> = OnceCell::new();
 
-pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) {
+pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) -> Result<(), HalFsIOErr> {
     let mut fs = FileSystem::default();
     let mut opened_inodes: BTreeMap<u64, HalOpenedInode> = BTreeMap::new();
     let mut inode_idx_counter: u64 = 0;
@@ -67,7 +68,7 @@ pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) {
 
     while let Some(operation) = rx.recv().await {
         match operation.operation_type {
-            VfsOperationType::Open { path } => {
+            VfsOperationType::Open { path, flags, cell } => {
                 let path = path.normalize();
                 if fs.mnt_points.contains_key(&path) {
                     todo!("open files in mount points");
@@ -75,13 +76,15 @@ pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) {
 
                 match fs.fs_impl {
                     crate::hal::fs::HalFs::Ext2(ref mut ext2) => {
-                        Ok(ext2.open_file(path, flags).await?)
+                        ext2.open_file(path, flags).await?;
                     }
                     super::fs::HalFs::Unidentified => panic!("No file system detected"),
                 }
             }
         }
     }
+
+    Ok(())
 }
 
 pub async fn init_vfs(drive_id: usize, entry_idx: usize) {
