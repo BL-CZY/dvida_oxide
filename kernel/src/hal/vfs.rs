@@ -1,4 +1,7 @@
-use alloc::boxed::Box;
+use alloc::{
+    boxed::Box,
+    collections::{btree_map::BTreeMap, btree_set::BTreeSet},
+};
 use ejcineque::sync::{
     mpsc::unbounded::{UnboundedSender, unbounded_channel},
     spsc::cell::SpscCellSetter,
@@ -46,6 +49,8 @@ pub static VFS_SENDER: OnceCell<UnboundedSender<VfsOperation>> = OnceCell::new()
 
 pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) {
     let mut fs = FileSystem::default();
+    let mut opened_inodes: BTreeMap<u64, HalOpenedInode> = BTreeMap::new();
+    let mut inode_idx_counter: u64 = 0;
 
     let (_header, mut entries) = read_gpt(drive_id).await.expect("Failed to read GPT");
     log!("Root directory entry: {:?}", entries[entry_idx]);
