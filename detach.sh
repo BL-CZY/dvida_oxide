@@ -1,3 +1,3 @@
 #!/bin/sh
 
-hdiutil detach /dev/disk10s1
+hdiutil detach /dev/disk4s1

@@ -37,6 +37,7 @@ impl Ext2Fs {
                 DirEntry::deserialize(dvida_serialize::Endianness::Little, &buf[progr as usize..])?;
 
             log!("Read entry {:?} of size {}", entry, bytes_read);
+
             progr += bytes_read as u32;
             *remaining_size -= bytes_read as u32;
             let mut is_terminated = false;

@@ -1,4 +1,7 @@
-use core::ops::{Deref, DerefMut};
+use core::{
+    fmt,
+    ops::{Deref, DerefMut},
+};
 
 use alloc::boxed::Box;
 
@@ -14,6 +17,30 @@ pub struct Buffer {
 impl Buffer {
     pub fn len(&self) -> usize {
         self.len
+    }
+}
+
+impl fmt::Display for Buffer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // We create a slice to iterate over the bytes.
+        // SAFETY: We assume 'inner' and 'len' are valid for the duration of fmt.
+        let slice = unsafe { alloc::slice::from_raw_parts(self.inner, self.len) };
+
+        write!(f, "Buffer({} bytes): [", self.len)?;
+        for (i, byte) in slice.iter().enumerate() {
+            if i > 0 {
+                write!(f, " ")?;
+            }
+            // Prints as 2-digit hex, e.g., "0A"
+            write!(f, "{:02X}", byte)?;
+
+            // Limit output so we don't spam the console if the buffer is huge
+            if i > 16 && self.len > 32 {
+                write!(f, " ...")?;
+                break;
+            }
+        }
+        write!(f, "]")
     }
 }
 

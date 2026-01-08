@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{BLOCK_GROUP_DESCRIPTOR_SIZE, GroupDescriptor, structs::Ext2BlockGroup},
@@ -40,11 +41,8 @@ impl IoHandler {
         buffer: Box<[u8]>,
         block_idx: u32,
     ) -> Result<Box<[u8]>, HalStorageOperationErr> {
-        self.read_sectors(
-            buffer,
-            self.start_lba as i64 + self.block_idx_to_lba(block_idx),
-        )
-        .await
+        self.read_sectors(buffer, self.block_idx_to_lba(block_idx))
+            .await
     }
 
     pub async fn write_block(
