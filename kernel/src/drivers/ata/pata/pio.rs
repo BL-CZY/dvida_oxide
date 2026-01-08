@@ -5,7 +5,6 @@ use crate::crypto::binary_test;
 use crate::drivers::ata::cmd;
 use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE};
 use crate::hal::storage::IoErr;
-use terminal::log;
 
 use super::PataDevice;
 

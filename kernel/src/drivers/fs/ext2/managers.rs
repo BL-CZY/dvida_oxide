@@ -30,7 +30,9 @@ impl IoHandler {
         buffer: Box<[u8]>,
         lba: i64,
     ) -> Result<Box<[u8]>, HalStorageOperationErr> {
-        storage::read_sectors(self.drive_id, buffer, self.start_lba as i64 + lba).await
+        storage::read_sectors(self.drive_id, buffer.into(), self.start_lba as i64 + lba)
+            .await
+            .map(|b| b.into())
     }
 
     pub async fn read_block(
@@ -38,8 +40,7 @@ impl IoHandler {
         buffer: Box<[u8]>,
         block_idx: u32,
     ) -> Result<Box<[u8]>, HalStorageOperationErr> {
-        storage::read_sectors(
-            self.drive_id,
+        self.read_sectors(
             buffer,
             self.start_lba as i64 + self.block_idx_to_lba(block_idx),
         )
@@ -53,7 +54,7 @@ impl IoHandler {
     ) -> Result<(), HalStorageOperationErr> {
         storage::write_sectors(
             self.drive_id,
-            buffer,
+            buffer.into(),
             self.start_lba as i64 + self.block_idx_to_lba(block_idx),
         )
         .await
@@ -65,7 +66,7 @@ impl IoHandler {
         buffer: Box<[u8]>,
         lba: i64,
     ) -> Result<(), HalStorageOperationErr> {
-        storage::write_sectors(self.drive_id, buffer, self.start_lba as i64 + lba).await
+        storage::write_sectors(self.drive_id, buffer.into(), self.start_lba as i64 + lba).await
     }
 }
 

@@ -1,5 +1,6 @@
 use crate::crypto::guid::Guid;
 use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE, PataDevice};
+use crate::hal::buffer::Buffer;
 use crate::hal::gpt::{GPTEntry, GPTErr, GPTHeader};
 use alloc::string::ToString;
 use alloc::vec;
@@ -63,13 +64,13 @@ pub struct HalStorageDevice {
 #[derive(Debug)]
 pub enum HalStorageOperation<'a> {
     Read {
-        buffer: Box<[u8]>,
+        buffer: Buffer,
         lba: i64,
-        sender: UnboundedSender<Result<Box<[u8]>, HalStorageOperationErr>>,
+        sender: UnboundedSender<Result<Buffer, HalStorageOperationErr>>,
     },
 
     Write {
-        buffer: Box<[u8]>,
+        buffer: Buffer,
         lba: i64,
         sender: UnboundedSender<Result<(), HalStorageOperationErr>>,
     },
@@ -341,16 +342,16 @@ impl HalStorageDevice {
 
 pub async fn read_sectors(
     index: usize,
-    buffer: Box<[u8]>,
+    buffer: Buffer,
     lba: i64,
-) -> Result<Box<[u8]>, HalStorageOperationErr> {
+) -> Result<Buffer, HalStorageOperationErr> {
     let sender = if index == PRIMARY {
         PRIMARY_STORAGE_SENDER.get().unwrap().clone()
     } else {
         SECONDARY_STORAGE_SENDER.get().unwrap().clone()
     };
 
-    let (tx, rx) = unbounded_channel::<Result<Box<[u8]>, HalStorageOperationErr>>();
+    let (tx, rx) = unbounded_channel::<Result<Buffer, HalStorageOperationErr>>();
 
     sender.send(HalStorageOperation::Read {
         buffer,
@@ -367,7 +368,7 @@ pub async fn read_sectors(
 
 pub async fn write_sectors(
     index: usize,
-    buffer: Box<[u8]>,
+    buffer: Buffer,
     lba: i64,
 ) -> Result<(), HalStorageOperationErr> {
     let sender = if index == PRIMARY {
