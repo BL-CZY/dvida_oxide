@@ -1,13 +1,11 @@
 use core::cell::RefCell;
 
 use alloc::{boxed::Box, collections::btree_set::BTreeSet};
-use dvida_serialize::DvDeserialize;
 use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{
-        GroupDescriptor, Inode, SuperBlock, create_file::RESERVED_BOOT_RECORD_OFFSET,
-        init::identify_ext2,
+        GroupDescriptor, SuperBlock, create_file::RESERVED_BOOT_RECORD_OFFSET, init::identify_ext2,
     },
     hal::{
         fs::HalFsIOErr,
@@ -122,6 +120,7 @@ impl Ext2Fs {
             io_handler: io_handler,
             buffer_manager: buffer_manager,
             allocated_block_indices: RefCell::new(BTreeSet::new()),
+            unwritten_freed_blocks: RefCell::new(BTreeSet::new()),
         };
 
         Self {
