@@ -1,7 +1,4 @@
-use alloc::{
-    boxed::Box,
-    collections::{btree_map::BTreeMap, btree_set::BTreeSet},
-};
+use alloc::{boxed::Box, collections::btree_map::BTreeMap};
 use ejcineque::sync::{
     mpsc::unbounded::{UnboundedSender, unbounded_channel},
     spsc::cell::SpscCellSetter,
@@ -43,15 +40,59 @@ pub struct VfsOperation {
 pub struct HalOpenedInode {
     inode: HalInode,
     ctx: HalIOCtx,
-    mount_point: Option<Path>,
+}
+
+impl HalOpenedInode {
+    pub fn from_inode(inode: HalInode) -> Self {
+        Self {
+            inode,
+            ctx: HalIOCtx::new(),
+        }
+    }
 }
 
 pub static VFS_SENDER: OnceCell<UnboundedSender<VfsOperation>> = OnceCell::new();
+
+#[derive(Default)]
+pub struct MountPointArray {
+    pub mount_points: BTreeMap<u64, FileSystem>,
+    pub path_to_id_map: BTreeMap<Path, u64>,
+
+    pub counter: u64,
+}
+
+impl MountPointArray {
+    pub fn new() -> Self {
+        Self {
+            counter: 0,
+            ..Default::default()
+        }
+    }
+
+    pub fn get_mount_point_by_id(&mut self, id: u64) -> Option<&mut FileSystem> {
+        self.mount_points.get_mut(&id)
+    }
+
+    pub fn get_mount_point_by_path(&mut self, path: &Path) -> Option<&mut FileSystem> {
+        match self.path_to_id_map.get(path) {
+            Some(id) => self.mount_points.get_mut(&id),
+            None => None,
+        }
+    }
+
+    pub fn contains_path(&self, path: &Path) -> bool {
+        match self.path_to_id_map.get(path) {
+            Some(id) => self.mount_points.get(id).is_some(),
+            None => false,
+        }
+    }
+}
 
 pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) -> Result<(), HalFsIOErr> {
     let mut fs = FileSystem::default();
     let mut opened_inodes: BTreeMap<u64, HalOpenedInode> = BTreeMap::new();
     let mut inode_idx_counter: u64 = 0;
+    let mut mount_points = MountPointArray::new();
 
     let (_header, mut entries) = read_gpt(drive_id).await.expect("Failed to read GPT");
     log!("Root directory entry: {:?}", entries[entry_idx]);
@@ -70,13 +111,17 @@ pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) -> Result<(), Hal
         match operation.operation_type {
             VfsOperationType::Open { path, flags, cell } => {
                 let path = path.normalize();
-                if fs.mnt_points.contains_key(&path) {
+                if mount_points.contains_path(&path) {
                     todo!("open files in mount points");
                 }
 
                 match fs.fs_impl {
                     crate::hal::fs::HalFs::Ext2(ref mut ext2) => {
-                        ext2.open_file(path, flags).await?;
+                        let inode = ext2.open_file(path, flags).await?;
+                        opened_inodes.insert(inode_idx_counter, HalOpenedInode::from_inode(inode));
+                        inode_idx_counter += 1;
+
+                        cell.set(inode_idx_counter - 1);
                     }
                     super::fs::HalFs::Unidentified => panic!("No file system detected"),
                 }

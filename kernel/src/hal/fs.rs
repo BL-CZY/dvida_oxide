@@ -72,18 +72,13 @@ impl DvSerialize for DirEnt64 {
     }
 }
 
-#[derive(Debug)]
-pub struct MountPoint {
-    pub fs: FileSystem,
-}
-
 #[derive(Debug, Default)]
 pub struct FileSystem {
     pub drive_id: usize,
     pub entry_idx: usize,
     pub entry: GPTEntry,
+    pub opened_inodes: Vec<u64>,
 
-    pub mnt_points: BTreeMap<Path, MountPoint>,
     pub fs_impl: HalFs,
 }
 
@@ -171,6 +166,12 @@ pub enum HalFsIOErr {
 #[derive(Debug)]
 pub struct HalIOCtx {
     pub head: usize,
+}
+
+impl HalIOCtx {
+    pub fn new() -> Self {
+        Self { head: 0 }
+    }
 }
 
 impl From<DvDeErr> for HalFsIOErr {
