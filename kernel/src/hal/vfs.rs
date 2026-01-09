@@ -1,35 +1,59 @@
-use alloc::{boxed::Box, collections::btree_map::BTreeMap};
+use alloc::collections::btree_map::BTreeMap;
 use ejcineque::sync::{
     mpsc::unbounded::{UnboundedSender, unbounded_channel},
-    spsc::cell::SpscCellSetter,
+    spsc::cell::{SpscCellSetter, spsc_cells},
 };
 use once_cell_no_std::OnceCell;
 use terminal::log;
 
 use crate::{
+    arch::x86_64::err::ErrNo,
     drivers::fs::ext2::structs::Ext2Fs,
     hal::{
-        fs::{FILE_SYSTEM, FileSystem, HalFsIOErr, HalIOCtx, HalInode, OpenFlags},
+        buffer::Buffer,
+        fs::{FileSystem, HalIOCtx, HalInode, OpenFlags},
         path::Path,
         storage::read_gpt,
     },
 };
 
-#[repr(i8)]
-pub enum OpenErr {
-    NoSuchFileOrDirectory = -2,
-    PermissionDenied = -13,
-    FileExists = -17,
-    IsADirectory = -21,
-    TooManyOpenFiles = -24,
-    Unknown = -128,
+#[repr(u8)]
+pub enum Whence {
+    SeekSet = 0,
+    SeekCur,
+    SeekEnd,
+    SeekData,
+    SeekHole,
 }
 
 pub enum VfsOperationType {
     Open {
         path: Path,
         flags: OpenFlags,
-        cell: SpscCellSetter<u64>,
+        cell: SpscCellSetter<i64>,
+    },
+
+    Read {
+        inode_id: i64,
+        buffer: Buffer,
+        cell: SpscCellSetter<i64>,
+    },
+
+    Write {
+        inode_id: i64,
+        buffer: Buffer,
+        cell: SpscCellSetter<i64>,
+    },
+
+    Lseek {
+        inode_id: i64,
+        whence: Whence,
+        offset: i64,
+        cell: SpscCellSetter<i64>,
+    },
+
+    Close {
+        inode_id: i64,
     },
 }
 
@@ -38,15 +62,19 @@ pub struct VfsOperation {
 }
 
 pub struct HalOpenedInode {
-    inode: HalInode,
-    ctx: HalIOCtx,
+    pub inode: HalInode,
+    pub ctx: HalIOCtx,
+    pub count: usize,
+    pub mount_point_id: i64,
 }
 
 impl HalOpenedInode {
-    pub fn from_inode(inode: HalInode) -> Self {
+    pub fn from_inode(inode: HalInode, id: i64) -> Self {
         Self {
             inode,
             ctx: HalIOCtx::new(),
+            count: 1,
+            mount_point_id: id,
         }
     }
 }
@@ -55,10 +83,10 @@ pub static VFS_SENDER: OnceCell<UnboundedSender<VfsOperation>> = OnceCell::new()
 
 #[derive(Default)]
 pub struct MountPointArray {
-    pub mount_points: BTreeMap<u64, FileSystem>,
-    pub path_to_id_map: BTreeMap<Path, u64>,
+    pub mount_points: BTreeMap<i64, FileSystem>,
+    pub path_to_id_map: BTreeMap<Path, i64>,
 
-    pub counter: u64,
+    pub counter: i64,
 }
 
 impl MountPointArray {
@@ -69,7 +97,13 @@ impl MountPointArray {
         }
     }
 
-    pub fn get_mount_point_by_id(&mut self, id: u64) -> Option<&mut FileSystem> {
+    pub fn insert(&mut self, path: Path, fs: FileSystem) {
+        self.mount_points.insert(self.counter, fs);
+        self.path_to_id_map.insert(path, self.counter);
+        self.counter += 1;
+    }
+
+    pub fn get_mount_point_by_id(&mut self, id: i64) -> Option<&mut FileSystem> {
         self.mount_points.get_mut(&id)
     }
 
@@ -88,10 +122,10 @@ impl MountPointArray {
     }
 }
 
-pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) -> Result<(), HalFsIOErr> {
+pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) {
     let mut fs = FileSystem::default();
-    let mut opened_inodes: BTreeMap<u64, HalOpenedInode> = BTreeMap::new();
-    let mut inode_idx_counter: u64 = 0;
+    let mut opened_inodes: BTreeMap<i64, HalOpenedInode> = BTreeMap::new();
+    let mut inode_idx_counter: i64 = 0;
     let mut mount_points = MountPointArray::new();
 
     let (_header, mut entries) = read_gpt(drive_id).await.expect("Failed to read GPT");
@@ -100,93 +134,213 @@ pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) -> Result<(), Hal
     fs.drive_id = drive_id;
     fs.entry_idx = entry_idx;
     fs.entry = entries.remove(entry_idx);
+    fs.mounted_at = Path::new_appended("/");
 
     // only ext2 is supported
     fs.fs_impl = crate::hal::fs::HalFs::Ext2(Ext2Fs::new(drive_id, fs.entry.clone()).await);
 
+    mount_points.insert(Path::new_appended("/"), fs);
+
     let (tx, rx) = unbounded_channel::<VfsOperation>();
-    VFS_SENDER.set(tx).expect("Failed to set vfs task sender");
+    let _ = VFS_SENDER.set(tx).expect("Failed to set vfs task sender");
 
     while let Some(operation) = rx.recv().await {
         match operation.operation_type {
             VfsOperationType::Open { path, flags, cell } => {
                 let path = path.normalize();
-                if mount_points.contains_path(&path) {
-                    todo!("open files in mount points");
+
+                let (_, id) = mount_points.path_to_id_map.iter().fold(
+                    (0, None),
+                    |(mut acc, mut res), (p, id)| {
+                        if path.as_str().starts_with(p.as_str()) && p.as_str().len() < acc {
+                            acc = p.as_str().len();
+                            res = Some(id);
+                        }
+
+                        (acc, res)
+                    },
+                );
+
+                match id {
+                    Some(id) => {
+                        let id = *id;
+                        let fs = match mount_points.get_mount_point_by_id(id) {
+                            Some(fs) => fs,
+                            None => {
+                                cell.set(ErrNo::NoSuchFileOrDirectory as i64);
+                                continue;
+                            }
+                        };
+
+                        let path = Path::new_appended(
+                            path.as_str().trim_start_matches(fs.mounted_at.as_str()),
+                        );
+
+                        match fs.fs_impl {
+                            crate::hal::fs::HalFs::Ext2(ref mut ext2) => {
+                                match ext2.open_file(path, flags).await {
+                                    Ok(inode) => {
+                                        let inode = HalOpenedInode::from_inode(inode, id);
+                                        opened_inodes.insert(inode_idx_counter, inode);
+                                        fs.opened_inodes.insert(inode_idx_counter);
+                                        inode_idx_counter += 1;
+                                    }
+                                    Err(e) => {
+                                        cell.set(Into::<ErrNo>::into(e) as i64);
+                                    }
+                                }
+                            }
+                            crate::hal::fs::HalFs::Unidentified => panic!("Bad fs"),
+                        }
+                    }
+                    None => {
+                        cell.set(ErrNo::NoSuchFileOrDirectory as i64);
+                    }
                 }
+            }
+
+            VfsOperationType::Read {
+                inode_id,
+                mut buffer,
+                cell,
+            } => {
+                let inode = match opened_inodes.get_mut(&inode_id) {
+                    Some(inode) => inode,
+                    None => {
+                        cell.set(ErrNo::BadFd as i64);
+                        continue;
+                    }
+                };
+
+                let fs = match mount_points.get_mount_point_by_id(inode.mount_point_id) {
+                    Some(fs) => fs,
+                    None => {
+                        cell.set(ErrNo::BadFd as i64);
+                        continue;
+                    }
+                };
 
                 match fs.fs_impl {
                     crate::hal::fs::HalFs::Ext2(ref mut ext2) => {
-                        let inode = ext2.open_file(path, flags).await?;
-                        opened_inodes.insert(inode_idx_counter, HalOpenedInode::from_inode(inode));
-                        inode_idx_counter += 1;
-
-                        cell.set(inode_idx_counter - 1);
+                        #[allow(irrefutable_let_patterns)]
+                        if let HalInode::Ext2(ref mut ino) = inode.inode {
+                            match ext2.read(ino, &mut buffer, &mut inode.ctx).await {
+                                Ok(bytes_read) => {
+                                    cell.set(bytes_read as i64);
+                                }
+                                Err(e) => {
+                                    cell.set(Into::<ErrNo>::into(e) as i64);
+                                }
+                            }
+                        } else {
+                            cell.set(ErrNo::BadFd as i64);
+                        }
                     }
-                    super::fs::HalFs::Unidentified => panic!("No file system detected"),
+                    crate::hal::fs::HalFs::Unidentified => panic!("Bad fs"),
                 }
+            }
+
+            VfsOperationType::Write {
+                inode_id,
+                buffer,
+                cell,
+            } => {
+                let inode = match opened_inodes.get_mut(&inode_id) {
+                    Some(inode) => inode,
+                    None => {
+                        cell.set(ErrNo::BadFd as i64);
+                        continue;
+                    }
+                };
+
+                let fs = match mount_points.get_mount_point_by_id(inode.mount_point_id) {
+                    Some(fs) => fs,
+                    None => {
+                        cell.set(ErrNo::BadFd as i64);
+                        continue;
+                    }
+                };
+
+                match fs.fs_impl {
+                    crate::hal::fs::HalFs::Ext2(ref mut ext2) => {
+                        #[allow(irrefutable_let_patterns)]
+                        if let HalInode::Ext2(ref mut ino) = inode.inode {
+                            match ext2.write(ino, &buffer, &mut inode.ctx).await {
+                                Ok(bytes_written) => {
+                                    cell.set(bytes_written as i64);
+                                }
+                                Err(e) => {
+                                    cell.set(Into::<ErrNo>::into(e) as i64);
+                                }
+                            }
+                        } else {
+                            cell.set(ErrNo::BadFd as i64);
+                        }
+                    }
+                    crate::hal::fs::HalFs::Unidentified => panic!("Bad fs"),
+                }
+            }
+
+            VfsOperationType::Lseek {
+                inode_id,
+                whence,
+                offset,
+                cell,
+            } => {
+                todo!();
+            }
+
+            VfsOperationType::Close { inode_id } => {
+                todo!();
             }
         }
     }
-
-    Ok(())
 }
 
-pub async fn init_vfs(drive_id: usize, entry_idx: usize) {
-    let (_header, mut entries) = read_gpt(drive_id).await.expect("Failed to read GPT");
-    log!("Root directory entry: {:?}", entries[entry_idx]);
+pub async fn vfs_open(path: Path, flags: OpenFlags) -> i64 {
+    let sender = VFS_SENDER.get().expect("Failed to get VFS sender");
 
-    let mut fs = FILE_SYSTEM.lock().await;
+    let (tx, rx) = spsc_cells::<i64>();
 
-    fs.drive_id = drive_id;
-    fs.entry_idx = entry_idx;
-    fs.entry = entries.remove(entry_idx);
+    sender.send(VfsOperation {
+        operation_type: VfsOperationType::Open {
+            path,
+            flags,
+            cell: rx,
+        },
+    });
 
-    // only ext2 is supported
-    fs.fs_impl = crate::hal::fs::HalFs::Ext2(Ext2Fs::new(drive_id, fs.entry.clone()).await);
+    tx.get().await
 }
 
-pub async fn open(path: Path, flags: OpenFlags) -> Result<HalInode, HalFsIOErr> {
-    let mut fs = FILE_SYSTEM.lock().await;
+pub async fn vfs_read(fd: i64, buf: Buffer) -> i64 {
+    let sender = VFS_SENDER.get().expect("Failed to get VFS sender");
 
-    match fs.fs_impl {
-        crate::hal::fs::HalFs::Ext2(ref mut ext2) => Ok(ext2.open_file(path, flags).await?),
-        super::fs::HalFs::Unidentified => panic!("No file system detected"),
-    }
+    let (tx, rx) = spsc_cells::<i64>();
+
+    sender.send(VfsOperation {
+        operation_type: VfsOperationType::Read {
+            inode_id: fd,
+            buffer: buf,
+            cell: rx,
+        },
+    });
+
+    tx.get().await
 }
 
-pub async fn write(
-    inode: &mut HalInode,
-    buf: Box<[u8]>,
-    ctx: &mut HalIOCtx,
-) -> Result<usize, HalFsIOErr> {
-    let mut fs = FILE_SYSTEM.lock().await;
+pub async fn vfs_write(fd: i64, buf: Buffer) -> i64 {
+    let sender = VFS_SENDER.get().expect("Failed to get VFS sender");
 
-    match fs.fs_impl {
-        crate::hal::fs::HalFs::Ext2(ref mut ext2) => {
-            let ino = match inode {
-                HalInode::Ext2(ino) => ino,
-            };
-            Ok(ext2.write(ino, buf, ctx).await?)
-        }
-        super::fs::HalFs::Unidentified => panic!("No file system detected"),
-    }
-}
+    let (tx, rx) = spsc_cells::<i64>();
 
-pub async fn read(
-    inode: &mut HalInode,
-    buf: &mut Box<[u8]>,
-    ctx: &mut HalIOCtx,
-) -> Result<usize, HalFsIOErr> {
-    let mut fs = FILE_SYSTEM.lock().await;
+    sender.send(VfsOperation {
+        operation_type: VfsOperationType::Write {
+            inode_id: fd,
+            buffer: buf,
+            cell: rx,
+        },
+    });
 
-    match fs.fs_impl {
-        crate::hal::fs::HalFs::Ext2(ref mut ext2) => {
-            let ino = match inode {
-                HalInode::Ext2(ino) => ino,
-            };
-            Ok(ext2.read(ino, buf, ctx).await?)
-        }
-        super::fs::HalFs::Unidentified => panic!("No file system detected"),
-    }
+    tx.get().await
 }

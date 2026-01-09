@@ -33,7 +33,7 @@ impl Ext2Fs {
     async fn write_till_next_block(
         &mut self,
         inode: &mut Inode,
-        input: &Box<[u8]>,
+        input: &[u8],
         ctx: &mut HalIOCtx,
         block_idx: u32,
         progress: &mut Progress,
@@ -71,7 +71,7 @@ impl Ext2Fs {
     pub async fn write(
         &mut self,
         victim_inode: &mut InodePlus,
-        buf: Box<[u8]>,
+        buf: &[u8],
         ctx: &mut HalIOCtx,
     ) -> Result<usize, HalFsIOErr> {
         log!("write: input: {:?}", buf);

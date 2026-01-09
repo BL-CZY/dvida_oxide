@@ -58,3 +58,15 @@ impl<T> Future for SpscCellGetFuture<T> {
         }
     }
 }
+
+pub fn spsc_cells<T>() -> (SpscCellGetter<T>, SpscCellSetter<T>) {
+    let cell: Arc<SpinMutex<SpscCell<T>>> = Arc::new(SpinMutex::new(SpscCell {
+        inner: None,
+        waker: None,
+    }));
+
+    (
+        SpscCellGetter { cell: cell.clone() },
+        SpscCellSetter { cell: cell.clone() },
+    )
+}

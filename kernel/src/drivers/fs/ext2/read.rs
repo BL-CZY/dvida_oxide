@@ -126,7 +126,7 @@ impl Ext2Fs {
     pub async fn read(
         &mut self,
         victim_inode: &mut InodePlus,
-        buf: &mut Box<[u8]>,
+        buf: &mut [u8],
         ctx: &mut HalIOCtx,
     ) -> Result<usize, HalFsIOErr> {
         let inode = &mut victim_inode.inode;

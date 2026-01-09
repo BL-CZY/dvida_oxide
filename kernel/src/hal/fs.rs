@@ -1,9 +1,7 @@
 use core::fmt::Debug;
 
-use alloc::{collections::btree_map::BTreeMap, string::String, sync::Arc, vec::Vec};
+use alloc::{collections::btree_set::BTreeSet, string::String};
 use dvida_serialize::{DvDeErr, DvSerErr, DvSerialize};
-use ejcineque::sync::mutex::Mutex;
-use lazy_static::lazy_static;
 
 use crate::{
     drivers::fs::ext2::{self, structs::Ext2Fs},
@@ -11,11 +9,6 @@ use crate::{
 };
 
 pub const EOF: usize = 0;
-
-lazy_static! {
-    pub static ref FILE_SYSTEM: Arc<Mutex<FileSystem>> =
-        Arc::new(Mutex::new(FileSystem::default()));
-}
 
 pub struct DirEnt64 {
     pub inode_idx: u64,
@@ -77,9 +70,10 @@ pub struct FileSystem {
     pub drive_id: usize,
     pub entry_idx: usize,
     pub entry: GPTEntry,
-    pub opened_inodes: Vec<u64>,
+    pub opened_inodes: BTreeSet<i64>,
 
     pub fs_impl: HalFs,
+    pub mounted_at: Path,
 }
 
 #[derive(Debug, Clone, Default)]

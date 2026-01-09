@@ -1,9 +1,10 @@
 extern crate alloc;
+use alloc::borrow::ToOwned;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 /// Represents an absolute Unix path
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Path {
     raw: String,
 }
@@ -16,6 +17,18 @@ impl Path {
             Some(Self { raw: path })
         } else {
             None
+        }
+    }
+
+    pub fn new_appended(path: &str) -> Self {
+        if path.starts_with('/') {
+            Self {
+                raw: path.to_owned(),
+            }
+        } else {
+            Self {
+                raw: "/".to_owned() + path,
+            }
         }
     }
 
