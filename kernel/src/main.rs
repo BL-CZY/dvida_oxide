@@ -31,7 +31,7 @@ use crate::{
     debug::terminal::WRITER,
     hal::{
         storage::{PRIMARY, SECONDARY, run_storage_device},
-        vfs::{init_vfs, spawn_vfs_task},
+        vfs::spawn_vfs_task,
     },
 };
 
@@ -69,7 +69,7 @@ async fn kernel_main(executor: Executor) {
 
     executor.spawn(spawn_vfs_task(args.root_drive, args.root_entry));
     yield_now().await;
-    log!("VFS task launched")
+    log!("VFS task launched");
 }
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.

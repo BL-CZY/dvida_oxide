@@ -123,6 +123,9 @@ impl MountPointArray {
 }
 
 pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) {
+    let (tx, rx) = unbounded_channel::<VfsOperation>();
+    let _ = VFS_SENDER.set(tx).expect("Failed to set vfs task sender");
+
     let mut fs = FileSystem::default();
     let mut opened_inodes: BTreeMap<i64, HalOpenedInode> = BTreeMap::new();
     let mut inode_idx_counter: i64 = 0;
@@ -141,16 +144,13 @@ pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) {
 
     mount_points.insert(Path::new_appended("/"), fs);
 
-    let (tx, rx) = unbounded_channel::<VfsOperation>();
-    let _ = VFS_SENDER.set(tx).expect("Failed to set vfs task sender");
-
     while let Some(operation) = rx.recv().await {
         match operation.operation_type {
             VfsOperationType::Open { path, flags, cell } => {
                 let path = path.normalize();
 
                 let (_, id) = mount_points.path_to_id_map.iter().fold(
-                    (0, None),
+                    (usize::MAX, None),
                     |(mut acc, mut res), (p, id)| {
                         if path.as_str().starts_with(p.as_str()) && p.as_str().len() < acc {
                             acc = p.as_str().len();
@@ -183,6 +183,7 @@ pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) {
                                         let inode = HalOpenedInode::from_inode(inode, id);
                                         opened_inodes.insert(inode_idx_counter, inode);
                                         fs.opened_inodes.insert(inode_idx_counter);
+                                        cell.set(inode_idx_counter);
                                         inode_idx_counter += 1;
                                     }
                                     Err(e) => {
@@ -245,6 +246,7 @@ pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) {
                 buffer,
                 cell,
             } => {
+                log!("received write");
                 let inode = match opened_inodes.get_mut(&inode_id) {
                     Some(inode) => inode,
                     None => {

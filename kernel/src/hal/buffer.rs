@@ -8,7 +8,7 @@ use alloc::boxed::Box;
 unsafe impl Send for Buffer {}
 unsafe impl Sync for Buffer {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Buffer {
     inner: *mut u8,
     len: usize,

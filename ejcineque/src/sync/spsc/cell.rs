@@ -1,4 +1,5 @@
 use alloc::sync::Arc;
+use terminal::log;
 
 use crate::sync::spin::SpinMutex;
 use core::task::Waker;
@@ -52,7 +53,7 @@ impl<T> Future for SpscCellGetFuture<T> {
                 core::task::Poll::Ready(res)
             }
             None => {
-                self.cell.lock().waker = Some(cx.waker().clone());
+                cell.waker = Some(cx.waker().clone());
                 core::task::Poll::Pending
             }
         }
