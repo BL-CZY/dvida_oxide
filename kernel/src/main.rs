@@ -6,6 +6,7 @@
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 
+use alloc::string::ToString;
 use terminal::{iprintln, log};
 
 extern crate alloc;
@@ -30,8 +31,9 @@ use crate::{
     crypto::random::run_random,
     debug::terminal::WRITER,
     hal::{
+        path::Path,
         storage::{PRIMARY, SECONDARY, run_storage_device},
-        vfs::spawn_vfs_task,
+        vfs::{spawn_vfs_task, vfs_open},
     },
 };
 

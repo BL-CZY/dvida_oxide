@@ -87,6 +87,12 @@ pub fn init() -> MemoryMappings {
         double_fault_stack_start
     );
 
+    bit_map.fill();
+    bit_map.set_used_by_address(
+        VirtAddr::from_ptr(bitmap_start as *mut u8),
+        (bitmap_page_length + KHEAP_PAGE_COUNT + STACK_PAGE_SIZE as u64) as usize,
+    );
+
     let tss = {
         let mut tss = TaskStateSegment::new();
         // tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] =
@@ -97,8 +103,6 @@ pub fn init() -> MemoryMappings {
     };
 
     let _ = TSS.set(AlignedTSS(tss)).expect("Failed to set tss");
-
-    log!("{:?}", TSS);
 
     MemoryMappings { bit_map, kheap }
 }
