@@ -46,3 +46,34 @@ pub struct ElfHeader {
     section_header_table_entry_count: u16,
     section_header_string_table_idx: u16,
 }
+
+#[derive(Debug, Clone, Copy)]
+#[repr(u32)]
+pub enum Flags {
+    Executable = 0b1,
+    Writable = 0b10,
+    Readable = 0b100,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(u32)]
+pub enum SegmentType {
+    Null = 0,
+    Load = 1,
+    Dynamic = 2,
+    Interp = 3,
+    Note = 4,
+}
+
+#[derive(Pod, Zeroable, Debug, Clone, Copy)]
+#[repr(C, packed)]
+pub struct ElfProgramHeaderEntry {
+    segment_type: u32,
+    flags: u32,
+    offset: u64,
+    vaddr: u64,
+    paddr: u64,
+    size_in_file: u64,
+    size_in_memory: u64,
+    alignment: u64,
+}

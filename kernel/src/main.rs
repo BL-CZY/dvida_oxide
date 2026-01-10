@@ -95,6 +95,14 @@ unsafe extern "C" fn _start() -> ! {
     log!("Interrupts enabled!");
     configure_pit();
 
+    // #[inline(never)]
+    // fn force_overflow(n: u64) {
+    //     let _large_array = [0u64; 1000]; // Allocate space on the stack to speed up the crash
+    //     core::hint::black_box(force_overflow(n + 1));
+    // }
+    //
+    // force_overflow(100);
+
     log_memmap();
     let MemoryMappings { kheap, .. } = memory::init();
     init_kheap(
