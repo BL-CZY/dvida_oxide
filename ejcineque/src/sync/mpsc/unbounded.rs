@@ -55,6 +55,10 @@ impl<T> UnboundedReceiver<T> {
         // lifetime here
         return RecvFuture { rx: self };
     }
+
+    pub fn try_recv(&self) -> Option<T> {
+        self.channel.lock().buffer.pop_front()
+    }
 }
 
 pub struct RecvFuture<'a, T> {
