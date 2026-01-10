@@ -88,6 +88,9 @@ unsafe extern "C" fn _start() -> ! {
 
     WRITER.lock().init_debug_terminal();
 
+    log_memmap();
+    let MemoryMappings { kheap, .. } = memory::init();
+
     init_gdt();
     init_idt();
     init_pic();
@@ -103,8 +106,6 @@ unsafe extern "C" fn _start() -> ! {
     //
     // force_overflow(100);
 
-    log_memmap();
-    let MemoryMappings { kheap, .. } = memory::init();
     init_kheap(
         kheap.kheap_start,
         (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,

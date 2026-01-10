@@ -5,16 +5,16 @@ pub mod memmap;
 pub mod page_table;
 pub mod pmm;
 
+use crate::arch::x86_64::gdt::{self, AlignedTSS, DOUBLE_FAULT_IST_INDEX, STACK_PAGE_SIZE, TSS};
 use crate::arch::x86_64::memory::bitmap::BitMap;
 use crate::arch::x86_64::memory::heap::KHeap;
+use crate::arch::x86_64::memory::memmap::get_memmap;
 use crate::dyn_mem::KHEAP_PAGE_COUNT;
-use frame_allocator::MinimalAllocator;
+use limine::memory_map::EntryType;
 use limine::request::HhdmRequest;
-use memmap::read_memmap_usable;
-use page_table::read_offset_table;
-use terminal::{iprint, iprintln};
+use terminal::{iprintln, log};
 use x86_64::VirtAddr;
-use x86_64::structures::paging::{Mapper, Page, PageTableFlags};
+use x86_64::structures::tss::TaskStateSegment;
 
 #[unsafe(link_section = ".requests")]
 static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
@@ -38,12 +38,7 @@ pub fn get_hhdm_offset() -> VirtAddr {
 }
 
 pub fn init() -> MemoryMappings {
-    // get 16 pages of memory as kernel heap
-
-    let mut page_table = unsafe { read_offset_table() };
-    let mut minimal_allocator = MinimalAllocator { next: 0 };
-
-    let usable_frame_count = memmap::count_mem_usable() / PAGE_SIZE as u64;
+    let usable_frame_count = memmap::count_mem() / PAGE_SIZE as u64;
     let bitmap_length = (usable_frame_count / BYTE_SIZE as u64)
         + (usable_frame_count % BYTE_SIZE as u64 != 0) as u64;
     let bitmap_page_length =
@@ -56,12 +51,18 @@ pub fn init() -> MemoryMappings {
         bitmap_page_length
     );
 
-    // reserve a space for bitmap and kernel heap so we don't write page tables there
-    minimal_allocator.step(bitmap_page_length as usize + KHEAP_PAGE_COUNT as usize);
+    let entry = get_memmap()
+        .iter()
+        .filter(|r| r.entry_type == EntryType::USABLE)
+        .filter(|r| {
+            r.length
+                > (bitmap_page_length + KHEAP_PAGE_COUNT + STACK_PAGE_SIZE as u64)
+                    * PAGE_SIZE as u64
+        })
+        .next()
+        .expect("No Appropriate entry found for kheap, bitmap, and double fault stack");
 
-    let usable_mem = read_memmap_usable();
-
-    let bitmap_start: u64 = VIRTMEM_OFFSET;
+    let bitmap_start: u64 = entry.base + get_hhdm_offset().as_u64();
 
     let bit_map = BitMap {
         start: bitmap_start as *mut u8,
@@ -69,37 +70,35 @@ pub fn init() -> MemoryMappings {
         page_length: bitmap_page_length,
     };
 
-    let kheap_start: u64 = VIRTMEM_OFFSET + bitmap_page_length;
+    let kheap_start: u64 = bitmap_start + bitmap_page_length * PAGE_SIZE as u64;
 
     let kheap: KHeap = KHeap {
         kheap_start: kheap_start as *mut u8,
     };
 
-    iprintln!("[Mapped pages (b for bitmap, k for kernel heap)]:");
+    let double_fault_stack_start: u64 = kheap_start
+        + KHEAP_PAGE_COUNT * PAGE_SIZE as u64
+        + STACK_PAGE_SIZE as u64 * PAGE_SIZE as u64;
 
-    for (index, frame) in usable_mem.enumerate() {
-        if index >= (KHEAP_PAGE_COUNT + bitmap_page_length) as usize {
-            break;
-        }
+    log!(
+        "Bitmap at 0x{:x}, Kernel Heap at 0x{:x}, Double Fault Stack at 0x{:x}",
+        bitmap_start,
+        kheap_start,
+        double_fault_stack_start
+    );
 
-        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-        let page = Page::containing_address(VirtAddr::new(
-            VIRTMEM_OFFSET + PAGE_SIZE as u64 * index as u64,
-        ));
+    let tss = {
+        let mut tss = TaskStateSegment::new();
+        // tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] =
+        //     VirtAddr::from_ptr(double_fault_stack_start as *mut u8);
+        tss.interrupt_stack_table[gdt::DOUBLE_FAULT_IST_INDEX as usize] =
+            VirtAddr::from_ptr(double_fault_stack_start as *mut u8);
+        tss
+    };
 
-        unsafe {
-            page_table
-                .map_to(page, frame, flags, &mut minimal_allocator)
-                .expect("Failed to map kernel heap")
-                .flush();
-        }
+    let _ = TSS.set(AlignedTSS(tss)).expect("Failed to set tss");
 
-        if index < bitmap_page_length as usize {
-            iprint!("b{:?}, ", page);
-        } else {
-            iprint!("k{:?}, ", page);
-        }
-    }
+    log!("{:?}", TSS);
 
     MemoryMappings { bit_map, kheap }
 }

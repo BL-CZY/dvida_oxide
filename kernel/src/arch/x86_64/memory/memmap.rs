@@ -108,3 +108,8 @@ pub fn count_mem_usable() -> u64 {
     let (_, res) = sum_memmap(get_memmap(), get_hhdm_offset().as_u64(), false);
     res
 }
+
+pub fn count_mem() -> u64 {
+    let (res, _) = sum_memmap(get_memmap(), get_hhdm_offset().as_u64(), false);
+    res
+}
