@@ -34,7 +34,8 @@ use crate::{
     arch::x86_64::{
         memory::{
             MemoryMappings,
-            frame_allocator::{BitmapAllocator, FRAME_ALLOCATOR},
+            frame_allocator::{BitmapAllocator, FRAME_ALLOCATOR, setup_stack_for_kernel_task},
+            page_table::initialize_page_table,
         },
         pit::configure_pit,
     },
@@ -57,7 +58,9 @@ pub mod hal;
 pub const STACK_SIZE: u64 = 0x100000;
 pub static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_size(STACK_SIZE);
 
+// will be locked all the time
 pub static EXECUTOR: OnceCell<Arc<Mutex<Executor>>> = OnceCell::new();
+pub static SPAWNER: OnceCell<Spawner> = OnceCell::new();
 
 // this is the kernel entry point
 async fn kernel_main(spawner: Spawner) {
@@ -131,6 +134,8 @@ unsafe extern "C" fn _start() -> ! {
         (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
     );
 
+    unsafe { initialize_page_table() };
+
     STORAGE_CONTEXT_ARR[hal::storage::PRIMARY]
         .try_lock()
         .expect("Internal error: should be unlocked")
@@ -142,13 +147,35 @@ unsafe extern "C" fn _start() -> ! {
     log!("Initialized the storage drives");
 
     let executor: Executor = Executor::new();
-    executor.spawn(kernel_main(executor.spawner()));
+    let spawner = executor.spawner();
+    executor.spawn(kernel_main(spawner.clone()));
 
     let _ = EXECUTOR
         .set(Arc::new(Mutex::new(executor.clone())))
         .expect("Failed to set executor");
 
-    executor.run();
+    let _ = SPAWNER.set(spawner).expect("Failed to set spawner");
+
+    let kernel_task_stack_start = setup_stack_for_kernel_task().as_u64();
+
+    jump_to_kernel_task(kernel_task_stack_start);
+}
+
+fn jump_to_kernel_task(stack_top: u64) -> ! {
+    unsafe {
+        core::arch::asm!("mov rsp, {0}", "xor rbp, rbp", "call {1}", in(reg) stack_top, in(reg) kernel_thread_entry_point as u64, options(noreturn));
+    }
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn kernel_thread_entry_point() -> ! {
+    log!("Hello");
+
+    EXECUTOR
+        .get()
+        .expect("Failed to get the executor")
+        .spin_acquire_lock()
+        .run();
 
     hcf();
 }

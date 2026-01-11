@@ -37,6 +37,7 @@ impl Wake for TaskWaker {
     }
 }
 
+#[derive(Clone)]
 pub struct Spawner {
     pub counter: Arc<AtomicU64>,
     pub tasks: Arc<Mutex<VecDeque<TaskID>>>,

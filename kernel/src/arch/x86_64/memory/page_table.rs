@@ -33,7 +33,8 @@ impl KernelPageTable {
         let mut allocator = FRAME_ALLOCATOR
             .get()
             .expect("Failed to get frame allocator")
-            .spin_acquire_lock();
+            .try_lock()
+            .expect("It's not supposed to be locked");
 
         unsafe {
             offset_table
