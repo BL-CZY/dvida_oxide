@@ -1,3 +1,5 @@
+use core::ops::{Deref, DerefMut};
+
 use limine::memory_map::{Entry, EntryType};
 use x86_64::PhysAddr;
 
@@ -31,6 +33,20 @@ pub fn get_memmap_length_usable<'a>() -> (&'a [&'a Entry], usize) {
     }
 
     (memmap, len)
+}
+
+impl Deref for BitMap {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { core::slice::from_raw_parts(self.start, self.length as usize) }
+    }
+}
+
+impl DerefMut for BitMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { core::slice::from_raw_parts_mut(self.start, self.length as usize) }
+    }
 }
 
 impl BitMap {
