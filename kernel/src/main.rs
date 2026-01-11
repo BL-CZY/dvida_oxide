@@ -116,8 +116,14 @@ unsafe extern "C" fn _start() -> ! {
         (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
     );
 
-    STORAGE_CONTEXT_ARR[hal::storage::PRIMARY].lock().init();
-    STORAGE_CONTEXT_ARR[hal::storage::SECONDARY].lock().init();
+    STORAGE_CONTEXT_ARR[hal::storage::PRIMARY]
+        .try_lock()
+        .expect("Internal error: should be unlocked")
+        .init();
+    STORAGE_CONTEXT_ARR[hal::storage::SECONDARY]
+        .try_lock()
+        .expect("Internal error: should be unlocked")
+        .init();
     log!("Initialized the storage drives");
 
     let executor: Executor = Executor::new();

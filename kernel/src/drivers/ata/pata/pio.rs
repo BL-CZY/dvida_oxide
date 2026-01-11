@@ -257,7 +257,7 @@ impl PataDevice {
     async fn read_data_async(
         &mut self,
         count: u16,
-        mut result: Buffer,
+        result: &mut [u8],
     ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         let bytes_needed = count as usize * 512;
 
@@ -403,7 +403,7 @@ impl PataDevice {
         &mut self,
         index: i64,
         count: u16,
-        output: Buffer,
+        output: &mut [u8],
     ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         // log!(
         //     "pio_read_sectors_async: starting read at index={}, count={}",
