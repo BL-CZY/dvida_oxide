@@ -1,21 +1,57 @@
+use core::ops::DerefMut;
+
+use alloc::format;
+use ejcineque::sync::mutex::Mutex;
 use limine::request::KernelAddressRequest;
-use terminal::log;
+use once_cell_no_std::OnceCell;
 use x86_64::{
+    VirtAddr,
     registers::control::Cr3,
-    structures::paging::{FrameAllocator, OffsetPageTable, PageTable, Size4KiB},
+    structures::paging::{
+        Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB,
+    },
 };
+
+use crate::arch::x86_64::memory::frame_allocator::FRAME_ALLOCATOR;
 
 use super::get_hhdm_offset;
 
-pub static KERNEL_ADDRESS_REQUEST: KernelAddressRequest = KernelAddressRequest::new();
+unsafe impl Send for KernelPageTable {}
+unsafe impl Sync for KernelPageTable {}
 
-pub unsafe fn read_offset_table() -> OffsetPageTable<'static> {
-    let l4_tbl = unsafe { read_active_table() };
-    unsafe { OffsetPageTable::new(l4_tbl, get_hhdm_offset()) }
+pub struct KernelPageTable {
+    // this is a virtual address
+    pub table_ptr: *mut PageTable,
+    pub hhdm_offset: VirtAddr,
 }
 
-/// should only be called once
-pub unsafe fn read_active_table() -> &'static mut PageTable {
+impl KernelPageTable {
+    pub fn map_to(&self, page: Page<Size4KiB>, frame: PhysFrame, flags: PageTableFlags) {
+        let mut offset_table =
+            unsafe { OffsetPageTable::new(&mut (*self.table_ptr), self.hhdm_offset) };
+
+        let mut allocator = FRAME_ALLOCATOR
+            .get()
+            .expect("Failed to get frame allocator")
+            .spin_acquire_lock();
+
+        unsafe {
+            offset_table
+                .map_to(page, frame, flags, allocator.deref_mut())
+                .expect(&format!(
+                    "Failed to map frame: {:?} to page {:?} with flags {:?}",
+                    frame, page, flags
+                ))
+                .flush();
+        };
+    }
+}
+
+pub static KERNEL_PAGE_TABLE: OnceCell<Mutex<KernelPageTable>> = OnceCell::new();
+
+pub static KERNEL_ADDRESS_REQUEST: KernelAddressRequest = KernelAddressRequest::new();
+
+pub unsafe fn initialize_page_table() {
     let (table, _) = Cr3::read();
 
     let phys_addr = table.start_address();
@@ -23,32 +59,10 @@ pub unsafe fn read_active_table() -> &'static mut PageTable {
 
     let page_table: *mut PageTable = virt_addr.as_mut_ptr();
 
-    unsafe { &mut *page_table }
-}
-
-pub fn create_page_table(allocator: &mut impl FrameAllocator<Size4KiB>, hhdm_offset: u64) {
-    let l4_table_frame = allocator
-        .allocate_frame()
-        .expect("Failed to initialize the level 4 page table");
-
-    let l4_table_ptr = (l4_table_frame.start_address().as_u64() + hhdm_offset) as *mut u8;
-
-    let l4_table_buf =
-        unsafe { core::slice::from_raw_parts_mut(l4_table_ptr, l4_table_frame.size() as usize) };
-
-    l4_table_buf.fill(0);
-
-    let kernel_address_response = KERNEL_ADDRESS_REQUEST
-        .get_response()
-        .expect("No Kernel Address acquired");
-
-    log!(
-        "Kernel Physical base: 0x{:x}",
-        kernel_address_response.physical_base()
-    );
-
-    log!(
-        "Kernel Virtual base: 0x{:x}",
-        kernel_address_response.virtual_base(),
-    );
+    let _ = KERNEL_PAGE_TABLE
+        .set(Mutex::new(KernelPageTable {
+            table_ptr: page_table,
+            hhdm_offset: get_hhdm_offset(),
+        }))
+        .expect("Failed to set kernel page table");
 }

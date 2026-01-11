@@ -109,6 +109,15 @@ impl<T> Mutex<T> {
 
         None
     }
+
+    pub fn spin_acquire_lock<'a>(&'a self) -> MutexGuard<'a, T> {
+        loop {
+            match self.try_lock() {
+                Some(v) => return v,
+                None => continue,
+            }
+        }
+    }
 }
 
 unsafe impl<'a, T> Send for MutexFuture<'a, T> {}
