@@ -1,6 +1,5 @@
-use core::cell::RefCell;
-
-use alloc::{boxed::Box, collections::btree_set::BTreeSet};
+use alloc::{boxed::Box, collections::btree_set::BTreeSet, sync::Arc};
+use ejcineque::sync::mutex::Mutex;
 use terminal::log;
 
 use crate::{
@@ -119,8 +118,8 @@ impl Ext2Fs {
             group_manager: group_manager,
             io_handler: io_handler,
             buffer_manager: buffer_manager,
-            allocated_block_indices: RefCell::new(BTreeSet::new()),
-            unwritten_freed_blocks: RefCell::new(BTreeSet::new()),
+            allocated_block_indices: Arc::new(Mutex::new(BTreeSet::new())),
+            unwritten_freed_blocks: Arc::new(Mutex::new(BTreeSet::new())),
         };
 
         Self {

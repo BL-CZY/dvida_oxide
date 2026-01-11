@@ -1,11 +1,11 @@
-use core::cell::RefCell;
-
 use alloc::{
     boxed::Box,
     collections::{btree_map::BTreeMap, btree_set::BTreeSet},
+    sync::Arc,
     vec,
     vec::Vec,
 };
+use ejcineque::sync::mutex::Mutex;
 
 use crate::{
     crypto::iterators::{Bit, BitIterator},
@@ -25,8 +25,8 @@ pub struct BlockAllocator {
     pub io_handler: IoHandler,
     pub buffer_manager: BufferManager,
 
-    pub allocated_block_indices: RefCell<BTreeSet<AllocatedBlock>>,
-    pub unwritten_freed_blocks: RefCell<BTreeSet<u32>>,
+    pub allocated_block_indices: Arc<Mutex<BTreeSet<AllocatedBlock>>>,
+    pub unwritten_freed_blocks: Arc<Mutex<BTreeSet<u32>>>,
 }
 
 impl BlockAllocator {
@@ -83,7 +83,8 @@ impl BlockAllocator {
 
                 if self
                     .allocated_block_indices
-                    .borrow_mut()
+                    .lock()
+                    .await
                     .contains(&allocated_block)
                 {
                     continue;
@@ -92,7 +93,8 @@ impl BlockAllocator {
                 remaining_blocks -= 1;
 
                 self.allocated_block_indices
-                    .borrow_mut()
+                    .lock()
+                    .await
                     .insert(allocated_block.clone());
 
                 blocks_allocated.push(allocated_block);
@@ -146,7 +148,8 @@ impl BlockAllocator {
 
             if self
                 .allocated_block_indices
-                .borrow_mut()
+                .lock()
+                .await
                 .contains(&allocated_block)
             {
                 continue;
@@ -155,7 +158,8 @@ impl BlockAllocator {
             num -= 1;
 
             self.allocated_block_indices
-                .borrow_mut()
+                .lock()
+                .await
                 .insert(allocated_block.clone());
 
             blocks_allocated.push(allocated_block);
@@ -183,7 +187,7 @@ impl BlockAllocator {
             gr_number,
             block_global_idx: block_idx,
             ..
-        } in self.allocated_block_indices.borrow().iter()
+        } in self.allocated_block_indices.lock().await.iter()
         {
             allocated_blocks_map
                 .entry(*gr_number)
@@ -242,13 +246,13 @@ impl BlockAllocator {
             .write_sectors(buf, cur_group_buffer_lba)
             .await?;
 
-        self.allocated_block_indices.borrow_mut().clear();
+        self.allocated_block_indices.lock().await.clear();
 
         Ok(())
     }
 
     pub async fn add_freed_block(&mut self, block: u32) {
-        self.unwritten_freed_blocks.borrow_mut().insert(block);
+        self.unwritten_freed_blocks.lock().await.insert(block);
     }
 
     pub async fn write_freed_blocks(&mut self) -> Result<(), HalFsIOErr> {
@@ -256,7 +260,8 @@ impl BlockAllocator {
         let mut cur_group_buffer_lba = -1;
         for group_idx in self
             .unwritten_freed_blocks
-            .borrow()
+            .lock()
+            .await
             .iter()
             .map(|e| *e as i64 / self.group_manager.blocks_per_group as i64)
         {
@@ -283,7 +288,7 @@ impl BlockAllocator {
             descriptor.bg_free_blocks_count -= 1;
         }
 
-        self.unwritten_freed_blocks.borrow_mut().clear();
+        self.unwritten_freed_blocks.lock().await.clear();
 
         Ok(())
     }

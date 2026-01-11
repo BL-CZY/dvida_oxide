@@ -268,16 +268,11 @@ pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) {
                 });
             }
 
-            VfsOperationType::Lseek {
-                inode_id,
-                whence,
-                offset,
-                cell,
-            } => {
+            VfsOperationType::Lseek { .. } => {
                 todo!();
             }
 
-            VfsOperationType::Close { inode_id } => {
+            VfsOperationType::Close { .. } => {
                 todo!();
             }
         }
