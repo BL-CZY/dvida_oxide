@@ -20,6 +20,9 @@ pub enum PataIdentErr {
     Error,
 }
 
+unsafe impl Send for PataDevice {}
+unsafe impl Sync for PataDevice {}
+
 #[derive(Debug)]
 pub struct PataDevice {
     pub identified: bool,

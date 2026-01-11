@@ -7,9 +7,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 use alloc::{boxed::Box, string::String};
 use ejcineque::sync::mpsc::unbounded::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use ejcineque::sync::mutex::Mutex;
 use lazy_static::lazy_static;
 use once_cell_no_std::OnceCell;
-use spin::Mutex;
 use terminal::{iprintln, log};
 use thiserror::Error;
 
@@ -62,7 +62,7 @@ pub struct HalStorageDevice {
 }
 
 #[derive(Debug)]
-pub enum HalStorageOperation<'a> {
+pub enum HalStorageOperation {
     Read {
         buffer: Buffer,
         lba: i64,
@@ -85,7 +85,7 @@ pub enum HalStorageOperation<'a> {
     },
 
     AddEntry {
-        name: &'a [u16; 36],
+        name: [u16; 36],
         start_lba: u64,
         end_lba: u64,
         type_guid: Guid,
@@ -125,7 +125,7 @@ pub async fn run_storage_device(index: usize) {
     };
 
     log!("Sender initialization complete!");
-    STORAGE_CONTEXT_ARR[index].lock().run(rx).await;
+    STORAGE_CONTEXT_ARR[index].lock().await.run(rx).await;
 }
 
 impl HalStorageDevice {
@@ -138,7 +138,7 @@ impl HalStorageDevice {
         }
     }
 
-    pub async fn run<'a>(&mut self, rx: UnboundedReceiver<HalStorageOperation<'a>>) {
+    pub async fn run(&mut self, rx: UnboundedReceiver<HalStorageOperation>) {
         if !self.available {
             iprintln!(
                 "Failed to run the storage device at {:x} because it is not available",
@@ -158,7 +158,7 @@ impl HalStorageDevice {
                         .read_sectors_async(
                             lba,
                             (buffer.len() / SECTOR_SIZE) as u16,
-                            buffer.as_mut(),
+                            buffer.clone(),
                         )
                         .await
                     {
@@ -170,79 +170,78 @@ impl HalStorageDevice {
                         }
                     }
                 }
-
-                HalStorageOperation::Write {
-                    buffer,
-                    lba,
-                    sender,
-                } => {
-                    match self
-                        .write_sectors_async(lba, (buffer.len() / SECTOR_SIZE) as u16, &buffer)
-                        .await
-                    {
-                        Ok(_) => {
-                            sender.send(Ok(()));
-                        }
-
-                        Err(e) => {
-                            sender.send(Err(HalStorageOperationErr::DriveErr(e.to_string())));
-                        }
-                    }
-                }
-
-                HalStorageOperation::InitGpt { force, sender } => {
-                    match self.create_gpt(force).await {
-                        Ok(_) => {
-                            sender.send(Ok(()));
-                        }
-
-                        Err(e) => {
-                            sender.send(Err(e));
-                        }
-                    }
-                }
-
-                HalStorageOperation::ReadGpt { sender } => match self.read_gpt().await {
-                    Ok(res) => {
-                        sender.send(Ok(res));
-                    }
-
-                    Err(e) => {
-                        sender.send(Err(e));
-                    }
-                },
-
-                HalStorageOperation::AddEntry {
-                    name,
-                    start_lba,
-                    end_lba,
-                    type_guid,
-                    flags,
-                    sender,
-                } => match self
-                    .add_entry(name, start_lba, end_lba, type_guid, flags)
-                    .await
-                {
-                    Ok(_res) => {
-                        sender.send(Ok(()));
-                    }
-
-                    Err(e) => {
-                        sender.send(Err(e));
-                    }
-                },
-
-                HalStorageOperation::DeleteEntry { idx, sender } => {
-                    match self.delete_entry(idx).await {
-                        Ok(res) => {
-                            sender.send(Ok(res));
-                        }
-
-                        Err(e) => {
-                            sender.send(Err(e));
-                        }
-                    }
-                }
+                _ => {} // HalStorageOperation::Write {
+                        //     buffer,
+                        //     lba,
+                        //     sender,
+                        // } => {
+                        //     match self
+                        //         .write_sectors_async(lba, (buffer.len() / SECTOR_SIZE) as u16, &buffer)
+                        //         .await
+                        //     {
+                        //         Ok(_) => {
+                        //             sender.send(Ok(()));
+                        //         }
+                        //
+                        //         Err(e) => {
+                        //             sender.send(Err(HalStorageOperationErr::DriveErr(e.to_string())));
+                        //         }
+                        //     }
+                        // }
+                        //
+                        // HalStorageOperation::InitGpt { force, sender } => {
+                        //     match self.create_gpt(force).await {
+                        //         Ok(_) => {
+                        //             sender.send(Ok(()));
+                        //         }
+                        //
+                        //         Err(e) => {
+                        //             sender.send(Err(e));
+                        //         }
+                        //     }
+                        // }
+                        //
+                        // HalStorageOperation::ReadGpt { sender } => match self.read_gpt().await {
+                        //     Ok(res) => {
+                        //         sender.send(Ok(res));
+                        //     }
+                        //
+                        //     Err(e) => {
+                        //         sender.send(Err(e));
+                        //     }
+                        // },
+                        //
+                        // HalStorageOperation::AddEntry {
+                        //     name,
+                        //     start_lba,
+                        //     end_lba,
+                        //     type_guid,
+                        //     flags,
+                        //     sender,
+                        // } => match self
+                        //     .add_entry(name, start_lba, end_lba, type_guid, flags)
+                        //     .await
+                        // {
+                        //     Ok(_res) => {
+                        //         sender.send(Ok(()));
+                        //     }
+                        //
+                        //     Err(e) => {
+                        //         sender.send(Err(e));
+                        //     }
+                        // },
+                        //
+                        // HalStorageOperation::DeleteEntry { idx, sender } => {
+                        //     match self.delete_entry(idx).await {
+                        //         Ok(res) => {
+                        //             sender.send(Ok(res));
+                        //         }
+                        //
+                        //         Err(e) => {
+                        //             sender.send(Err(e));
+                        //         }
+                        //     }
+                        // }
             }
         }
     }
@@ -276,7 +275,7 @@ impl HalStorageDevice {
         index: i64,
         count: u16,
         output: &mut [u8],
-    ) -> Result<(), Box<dyn core::error::Error>> {
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         if !self.available {
             return Err(Box::new(IoErr::Unavailable));
         }
@@ -291,8 +290,8 @@ impl HalStorageDevice {
         &mut self,
         index: i64,
         count: u16,
-        output: &mut [u8],
-    ) -> Result<(), Box<dyn core::error::Error>> {
+        output: Buffer,
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         if !self.available {
             return Err(Box::new(IoErr::Unavailable));
         }
@@ -310,7 +309,7 @@ impl HalStorageDevice {
         index: i64,
         count: u16,
         input: &[u8],
-    ) -> Result<(), Box<dyn core::error::Error>> {
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         if !self.available {
             return Err(Box::new(IoErr::Unavailable));
         }
@@ -326,7 +325,7 @@ impl HalStorageDevice {
         index: i64,
         count: u16,
         input: &[u8],
-    ) -> Result<(), Box<dyn core::error::Error>> {
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         if !self.available {
             return Err(Box::new(IoErr::Unavailable));
         }
@@ -452,7 +451,7 @@ pub async fn add_entry(
     let leaked_name: &'static [u16; 36] = Box::leak(boxed_name);
 
     sender.send(HalStorageOperation::AddEntry {
-        name: leaked_name,
+        name: *leaked_name,
         start_lba,
         end_lba,
         type_guid,

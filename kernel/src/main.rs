@@ -6,7 +6,8 @@
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 
-use alloc::string::ToString;
+use alloc::{string::ToString, sync::Arc};
+use once_cell_no_std::OnceCell;
 use terminal::{iprintln, log};
 
 extern crate alloc;
@@ -19,7 +20,7 @@ use arch::x86_64::{
 };
 #[allow(unused_imports)]
 use dyn_mem::{KHEAP_PAGE_COUNT, allocator::init_kheap};
-use ejcineque::{executor::Executor, futures::yield_now};
+use ejcineque::{executor::Executor, futures::yield_now, sync::mutex::Mutex};
 use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::{BaseRevision, request::StackSizeRequest};
 pub mod args;
@@ -46,6 +47,8 @@ pub mod hal;
 
 pub const STACK_SIZE: u64 = 0x100000;
 pub static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_size(STACK_SIZE);
+
+pub static EXECUTOR: OnceCell<Arc<Mutex<Executor>>> = OnceCell::new();
 
 // this is the kernel entry point
 async fn kernel_main(executor: Executor) {

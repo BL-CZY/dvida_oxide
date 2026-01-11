@@ -111,6 +111,9 @@ impl<T> Mutex<T> {
     }
 }
 
+unsafe impl<'a, T> Send for MutexFuture<'a, T> {}
+unsafe impl<'a, T> Sync for MutexFuture<'a, T> {}
+
 pub struct MutexFuture<'a, T> {
     mutex: &'a Mutex<T>,
     node: Option<MutexWakerNode>,

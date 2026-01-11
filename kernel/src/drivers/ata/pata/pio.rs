@@ -1,9 +1,11 @@
 use alloc::boxed::Box;
+use ejcineque::futures::race::Either;
 use ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS};
 
 use crate::crypto::binary_test;
 use crate::drivers::ata::cmd;
 use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE};
+use crate::hal::buffer::Buffer;
 use crate::hal::storage::IoErr;
 
 use super::PataDevice;
@@ -28,7 +30,11 @@ impl PataDevice {
         lba
     }
 
-    fn verify_lba(&self, lba: u64, count: u16) -> Result<(), Box<dyn core::error::Error>> {
+    fn verify_lba(
+        &self,
+        lba: u64,
+        count: u16,
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         // log!(
         //     "verify_lba: lba={}, count={}, lba48={}",
         //     lba,
@@ -58,7 +64,7 @@ impl PataDevice {
         Ok(())
     }
 
-    fn wait_init(&mut self) -> Result<(), Box<dyn core::error::Error>> {
+    fn wait_init(&mut self) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         // log!("wait_init: starting");
         let mut timer = 0;
         while binary_test(unsafe { self.status_port.read() } as u64, 7) {
@@ -74,7 +80,11 @@ impl PataDevice {
         Ok(())
     }
 
-    fn io_init(&mut self, index: i64, count: u16) -> Result<u64, Box<dyn core::error::Error>> {
+    fn io_init(
+        &mut self,
+        index: i64,
+        count: u16,
+    ) -> Result<u64, Box<dyn core::error::Error + Send + Sync>> {
         // log!("io_init: index={}, count={}", index, count);
 
         if !self.identified {
@@ -154,7 +164,7 @@ impl PataDevice {
         }
     }
 
-    fn wait_io(&mut self) -> Result<(), Box<dyn core::error::Error>> {
+    fn wait_io(&mut self) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         for _ in 0..14 {
             unsafe {
                 self.status_port.read();
@@ -181,7 +191,7 @@ impl PataDevice {
         }
     }
 
-    async fn wait_io_async(&mut self) -> Result<(), Box<dyn core::error::Error>> {
+    async fn wait_io_async(&mut self) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         for _ in 0..14 {
             unsafe {
                 self.status_port.read();
@@ -207,7 +217,7 @@ impl PataDevice {
         &mut self,
         count: u16,
         result: &mut [u8],
-    ) -> Result<(), Box<dyn core::error::Error>> {
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         let bytes_needed = count as usize * 512;
 
         // log!(
@@ -247,8 +257,8 @@ impl PataDevice {
     async fn read_data_async(
         &mut self,
         count: u16,
-        result: &mut [u8],
-    ) -> Result<(), Box<dyn core::error::Error>> {
+        mut result: Buffer,
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         let bytes_needed = count as usize * 512;
 
         if result.len() < bytes_needed {
@@ -287,7 +297,7 @@ impl PataDevice {
         Ok(())
     }
 
-    fn flush_cache(&mut self) -> Result<(), Box<dyn core::error::Error>> {
+    fn flush_cache(&mut self) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         // log!("flush_cache: flushing drive cache");
         unsafe {
             self.cmd_port.write(cmd::FLUSH_CACHE);
@@ -299,7 +309,11 @@ impl PataDevice {
         Ok(())
     }
 
-    fn write_data(&mut self, count: u16, input: &[u8]) -> Result<(), Box<dyn core::error::Error>> {
+    fn write_data(
+        &mut self,
+        count: u16,
+        input: &[u8],
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         // log!(
         //     "write_data: writing {} sectors ({} bytes)",
         //     count,
@@ -327,7 +341,7 @@ impl PataDevice {
         &mut self,
         count: u16,
         input: &[u8],
-    ) -> Result<(), Box<dyn core::error::Error>> {
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         // log!(
         //     "write_data_async: writing {} sectors ({} bytes)",
         //     count,
@@ -358,7 +372,7 @@ impl PataDevice {
         index: i64,
         count: u16,
         output: &mut [u8],
-    ) -> Result<(), Box<dyn core::error::Error>> {
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         // log!(
         //     "pio_read_sectors: starting read at index={}, count={}",
         //     index,
@@ -389,8 +403,8 @@ impl PataDevice {
         &mut self,
         index: i64,
         count: u16,
-        output: &mut [u8],
-    ) -> Result<(), Box<dyn core::error::Error>> {
+        output: Buffer,
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         // log!(
         //     "pio_read_sectors_async: starting read at index={}, count={}",
         //     index,
@@ -422,7 +436,7 @@ impl PataDevice {
         index: i64,
         count: u16,
         input: &[u8],
-    ) -> Result<(), Box<dyn core::error::Error>> {
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         // log!(
         //     "pio_write_sectors: starting write at index={}, count={}",
         //     index,
@@ -465,7 +479,7 @@ impl PataDevice {
         index: i64,
         count: u16,
         input: &[u8],
-    ) -> Result<(), Box<dyn core::error::Error>> {
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
         // log!(
         //     "pio_write_sectors_async: starting write at index={}, count={}",
         //     index,

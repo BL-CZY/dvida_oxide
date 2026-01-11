@@ -574,7 +574,7 @@ impl HalStorageDevice {
 
     pub async fn add_entry(
         &mut self,
-        name: &[u16; 36],
+        name: [u16; 36],
         start_lba: u64,
         end_lba: u64,
         type_guid: Guid,
@@ -656,7 +656,7 @@ impl HalStorageDevice {
             start_lba,
             end_lba,
             flags,
-            name: *name,
+            name: name,
         };
 
         entries[empty_index] = new_entry;

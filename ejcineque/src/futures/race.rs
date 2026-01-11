@@ -2,17 +2,29 @@ use core::pin::Pin;
 
 use alloc::boxed::Box;
 
-pub enum Either<T, D> {
+pub enum Either<T, D>
+where
+    T: Send + Sync,
+    D: Send + Sync,
+{
     Left(T),
     Right(D),
 }
 
-pub struct Race<T, D> {
-    left_future: Pin<Box<dyn Future<Output = T>>>,
-    right_future: Pin<Box<dyn Future<Output = D>>>,
+pub struct Race<T, D>
+where
+    T: Send + Sync,
+    D: Send + Sync,
+{
+    left_future: Pin<Box<dyn Future<Output = T> + Send + Sync>>,
+    right_future: Pin<Box<dyn Future<Output = D> + Send + Sync>>,
 }
 
-impl<T, D> Future for Race<T, D> {
+impl<T, D> Future for Race<T, D>
+where
+    T: Send + Sync,
+    D: Send + Sync,
+{
     type Output = Either<T, D>;
 
     fn poll(
@@ -34,9 +46,13 @@ impl<T, D> Future for Race<T, D> {
 }
 
 pub async fn race<T, D>(
-    left: impl Future<Output = T> + 'static,
-    right: impl Future<Output = D> + 'static,
-) -> Either<T, D> {
+    left: impl Future<Output = T> + 'static + Send + Sync,
+    right: impl Future<Output = D> + 'static + Send + Sync,
+) -> Either<T, D>
+where
+    T: Send + Sync,
+    D: Send + Sync,
+{
     let race = Race {
         left_future: Box::pin(left),
         right_future: Box::pin(right),

@@ -2,6 +2,9 @@ use core::task::Poll;
 
 use crate::wakers::TIMER_WAKERS;
 
+unsafe impl Send for SleepFuture {}
+unsafe impl Sync for SleepFuture {}
+
 pub struct SleepFuture {
     tick_count: u32,
 }

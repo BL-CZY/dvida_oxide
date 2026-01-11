@@ -16,7 +16,7 @@ pub struct TaskID(u64);
 
 pub struct Task {
     pub id: TaskID,
-    pub future: Pin<Box<dyn Future<Output = ()>>>,
+    pub future: Pin<Box<dyn Future<Output = ()> + Send>>,
 }
 
 impl Task {
@@ -53,7 +53,7 @@ impl Executor {
         }
     }
 
-    pub fn spawn(&self, future: impl Future<Output = ()> + 'static) {
+    pub fn spawn(&self, future: impl Future<Output = ()> + 'static + Send) {
         let future = Box::pin(future);
 
         // Get ID and increment counter atomically, then release lock
