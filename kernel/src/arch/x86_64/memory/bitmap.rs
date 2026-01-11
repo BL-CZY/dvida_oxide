@@ -5,6 +5,10 @@ use x86_64::PhysAddr;
 
 use crate::arch::x86_64::memory::{PAGE_SIZE, memmap::get_memmap};
 
+// only the bitmap will use this pointer
+unsafe impl Send for BitMap {}
+unsafe impl Sync for BitMap {}
+
 pub struct BitMap {
     pub start: *mut u8,
     /// length in bytes

@@ -1,3 +1,5 @@
+use ejcineque::sync::mutex::Mutex;
+use once_cell_no_std::OnceCell;
 use x86_64::{
     PhysAddr,
     structures::paging::{FrameAllocator, PhysFrame, Size4KiB},
@@ -56,3 +58,5 @@ unsafe impl FrameAllocator<Size4KiB> for BitmapAllocator {
         None
     }
 }
+
+pub static FRAME_ALLOCATOR: OnceCell<Mutex<BitmapAllocator>> = OnceCell::new();

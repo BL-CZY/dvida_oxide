@@ -37,6 +37,37 @@ impl Wake for TaskWaker {
     }
 }
 
+pub struct Spawner {
+    pub counter: Arc<AtomicU64>,
+    pub tasks: Arc<Mutex<VecDeque<TaskID>>>,
+    pub tasks_map: Arc<Mutex<BTreeMap<TaskID, Arc<Mutex<Task>>>>>,
+}
+
+impl Spawner {
+    pub fn spawn(&self, future: impl Future<Output = ()> + 'static + Send) {
+        let future = Box::pin(future);
+
+        // Get ID and increment counter atomically, then release lock
+        let id = {
+            let id = TaskID(self.counter.load(core::sync::atomic::Ordering::SeqCst));
+
+            if self.counter.load(core::sync::atomic::Ordering::SeqCst) == u64::MAX {
+                self.counter.swap(0, core::sync::atomic::Ordering::AcqRel);
+            } else {
+                self.counter
+                    .swap(id.0 + 1, core::sync::atomic::Ordering::AcqRel);
+            }
+
+            id // Lock is dropped here
+        };
+
+        let task = Task { id, future };
+
+        self.tasks.lock().push_back(id);
+        self.tasks_map.lock().insert(id, Arc::new(Mutex::new(task)));
+    }
+}
+
 #[derive(Default, Clone)]
 pub struct Executor {
     pub counter: Arc<AtomicU64>,
@@ -46,6 +77,14 @@ pub struct Executor {
 }
 
 impl Executor {
+    pub fn spawner(&self) -> Spawner {
+        Spawner {
+            counter: self.counter.clone(),
+            tasks: self.tasks.clone(),
+            tasks_map: self.tasks_map.clone(),
+        }
+    }
+
     pub fn new() -> Self {
         Executor {
             counter: Arc::new(0.into()),

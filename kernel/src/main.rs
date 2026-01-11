@@ -6,7 +6,7 @@
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 
-use alloc::{string::ToString, sync::Arc};
+use alloc::sync::Arc;
 use once_cell_no_std::OnceCell;
 use terminal::{iprintln, log};
 
@@ -20,21 +20,30 @@ use arch::x86_64::{
 };
 #[allow(unused_imports)]
 use dyn_mem::{KHEAP_PAGE_COUNT, allocator::init_kheap};
-use ejcineque::{executor::Executor, futures::yield_now, sync::mutex::Mutex};
+use ejcineque::{
+    executor::{Executor, Spawner},
+    futures::yield_now,
+    sync::mutex::Mutex,
+};
 use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::{BaseRevision, request::StackSizeRequest};
 pub mod args;
 pub mod time;
 
 use crate::{
-    arch::x86_64::{memory::MemoryMappings, pit::configure_pit},
+    arch::x86_64::{
+        memory::{
+            MemoryMappings,
+            frame_allocator::{BitmapAllocator, FRAME_ALLOCATOR},
+        },
+        pit::configure_pit,
+    },
     args::parse_args,
     crypto::random::run_random,
     debug::terminal::WRITER,
     hal::{
-        path::Path,
         storage::{PRIMARY, SECONDARY, run_storage_device},
-        vfs::{spawn_vfs_task, vfs_open},
+        vfs::spawn_vfs_task,
     },
 };
 
@@ -51,28 +60,28 @@ pub static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_s
 pub static EXECUTOR: OnceCell<Arc<Mutex<Executor>>> = OnceCell::new();
 
 // this is the kernel entry point
-async fn kernel_main(executor: Executor) {
+async fn kernel_main(spawner: Spawner) {
     #[cfg(test)]
     test_main();
 
     log!("Kernel main launched");
 
-    executor.spawn(run_storage_device(PRIMARY));
+    spawner.spawn(run_storage_device(PRIMARY));
     // we yield now to let the tasks actually initialize
     yield_now().await;
 
-    executor.spawn(run_storage_device(SECONDARY));
+    spawner.spawn(run_storage_device(SECONDARY));
     yield_now().await;
 
     log!("Storage drive tasks launched");
 
-    executor.spawn(run_random());
+    spawner.spawn(run_random());
     yield_now().await;
     log!("Random number task launched");
 
     let args = parse_args();
 
-    executor.spawn(spawn_vfs_task(args.root_drive, args.root_entry));
+    spawner.spawn(spawn_vfs_task(args.root_drive, args.root_entry));
     yield_now().await;
     log!("VFS task launched");
 }
@@ -94,7 +103,13 @@ unsafe extern "C" fn _start() -> ! {
     WRITER.lock().init_debug_terminal();
 
     log_memmap();
-    let MemoryMappings { kheap, .. } = memory::init();
+    let MemoryMappings { kheap, bit_map } = memory::init();
+    let _ = FRAME_ALLOCATOR
+        .set(Mutex::new(BitmapAllocator {
+            bitmap: bit_map,
+            next: 0,
+        }))
+        .expect("Failed to set frame allocator");
 
     init_gdt();
     init_idt();
@@ -127,7 +142,11 @@ unsafe extern "C" fn _start() -> ! {
     log!("Initialized the storage drives");
 
     let executor: Executor = Executor::new();
-    executor.spawn(kernel_main(executor.clone()));
+    executor.spawn(kernel_main(executor.spawner()));
+
+    let _ = EXECUTOR
+        .set(Arc::new(Mutex::new(executor.clone())))
+        .expect("Failed to set executor");
 
     executor.run();
 
