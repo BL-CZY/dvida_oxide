@@ -1,5 +1,7 @@
 use x86_64::structures::paging::{FrameAllocator, Size4KiB};
 
+use crate::arch::x86_64::memory::bitmap::BitMap;
+
 use super::memmap;
 
 pub struct MinimalAllocator {
@@ -18,4 +20,8 @@ impl MinimalAllocator {
     pub fn step(&mut self, steps: usize) {
         self.next += steps;
     }
+}
+
+pub struct BitmapAllocator {
+    pub bitmap: BitMap,
 }

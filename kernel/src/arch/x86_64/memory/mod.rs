@@ -13,8 +13,8 @@ use crate::dyn_mem::KHEAP_PAGE_COUNT;
 use limine::memory_map::EntryType;
 use limine::request::HhdmRequest;
 use terminal::{iprintln, log};
-use x86_64::VirtAddr;
 use x86_64::structures::tss::TaskStateSegment;
+use x86_64::{PhysAddr, VirtAddr};
 
 #[unsafe(link_section = ".requests")]
 static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
@@ -38,15 +38,13 @@ pub fn get_hhdm_offset() -> VirtAddr {
 }
 
 pub fn init() -> MemoryMappings {
-    let usable_frame_count = memmap::count_mem() / PAGE_SIZE as u64;
-    let bitmap_length = (usable_frame_count / BYTE_SIZE as u64)
-        + (usable_frame_count % BYTE_SIZE as u64 != 0) as u64;
-    let bitmap_page_length =
-        (bitmap_length / PAGE_SIZE as u64) + (bitmap_length % PAGE_SIZE as u64 != 0) as u64;
+    let frame_count = bitmap::get_highest_physical_memory_usable() / PAGE_SIZE as u64;
+    let bitmap_length = (frame_count + BYTE_SIZE as u64 - 1) / BYTE_SIZE as u64;
+    let bitmap_page_length = (bitmap_length + PAGE_SIZE as u64 - 1) / PAGE_SIZE as u64;
 
     iprintln!(
-        "Usable frame count: {}\nBitmap length: {}\nBitmap page count:{}",
-        usable_frame_count,
+        "frame count: {}\nBitmap length: {}\nBitmap page count:{}",
+        frame_count,
         bitmap_length,
         bitmap_page_length
     );
@@ -62,7 +60,8 @@ pub fn init() -> MemoryMappings {
         .next()
         .expect("No Appropriate entry found for kheap, bitmap, and double fault stack");
 
-    let bitmap_start: u64 = entry.base + get_hhdm_offset().as_u64();
+    let hhdm_offset = get_hhdm_offset().as_u64();
+    let bitmap_start: u64 = entry.base + hhdm_offset;
 
     let bit_map = BitMap {
         start: bitmap_start as *mut u8,
@@ -89,7 +88,7 @@ pub fn init() -> MemoryMappings {
 
     bit_map.fill();
     bit_map.set_used_by_address(
-        VirtAddr::from_ptr(bitmap_start as *mut u8),
+        PhysAddr::new(bitmap_start - hhdm_offset),
         (bitmap_page_length + KHEAP_PAGE_COUNT + STACK_PAGE_SIZE as u64) as usize,
     );
 
