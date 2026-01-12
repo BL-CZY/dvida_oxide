@@ -10,8 +10,8 @@ unsafe impl Sync for Buffer {}
 
 #[derive(Debug, Clone)]
 pub struct Buffer {
-    inner: *mut u8,
-    len: usize,
+    pub inner: *mut u8,
+    pub len: usize,
 }
 
 impl Buffer {

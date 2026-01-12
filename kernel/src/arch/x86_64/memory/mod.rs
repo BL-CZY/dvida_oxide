@@ -12,12 +12,15 @@ use crate::arch::x86_64::memory::memmap::get_memmap;
 use crate::dyn_mem::KHEAP_PAGE_COUNT;
 use limine::memory_map::EntryType;
 use limine::request::HhdmRequest;
+use once_cell_no_std::OnceCell;
 use terminal::{iprintln, log};
 use x86_64::structures::tss::TaskStateSegment;
 use x86_64::{PhysAddr, VirtAddr};
 
 #[unsafe(link_section = ".requests")]
 static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
+
+static HHDM_OFFSET: OnceCell<u64> = OnceCell::new();
 
 pub const PAGE_SIZE: u32 = 4096;
 pub const BYTE_SIZE: u32 = 8;
@@ -30,10 +33,14 @@ pub struct MemoryMappings {
 
 pub fn get_hhdm_offset() -> VirtAddr {
     VirtAddr::new(
-        HHDM_REQUEST
-            .get_response()
-            .expect("[Kernel Panic]: Can't get HHDM")
-            .offset(),
+        *HHDM_OFFSET
+            .get_or_init(|| {
+                HHDM_REQUEST
+                    .get_response()
+                    .expect("[Kernel Panic]: Can't get HHDM")
+                    .offset()
+            })
+            .expect("Failed to get hhdm"),
     )
 }
 

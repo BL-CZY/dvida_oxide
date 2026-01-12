@@ -1,4 +1,5 @@
 pub mod elf;
+pub mod loader;
 
 use ejcineque::sync::spin::SpinMutex;
 use lazy_static::lazy_static;

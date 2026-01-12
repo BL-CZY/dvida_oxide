@@ -36,29 +36,29 @@ pub const SYSTEM_V: u8 = 0;
 #[repr(C, packed)]
 pub struct ElfHeader {
     /// magic should be 0x7f 0x45 0x4c 0x46, which stands for 0x7f + ELF
-    magic: [u8; 4],
+    pub magic: [u8; 4],
     /// 1 = 32 bit, 2 = 64 bit
-    bit: u8,
+    pub bit: u8,
     /// only supports little endian
-    encoding: u8,
-    header_version: u8,
+    pub encoding: u8,
+    pub header_version: u8,
     /// 0 is for system v
-    abi: u8,
-    padding: [u8; 8],
-    elf_type: u16,
-    instruction_set: u16,
+    pub abi: u8,
+    pub padding: [u8; 8],
+    pub elf_type: u16,
+    pub instruction_set: u16,
     /// currently 1
-    version: u32,
-    entry_offset: u64,
-    header_table_offset: u64,
-    section_header_table_offset: u64,
-    flags: u32,
-    header_size: u16,
-    program_header_table_entry_size: u16,
-    program_header_table_entry_count: u16,
-    section_header_table_entry_size: u16,
-    section_header_table_entry_count: u16,
-    section_header_string_table_idx: u16,
+    pub version: u32,
+    pub entry_offset: u64,
+    pub header_table_offset: u64,
+    pub section_header_table_offset: u64,
+    pub flags: u32,
+    pub header_size: u16,
+    pub program_header_table_entry_size: u16,
+    pub program_header_table_entry_count: u16,
+    pub section_header_table_entry_size: u16,
+    pub section_header_table_entry_count: u16,
+    pub section_header_string_table_idx: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -89,30 +89,31 @@ pub enum SegmentType {
 #[derive(Pod, Zeroable, Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct ElfProgramHeaderEntry {
-    segment_type: u32,
-    flags: u32,
-    offset: u64,
-    vaddr: u64,
-    paddr: u64,
-    size_in_file: u64,
-    size_in_memory: u64,
-    alignment: u64,
+    pub segment_type: u32,
+    pub flags: u32,
+    /// offset in file
+    pub offset: u64,
+    pub vaddr: u64,
+    pub paddr: u64,
+    pub size_in_file: u64,
+    pub size_in_memory: u64,
+    pub alignment: u64,
 }
 
 #[derive(Pod, Zeroable, Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct ELFSectionHeaderEntry {
     /// offset in the .shstrtab section that contains the name
-    name_offset: u32,
-    section_type: u32,
-    flags: u64,
-    addr: u64,
-    offset: u64,
-    size: u64,
-    link: u32,
-    info: u32,
-    addralign: u64,
-    entry_size: u64,
+    pub name_offset: u32,
+    pub section_type: u32,
+    pub flags: u64,
+    pub addr: u64,
+    pub offset: u64,
+    pub size: u64,
+    pub link: u32,
+    pub info: u32,
+    pub addralign: u64,
+    pub entry_size: u64,
 }
 
 #[derive(Debug)]
@@ -120,6 +121,7 @@ pub enum ElfErr {
     FsErr(ErrNo),
     NotELF,
     Unsupported,
+    Corrupted,
 }
 
 impl From<ErrNo> for ElfErr {
@@ -188,6 +190,11 @@ pub async fn read_program_headers(
         let offset = offset as usize;
         let entry: ElfProgramHeaderEntry =
             *bytemuck::from_bytes(&buf[offset..offset + size_of::<ElfProgramHeaderEntry>()]);
+
+        if entry.size_in_memory < entry.size_in_file {
+            return Err(ElfErr::Corrupted);
+        }
+
         programs_headers.push(entry);
     }
 

@@ -101,7 +101,10 @@ pub fn setup_stack_for_kernel_task() -> VirtAddr {
         kernel_page_table.map_to(
             page,
             *frame,
-            PageTableFlags::NO_EXECUTE | PageTableFlags::WRITABLE | PageTableFlags::PRESENT,
+            PageTableFlags::NO_EXECUTE
+                | PageTableFlags::WRITABLE
+                | PageTableFlags::PRESENT
+                | PageTableFlags::GLOBAL,
         );
     }
 
