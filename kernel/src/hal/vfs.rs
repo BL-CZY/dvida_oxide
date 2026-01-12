@@ -268,8 +268,31 @@ pub async fn spawn_vfs_task(drive_id: usize, entry_idx: usize) {
                 });
             }
 
-            VfsOperationType::Lseek { .. } => {
-                todo!();
+            VfsOperationType::Lseek {
+                inode_id,
+                whence,
+                offset,
+                cell,
+            } => {
+                find_inode_and_process!(opened_inodes, inode_id, cell, mount_points, |inode, _ino, _ext2| => {
+                    match whence {
+                        Whence::SeekSet => {
+                            inode.ctx.head = offset as usize;
+                            cell.set(Ok(inode.ctx.head as i64));
+                        }
+                        Whence::SeekCur => {
+                            if offset < 0 {
+                                inode.ctx.head -= (offset * -1) as usize;
+                            } else {
+                                inode.ctx.head += offset as usize;
+                            }
+                            cell.set(Ok(inode.ctx.head as i64));
+                        }
+                        Whence::SeekEnd => {}
+                        Whence::SeekData => {}
+                        Whence::SeekHole => {}
+                    }
+                });
             }
 
             VfsOperationType::Close { .. } => {
@@ -320,6 +343,23 @@ pub async fn vfs_write(fd: i64, buf: Buffer) -> Result<i64, ErrNo> {
         operation_type: VfsOperationType::Write {
             inode_id: fd,
             buffer: buf,
+            cell: rx,
+        },
+    });
+
+    tx.get().await
+}
+
+pub async fn vfs_lseek(fd: i64, whence: Whence, offset: i64) -> Result<i64, ErrNo> {
+    let sender = VFS_SENDER.get().expect("Failed to get VFS sender");
+
+    let (tx, rx) = spsc_cells::<Result<i64, ErrNo>>();
+
+    sender.send(VfsOperation {
+        operation_type: VfsOperationType::Lseek {
+            inode_id: fd,
+            whence,
+            offset,
             cell: rx,
         },
     });

@@ -1,3 +1,5 @@
+pub mod elf;
+
 use ejcineque::sync::spin::SpinMutex;
 use lazy_static::lazy_static;
 
@@ -52,3 +54,5 @@ pub struct Thread {
     pub state: ThreadState,
     pub ticks_left: u64,
 }
+
+pub async fn load_thread() {}
