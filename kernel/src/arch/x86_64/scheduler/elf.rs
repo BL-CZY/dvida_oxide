@@ -5,9 +5,7 @@ use crate::{
     arch::x86_64::err::ErrNo,
     hal::{
         buffer::Buffer,
-        fs::OpenFlags,
-        path::Path,
-        vfs::{vfs_lseek, vfs_open, vfs_read},
+        vfs::{vfs_lseek, vfs_read},
     },
 };
 
@@ -237,10 +235,14 @@ pub async fn read_section_headers(
     Ok(programs_headers)
 }
 
-pub async fn read_elf(fd: i64) -> Result<(), ElfErr> {
+pub async fn read_elf(fd: i64) -> Result<ElfFile, ElfErr> {
     let elf_header = read_elf_header(fd).await?;
     let program_headers = read_program_headers(&elf_header, fd).await?;
     let section_headers = read_section_headers(&elf_header, fd).await?;
 
-    Ok(())
+    Ok(ElfFile {
+        header: elf_header,
+        program_header_table: program_headers,
+        section_header_table: section_headers,
+    })
 }
