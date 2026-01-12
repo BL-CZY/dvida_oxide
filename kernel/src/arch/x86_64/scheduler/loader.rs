@@ -59,7 +59,11 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<PhysAddr, LoadErr> {
                 return Err(LoadErr::Corrupted);
             }
 
-            let num_pages = (entry.size_in_memory + PAGE_SIZE as u64 - 1) / PAGE_SIZE as u64;
+            let start = entry.vaddr & !(PAGE_SIZE as u64 - 1);
+            let end = (entry.vaddr + entry.size_in_memory + PAGE_SIZE as u64 - 1)
+                & !(PAGE_SIZE as u64 - 1);
+
+            let num_pages = (end - start + PAGE_SIZE as u64 - 1) / PAGE_SIZE as u64;
             let mut phys_frames: Vec<PhysFrame> = vec![];
 
             for _ in 0..num_pages {
@@ -79,6 +83,8 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<PhysAddr, LoadErr> {
 
             vfs_lseek(fd, crate::hal::vfs::Whence::SeekSet, entry.offset as i64).await?;
 
+            let mut offset = entry.vaddr % PAGE_SIZE as u64;
+
             for frame in phys_frames.iter() {
                 let addr = hhdm + frame.start_address().as_u64();
 
@@ -91,24 +97,24 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<PhysAddr, LoadErr> {
                     continue;
                 }
 
-                let buffer = if remaining_size >= PAGE_SIZE as u64 {
+                let buffer = if remaining_size >= PAGE_SIZE as u64 - offset {
                     let buffer = Buffer {
-                        inner: addr.as_mut_ptr(),
-                        len: PAGE_SIZE as usize,
+                        inner: (addr.as_u64() + offset) as *mut u8,
+                        len: PAGE_SIZE as usize - offset as usize,
                     };
 
                     buffer
                 } else {
                     let mut buffer = Buffer {
-                        inner: (addr.as_u64() + remaining_size) as *mut u8,
-                        len: PAGE_SIZE as usize - remaining_size as usize,
+                        inner: (addr.as_u64() + offset) as *mut u8,
+                        len: PAGE_SIZE as usize - remaining_size as usize - offset as usize,
                     };
 
                     buffer.fill(0);
 
                     let buffer = Buffer {
-                        inner: addr.as_mut_ptr(),
-                        len: remaining_size as usize,
+                        inner: (addr.as_u64() + remaining_size + offset) as *mut u8,
+                        len: remaining_size as usize + offset as usize,
                     };
 
                     buffer
@@ -119,11 +125,13 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<PhysAddr, LoadErr> {
                     return Err(LoadErr::Corrupted);
                 }
 
-                if remaining_size >= PAGE_SIZE as u64 {
-                    remaining_size -= PAGE_SIZE as u64;
+                if remaining_size >= PAGE_SIZE as u64 - offset {
+                    remaining_size -= PAGE_SIZE as u64 - offset;
                 } else {
                     remaining_size = 0;
                 }
+
+                offset = 0;
             }
 
             map_entries.push(MapEntry {
