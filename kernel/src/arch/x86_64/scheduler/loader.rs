@@ -4,8 +4,8 @@ use alloc::{vec, vec::Vec};
 use x86_64::{
     PhysAddr, VirtAddr,
     structures::paging::{
-        FrameAllocator, Mapper, OffsetPageTable, Page, PageSize, PageTable, PageTableFlags,
-        PhysFrame, Size4KiB, mapper::MapToError,
+        FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame,
+        Size4KiB, mapper::MapToError,
     },
 };
 
@@ -13,14 +13,11 @@ use crate::{
     arch::x86_64::{
         err::ErrNo,
         memory::{
-            PAGE_SIZE,
-            frame_allocator::{self, FRAME_ALLOCATOR},
-            get_hhdm_offset,
+            PAGE_SIZE, frame_allocator::FRAME_ALLOCATOR, get_hhdm_offset,
             page_table::create_page_table,
         },
         scheduler::elf::{ElfFile, ElfProgramHeaderEntry, Flags, SegmentType},
     },
-    drivers::fs::ext2::allocator,
     hal::{
         buffer::Buffer,
         vfs::{vfs_lseek, vfs_read},
@@ -45,7 +42,50 @@ pub struct MapEntry<'a> {
     pub frames: Vec<PhysFrame>,
 }
 
-const HIGHER_HALF_START: u64 = 0xFFFF800000000000;
+const HIGHER_HALF_START: u64 = 0xFFFF_8000_0000_0000;
+
+pub async fn get_stack(page_table: &mut OffsetPageTable<'_>) -> Result<VirtAddr, LoadErr> {
+    const STACK_START: u64 = STACK_GUARD_PAGE + PAGE_SIZE as u64;
+    const STACK_GUARD_PAGE: u64 = 0x7FFF_FFFF_0000;
+    const STACK_LEN: u64 = 16 * PAGE_SIZE as u64;
+
+    let mut allocator = FRAME_ALLOCATOR
+        .get()
+        .expect("Failed to get the frame allocator")
+        .lock()
+        .await;
+
+    let mut frames: heapless::Vec<PhysFrame<Size4KiB>, 16> = heapless::Vec::new();
+
+    for _ in 0..15 {
+        let frame = allocator
+            .allocate_frame()
+            .expect("Failed to get physical frame");
+        frames.push(frame).expect("Failed to push");
+    }
+
+    for (idx, frame) in frames.iter().enumerate() {
+        let page: Page<Size4KiB> =
+            Page::from_start_address(VirtAddr::new(STACK_START + idx as u64 * PAGE_SIZE as u64))
+                .expect("Failed to create page");
+
+        unsafe {
+            let _ = page_table
+                .map_to(
+                    page,
+                    *frame,
+                    PageTableFlags::NO_EXECUTE
+                        | PageTableFlags::WRITABLE
+                        | PageTableFlags::PRESENT
+                        | PageTableFlags::USER_ACCESSIBLE,
+                    allocator.deref_mut(),
+                )
+                .map_err(LoadErr::MappingErr)?;
+        };
+    }
+
+    Ok(VirtAddr::new(STACK_GUARD_PAGE + STACK_LEN))
+}
 
 pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<PhysAddr, LoadErr> {
     let mut map_entries: Vec<MapEntry> = vec![];

@@ -64,11 +64,11 @@ unsafe impl FrameAllocator<Size4KiB> for BitmapAllocator {
 
 pub static FRAME_ALLOCATOR: OnceCell<Mutex<BitmapAllocator>> = OnceCell::new();
 
-const KERNEL_TASK_STACK_START: u64 = KERNEL_TASK_STACK_GUARD_PAGE + PAGE_SIZE as u64;
-const KERNEL_TASK_STACK_GUARD_PAGE: u64 = 0xFFFF_FF00_0000_0000;
-const KERNEL_TASK_STACK_LEN: u64 = 16 * PAGE_SIZE as u64;
-
 pub fn setup_stack_for_kernel_task() -> VirtAddr {
+    const KERNEL_TASK_STACK_START: u64 = KERNEL_TASK_STACK_GUARD_PAGE + PAGE_SIZE as u64;
+    const KERNEL_TASK_STACK_GUARD_PAGE: u64 = 0xFFFF_FF00_0000_0000;
+    const KERNEL_TASK_STACK_LEN: u64 = 16 * PAGE_SIZE as u64;
+
     let mut allocator = FRAME_ALLOCATOR
         .get()
         .expect("Failed to get the frame allocator")
