@@ -10,6 +10,9 @@ use x86_64::structures::tss::TaskStateSegment;
 /// the stack doesn't work, it's just here. in the future ill allocate the stack rather than
 /// hardcoding it, and hopefully it would work
 
+pub const KERNEL_CODE_SEGMENT_IDX: u16 = 1;
+pub const USER_CODE_SEGMENT_IDX: u16 = 3;
+
 pub const DOUBLE_FAULT_IST_INDEX: u16 = 1;
 
 pub const STACK_PAGE_SIZE: usize = 5;
