@@ -1,7 +1,7 @@
 pub mod elf;
 pub mod loader;
+pub mod syscall;
 
-use bytemuck::{Pod, Zeroable};
 use ejcineque::sync::spin::SpinMutex;
 use lazy_static::lazy_static;
 use x86_64::{PhysAddr, VirtAddr};
@@ -41,9 +41,7 @@ pub struct ThreadState {
     pub stack_pointer: VirtAddr,
     pub instruction_pointer: u64,
     /// fs
-    pub thread_local_segment: u64,
-    /// gs
-    pub kernel_structs_segment: VirtAddr,
+    pub thread_local_segment: VirtAddr,
     /// cr3
     pub page_table_pointer: PhysAddr,
 

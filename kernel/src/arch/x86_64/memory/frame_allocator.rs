@@ -64,10 +64,8 @@ unsafe impl FrameAllocator<Size4KiB> for BitmapAllocator {
 
 pub static FRAME_ALLOCATOR: OnceCell<Mutex<BitmapAllocator>> = OnceCell::new();
 
-pub fn setup_stack_for_kernel_task() -> VirtAddr {
-    const KERNEL_TASK_STACK_START: u64 = KERNEL_TASK_STACK_GUARD_PAGE + PAGE_SIZE as u64;
-    const KERNEL_TASK_STACK_GUARD_PAGE: u64 = 0xFFFF_FF00_0000_0000;
-    const KERNEL_TASK_STACK_LEN: u64 = 16 * PAGE_SIZE as u64;
+pub fn setup_stack(guard_page_loc: u64, len: u64) -> VirtAddr {
+    let stack_start: u64 = guard_page_loc + PAGE_SIZE as u64;
 
     let mut allocator = FRAME_ALLOCATOR
         .get()
@@ -93,10 +91,9 @@ pub fn setup_stack_for_kernel_task() -> VirtAddr {
         .expect("It's not supposed to be locked");
 
     for (idx, frame) in frames.iter().enumerate() {
-        let page: Page<Size4KiB> = Page::from_start_address(VirtAddr::new(
-            KERNEL_TASK_STACK_START + idx as u64 * PAGE_SIZE as u64,
-        ))
-        .expect("Failed to create page");
+        let page: Page<Size4KiB> =
+            Page::from_start_address(VirtAddr::new(stack_start + idx as u64 * PAGE_SIZE as u64))
+                .expect("Failed to create page");
 
         kernel_page_table.map_to(
             page,
@@ -108,5 +105,12 @@ pub fn setup_stack_for_kernel_task() -> VirtAddr {
         );
     }
 
-    VirtAddr::new(KERNEL_TASK_STACK_GUARD_PAGE + KERNEL_TASK_STACK_LEN)
+    VirtAddr::new(guard_page_loc + len)
+}
+
+pub fn setup_stack_for_kernel_task() -> VirtAddr {
+    const KERNEL_TASK_STACK_GUARD_PAGE: u64 = 0xFFFF_FF00_0000_0000;
+    const KERNEL_TASK_STACK_LEN: u64 = 16 * PAGE_SIZE as u64;
+
+    setup_stack(KERNEL_TASK_STACK_GUARD_PAGE, KERNEL_TASK_STACK_LEN)
 }

@@ -20,6 +20,7 @@ use crate::{
         scheduler::{
             GPRegisterState, ThreadState,
             elf::{ElfFile, ElfProgramHeaderEntry, Flags, SegmentType},
+            syscall::{PER_CPU_DATA, PerCPUData},
         },
     },
     crypto::random::random_number,
@@ -298,6 +299,7 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
     let mut map_entries: Vec<MapEntry> = vec![];
     let page_table = unsafe { &mut *(create_page_table().await.as_mut_ptr() as *mut PageTable) };
     let mut offset_page_table = unsafe { OffsetPageTable::new(page_table, get_hhdm_offset()) };
+    let mut tls_ptr = None;
 
     for entry in elf.program_header_table.iter() {
         if entry.segment_type == SegmentType::Null as u32
@@ -322,7 +324,7 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
                 frames: phys_frames,
             });
         } else if entry.segment_type == SegmentType::TLS as u32 {
-            handle_tls(&mut offset_page_table, entry, fd).await?;
+            tls_ptr = Some(handle_tls(&mut offset_page_table, entry, fd).await?);
         } else {
             todo!()
         }
@@ -372,8 +374,7 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
         registers: GPRegisterState::default(),
         stack_pointer: stack_top,
         instruction_pointer: elf.header.entry_offset,
-        thread_local_segment: todo!(),
-        kernel_structs_segment: VirtAddr::zero(),
+        thread_local_segment: tls_ptr.map_or(VirtAddr::zero(), |p| p),
         page_table_pointer: table_phys_addr,
         fpu_registers: None,
         simd_registers: None,

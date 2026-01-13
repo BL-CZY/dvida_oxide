@@ -38,6 +38,7 @@ use crate::{
             page_table::initialize_page_table,
         },
         pit::configure_pit,
+        scheduler::syscall::setup_stack_for_syscall_handler,
     },
     args::parse_args,
     crypto::random::run_random,
@@ -157,6 +158,7 @@ unsafe extern "C" fn _start() -> ! {
     let _ = SPAWNER.set(spawner).expect("Failed to set spawner");
 
     let kernel_task_stack_start = setup_stack_for_kernel_task().as_u64();
+    setup_stack_for_syscall_handler();
 
     jump_to_kernel_task(kernel_task_stack_start);
 }
@@ -169,8 +171,6 @@ fn jump_to_kernel_task(stack_top: u64) -> ! {
 
 #[unsafe(no_mangle)]
 extern "C" fn kernel_thread_entry_point() -> ! {
-    log!("Hello");
-
     EXECUTOR
         .get()
         .expect("Failed to get the executor")
