@@ -38,7 +38,7 @@ use crate::{
             page_table::initialize_page_table,
         },
         pit::configure_pit,
-        scheduler::syscall::setup_stack_for_syscall_handler,
+        scheduler::syscall::{enable_syscalls, setup_stack_for_syscall_handler},
     },
     args::parse_args,
     crypto::random::run_random,
@@ -136,6 +136,7 @@ unsafe extern "C" fn _start() -> ! {
     );
 
     unsafe { initialize_page_table() };
+    enable_syscalls();
 
     STORAGE_CONTEXT_ARR[hal::storage::PRIMARY]
         .try_lock()

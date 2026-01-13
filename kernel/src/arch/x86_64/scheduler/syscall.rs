@@ -1,6 +1,9 @@
 use core::arch::{asm, global_asm};
 
-use x86_64::{VirtAddr, registers::model_specific::Msr};
+use x86_64::{
+    VirtAddr,
+    registers::{model_specific::Msr, rflags::RFlags},
+};
 
 use crate::arch::x86_64::{
     gdt::{KERNEL_CODE_SEGMENT_IDX, USER_CODE_SEGMENT_IDX},
@@ -69,9 +72,22 @@ pub fn enable_syscalls() {
     let syscall_target_code_segment = KERNEL_CODE_SEGMENT_IDX << 3 | RING_0;
     let sysret_target_code_segment = USER_CODE_SEGMENT_IDX << 3 | RING_3;
 
+    let mask = RFlags::INTERRUPT_FLAG
+        | RFlags::DIRECTION_FLAG
+        | RFlags::ALIGNMENT_CHECK
+        | RFlags::TRAP_FLAG;
+
     let mut star_msr = Msr::new(STAR_MSR);
     let mut lstar_msr = Msr::new(LSTAR_MSR);
     let mut fmask_msr = Msr::new(FMASK_MSR);
+
+    unsafe {
+        star_msr.write(
+            (syscall_target_code_segment as u64) << 32 | (sysret_target_code_segment as u64) << 48,
+        );
+        lstar_msr.write(syscall_handler_warpper as *const () as u64);
+        fmask_msr.write(mask.bits());
+    }
 }
 
 #[unsafe(no_mangle)]
