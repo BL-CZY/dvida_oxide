@@ -1,6 +1,7 @@
 use core::ops::DerefMut;
 
 use alloc::{vec, vec::Vec};
+use bytemuck::{Pod, Zeroable};
 use x86_64::{
     PhysAddr, VirtAddr,
     structures::paging::{
@@ -21,6 +22,7 @@ use crate::{
             elf::{ElfFile, ElfProgramHeaderEntry, Flags, SegmentType},
         },
     },
+    crypto::random::random_number,
     hal::{
         buffer::Buffer,
         vfs::{vfs_lseek, vfs_read},
@@ -126,18 +128,127 @@ pub async fn copy_data(
     Ok(phys_frames)
 }
 
+#[derive(Debug, Pod, Zeroable, Clone, Copy)]
+#[repr(C)]
+pub struct ThreadControlBlock {
+    pub self_ptr: u64,
+    pub dtv: u64,
+    pub thread_id: u64,
+    pub reserved: u64,
+    pub x86_64_specific: u64,
+    pub stack_canary: u64,
+}
+
 pub async fn handle_tls(
     page_table: &mut OffsetPageTable<'_>,
     tls_entry: &ElfProgramHeaderEntry,
-    alignment: u64,
     fd: i64,
-) -> Result<(), LoadErr> {
+) -> Result<VirtAddr, LoadErr> {
     let length = tls_entry.size_in_memory;
-    let aligned_length = (length + alignment - 1) & !(alignment - 1);
+    let aligned_length = (length + tls_entry.alignment - 1) & !(tls_entry.alignment - 1);
 
-    copy_data(aligned_length - length, fd, tls_entry, 10).await?;
+    let mut frames = copy_data(
+        0,
+        fd,
+        tls_entry,
+        (aligned_length + PAGE_SIZE as u64 - 1) / PAGE_SIZE as u64,
+    )
+    .await?;
 
-    Ok(())
+    let offset = aligned_length % PAGE_SIZE as u64;
+    let remaining_size = PAGE_SIZE as u64 - offset;
+
+    const TLS_START: u64 = 0x7FFF_FF00_0000;
+    let tcb_loc = TLS_START + aligned_length;
+
+    let tcb = ThreadControlBlock {
+        self_ptr: tcb_loc,
+        thread_id: 0,
+        dtv: 0,
+        x86_64_specific: 0,
+        reserved: 0,
+        stack_canary: ((random_number().await << 32) as u64 | random_number().await as u64) & !0xFF,
+    };
+
+    let tcb_buf = bytemuck::bytes_of(&tcb);
+
+    if remaining_size < size_of::<ThreadControlBlock>() as u64 {
+        frames.push(
+            FRAME_ALLOCATOR
+                .get()
+                .expect("Failed to get allocator")
+                .lock()
+                .await
+                .allocate_frame()
+                .ok_or(LoadErr::NoEnoughMemory)?,
+        );
+
+        let ptr = (frames[frames.len() - 2].start_address().as_u64()
+            + get_hhdm_offset().as_u64()
+            + offset) as *mut u8;
+
+        let mut buf = Buffer {
+            inner: ptr,
+            len: remaining_size as usize,
+        };
+
+        for i in 0..remaining_size as usize {
+            buf[i] = tcb_buf[i];
+        }
+
+        let ptr = (frames[frames.len() - 1].start_address().as_u64() + get_hhdm_offset().as_u64())
+            as *mut u8;
+
+        let mut buf = Buffer {
+            inner: ptr,
+            len: tcb_buf.len() - remaining_size as usize,
+        };
+
+        for i in remaining_size as usize..tcb_buf.len() {
+            buf[i - remaining_size as usize] = tcb_buf[i];
+        }
+    } else {
+        let ptr = (frames[frames.len() - 1].start_address().as_u64()
+            + get_hhdm_offset().as_u64()
+            + offset) as *mut u8;
+        let mut buf = Buffer {
+            inner: ptr,
+            len: tcb_buf.len(),
+        };
+
+        for i in 0..tcb_buf.len() {
+            buf[i] = tcb_buf[i];
+        }
+    }
+
+    let mut allocator = FRAME_ALLOCATOR
+        .get()
+        .expect("Failed to get allocator")
+        .lock()
+        .await;
+
+    // map pages
+    for (idx, frame) in frames.iter().enumerate() {
+        let page: Page<Size4KiB> =
+            Page::from_start_address(VirtAddr::new(TLS_START + idx as u64 * PAGE_SIZE as u64))
+                .expect("Failed to create page");
+
+        unsafe {
+            let _ = page_table
+                .map_to(
+                    page,
+                    *frame,
+                    PageTableFlags::NO_EXECUTE
+                        | PageTableFlags::WRITABLE
+                        | PageTableFlags::PRESENT
+                        | PageTableFlags::USER_ACCESSIBLE,
+                    allocator.deref_mut(),
+                )
+                .map_err(LoadErr::MappingErr)?;
+        };
+    }
+
+    Ok(VirtAddr::new(TLS_START + aligned_length))
 }
 
 pub async fn get_stack(page_table: &mut OffsetPageTable<'_>) -> Result<VirtAddr, LoadErr> {
@@ -185,7 +296,8 @@ pub async fn get_stack(page_table: &mut OffsetPageTable<'_>) -> Result<VirtAddr,
 
 pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
     let mut map_entries: Vec<MapEntry> = vec![];
-    let mut tls_entries: Vec<&ElfProgramHeaderEntry> = vec![];
+    let page_table = unsafe { &mut *(create_page_table().await.as_mut_ptr() as *mut PageTable) };
+    let mut offset_page_table = unsafe { OffsetPageTable::new(page_table, get_hhdm_offset()) };
 
     for entry in elf.program_header_table.iter() {
         if entry.segment_type == SegmentType::Null as u32
@@ -210,15 +322,12 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
                 frames: phys_frames,
             });
         } else if entry.segment_type == SegmentType::TLS as u32 {
-            tls_entries.push(entry);
+            handle_tls(&mut offset_page_table, entry, fd).await?;
         } else {
             todo!()
         }
     }
 
-    let page_table = unsafe { &mut *(create_page_table().await.as_mut_ptr() as *mut PageTable) };
-
-    let mut offset_page_table = unsafe { OffsetPageTable::new(page_table, get_hhdm_offset()) };
     let mut frame_allocator = FRAME_ALLOCATOR
         .get()
         .expect("Failed to get allocator")
