@@ -1,14 +1,16 @@
 pub mod elf;
 pub mod loader;
 
+use bytemuck::{Pod, Zeroable};
 use ejcineque::sync::spin::SpinMutex;
 use lazy_static::lazy_static;
+use x86_64::{PhysAddr, VirtAddr};
 
 lazy_static! {
     pub static ref CurrentThread: SpinMutex<Option<Thread>> = SpinMutex::new(None);
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct GPRegisterState {
     pub rax: u64,
     pub rbx: u64,
@@ -36,14 +38,14 @@ pub struct SIMDRegisterState {}
 #[derive(Debug)]
 pub struct ThreadState {
     pub registers: GPRegisterState,
-    pub stack_pointer: u64,
+    pub stack_pointer: VirtAddr,
     pub instruction_pointer: u64,
     /// fs
     pub thread_local_segment: u64,
     /// gs
-    pub kernel_structs_segment: u64,
+    pub kernel_structs_segment: VirtAddr,
     /// cr3
-    pub page_table_pointer: u64,
+    pub page_table_pointer: PhysAddr,
 
     pub fpu_registers: Option<FPURegisterState>,
     pub simd_registers: Option<SIMDRegisterState>,

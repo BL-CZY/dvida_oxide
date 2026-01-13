@@ -84,6 +84,7 @@ pub enum SegmentType {
     Dynamic = 2,
     Interp = 3,
     Note = 4,
+    TLS = 7,
 }
 
 #[derive(Pod, Zeroable, Debug, Clone, Copy)]

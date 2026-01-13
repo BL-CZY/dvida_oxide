@@ -16,7 +16,10 @@ use crate::{
             PAGE_SIZE, frame_allocator::FRAME_ALLOCATOR, get_hhdm_offset,
             page_table::create_page_table,
         },
-        scheduler::elf::{ElfFile, ElfProgramHeaderEntry, Flags, SegmentType},
+        scheduler::{
+            GPRegisterState, ThreadState,
+            elf::{ElfFile, ElfProgramHeaderEntry, Flags, SegmentType},
+        },
     },
     hal::{
         buffer::Buffer,
@@ -43,6 +46,99 @@ pub struct MapEntry<'a> {
 }
 
 const HIGHER_HALF_START: u64 = 0xFFFF_8000_0000_0000;
+
+pub async fn copy_data(
+    offset: u64,
+    fd: i64,
+    entry: &ElfProgramHeaderEntry,
+    num_pages: u64,
+) -> Result<Vec<PhysFrame>, LoadErr> {
+    let mut offset = offset;
+
+    let mut remaining_size = entry.size_in_file;
+    vfs_lseek(fd, crate::hal::vfs::Whence::SeekSet, entry.offset as i64).await?;
+
+    let mut phys_frames: Vec<PhysFrame> = vec![];
+
+    for _ in 0..num_pages {
+        let frame = FRAME_ALLOCATOR
+            .get()
+            .expect("Failed to get the allocator")
+            .lock()
+            .await
+            .allocate_frame()
+            .ok_or(LoadErr::NoEnoughMemory)?;
+
+        phys_frames.push(frame);
+    }
+
+    let hhdm = get_hhdm_offset();
+
+    for frame in phys_frames.iter() {
+        let addr = hhdm + frame.start_address().as_u64();
+
+        if remaining_size == 0 {
+            let mut buffer = Buffer {
+                inner: addr.as_mut_ptr(),
+                len: PAGE_SIZE as usize,
+            };
+            buffer.fill(0);
+            continue;
+        }
+
+        let buffer = if remaining_size >= PAGE_SIZE as u64 - offset {
+            let buffer = Buffer {
+                inner: (addr.as_u64() + offset) as *mut u8,
+                len: PAGE_SIZE as usize - offset as usize,
+            };
+
+            buffer
+        } else {
+            let mut buffer = Buffer {
+                inner: (addr.as_u64() + offset) as *mut u8,
+                len: PAGE_SIZE as usize - remaining_size as usize - offset as usize,
+            };
+
+            buffer.fill(0);
+
+            let buffer = Buffer {
+                inner: (addr.as_u64() + remaining_size + offset) as *mut u8,
+                len: remaining_size as usize + offset as usize,
+            };
+
+            buffer
+        };
+
+        let bytes_read = vfs_read(fd, buffer.clone()).await?;
+        if bytes_read < buffer.len() as i64 {
+            return Err(LoadErr::Corrupted);
+        }
+
+        if remaining_size >= PAGE_SIZE as u64 - offset {
+            remaining_size -= PAGE_SIZE as u64 - offset;
+        } else {
+            remaining_size = 0;
+        }
+
+        offset = 0;
+    }
+
+    Ok(phys_frames)
+}
+
+pub async fn handle_tls(
+    page_table: &mut OffsetPageTable<'_>,
+    tls_entry: &ElfProgramHeaderEntry,
+    alignment: u64,
+    fd: i64,
+) -> Result<(), LoadErr> {
+    let length = tls_entry.size_in_memory;
+    let aligned_length = (length + alignment - 1) & !(alignment - 1);
+
+    copy_data(aligned_length - length, fd, tls_entry, 10).await?;
+
+    Ok(())
+}
 
 pub async fn get_stack(page_table: &mut OffsetPageTable<'_>) -> Result<VirtAddr, LoadErr> {
     const STACK_START: u64 = STACK_GUARD_PAGE + PAGE_SIZE as u64;
@@ -87,8 +183,9 @@ pub async fn get_stack(page_table: &mut OffsetPageTable<'_>) -> Result<VirtAddr,
     Ok(VirtAddr::new(STACK_GUARD_PAGE + STACK_LEN))
 }
 
-pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<PhysAddr, LoadErr> {
+pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
     let mut map_entries: Vec<MapEntry> = vec![];
+    let mut tls_entries: Vec<&ElfProgramHeaderEntry> = vec![];
 
     for entry in elf.program_header_table.iter() {
         if entry.segment_type == SegmentType::Null as u32
@@ -104,80 +201,16 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<PhysAddr, LoadErr> {
                 & !(PAGE_SIZE as u64 - 1);
 
             let num_pages = (end - start + PAGE_SIZE as u64 - 1) / PAGE_SIZE as u64;
-            let mut phys_frames: Vec<PhysFrame> = vec![];
+            let offset = entry.size_in_memory % PAGE_SIZE as u64;
 
-            for _ in 0..num_pages {
-                let frame = FRAME_ALLOCATOR
-                    .get()
-                    .expect("Failed to get the allocator")
-                    .lock()
-                    .await
-                    .allocate_frame()
-                    .ok_or(LoadErr::NoEnoughMemory)?;
-
-                phys_frames.push(frame);
-            }
-
-            let hhdm = get_hhdm_offset();
-            let mut remaining_size = entry.size_in_file;
-
-            vfs_lseek(fd, crate::hal::vfs::Whence::SeekSet, entry.offset as i64).await?;
-
-            let mut offset = entry.vaddr % PAGE_SIZE as u64;
-
-            for frame in phys_frames.iter() {
-                let addr = hhdm + frame.start_address().as_u64();
-
-                if remaining_size == 0 {
-                    let mut buffer = Buffer {
-                        inner: addr.as_mut_ptr(),
-                        len: PAGE_SIZE as usize,
-                    };
-                    buffer.fill(0);
-                    continue;
-                }
-
-                let buffer = if remaining_size >= PAGE_SIZE as u64 - offset {
-                    let buffer = Buffer {
-                        inner: (addr.as_u64() + offset) as *mut u8,
-                        len: PAGE_SIZE as usize - offset as usize,
-                    };
-
-                    buffer
-                } else {
-                    let mut buffer = Buffer {
-                        inner: (addr.as_u64() + offset) as *mut u8,
-                        len: PAGE_SIZE as usize - remaining_size as usize - offset as usize,
-                    };
-
-                    buffer.fill(0);
-
-                    let buffer = Buffer {
-                        inner: (addr.as_u64() + remaining_size + offset) as *mut u8,
-                        len: remaining_size as usize + offset as usize,
-                    };
-
-                    buffer
-                };
-
-                let bytes_read = vfs_read(fd, buffer.clone()).await?;
-                if bytes_read < buffer.len() as i64 {
-                    return Err(LoadErr::Corrupted);
-                }
-
-                if remaining_size >= PAGE_SIZE as u64 - offset {
-                    remaining_size -= PAGE_SIZE as u64 - offset;
-                } else {
-                    remaining_size = 0;
-                }
-
-                offset = 0;
-            }
+            let phys_frames = copy_data(offset, fd, entry, num_pages).await?;
 
             map_entries.push(MapEntry {
                 entry: entry,
                 frames: phys_frames,
             });
+        } else if entry.segment_type == SegmentType::TLS as u32 {
+            tls_entries.push(entry);
         } else {
             todo!()
         }
@@ -221,8 +254,19 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<PhysAddr, LoadErr> {
         }
     }
 
+    let stack_top = get_stack(&mut offset_page_table).await? - 8;
+
     let table_virt_addr = VirtAddr::from_ptr(page_table as *mut PageTable);
     let table_phys_addr = PhysAddr::new(table_virt_addr.as_u64() - get_hhdm_offset().as_u64());
 
-    Ok(table_phys_addr)
+    Ok(ThreadState {
+        registers: GPRegisterState::default(),
+        stack_pointer: stack_top,
+        instruction_pointer: elf.header.entry_offset,
+        thread_local_segment: todo!(),
+        kernel_structs_segment: VirtAddr::zero(),
+        page_table_pointer: table_phys_addr,
+        fpu_registers: None,
+        simd_registers: None,
+    })
 }
