@@ -9,10 +9,12 @@ use crate::arch::x86_64::{
     err::ErrNo,
     gdt::GDT,
     memory::{PAGE_SIZE, frame_allocator::setup_stack},
-    scheduler::{CURRENT_THREAD, State, THREADS, Thread, WAITING_QUEUE, WAITING_QUEUE_IDX},
+    scheduler::{
+        CURRENT_THREAD, PrivilageLevel, State, THREADS, Thread, WAITING_QUEUE, WAITING_QUEUE_IDX,
+    },
 };
 
-pub const WRITE_SYSCALL: i64 = 1;
+pub const WRITE_SYSCALL: u64 = 1;
 
 //TODO: multicore
 #[repr(C, packed)]
@@ -55,7 +57,7 @@ pub struct SyscallFrame {
     pub rdx: u64,
     pub rcx: u64,
     pub rbx: u64,
-    pub rax: i64,
+    pub rax: u64,
     pub rbp: u64,
     pub rsp: u64, // not used for paused tasks for better code structure
 }
@@ -101,12 +103,14 @@ pub fn enable_syscalls() {
     }
 }
 
+#[macro_export]
 macro_rules! set_register {
     ($target:ident, $input:ident, $register:ident) => {
         $target.$register = $input.$register
     };
 }
 
+#[macro_export]
 macro_rules! set_registers {
     ($target:ident, $input:ident) => {
         set_register!($target, $input, rax);
@@ -147,7 +151,7 @@ extern "C" fn syscall_handler(stack_frame: SyscallFrame) {
 
         _ => {
             current_thread.state.state = State::Ready;
-            registers.rax = ErrNo::OperationNotSupported as i64;
+            registers.rax = ErrNo::OperationNotSupported as u64;
         }
     }
 
@@ -200,6 +204,14 @@ pub fn resume_thread(thread: Thread) {
             };
 
             let page_table_pointer = thread.state.page_table_pointer.as_u64();
+            const TRUE: u64 = 1;
+            const FALSE: u64 = 0;
+            let is_kernel = if thread.privilage_level == PrivilageLevel::Kernel {
+                TRUE
+            } else {
+                FALSE
+            };
+
             *CURRENT_THREAD.spin_acquire_lock() = Some(thread);
 
             unsafe {
@@ -207,6 +219,7 @@ pub fn resume_thread(thread: Thread) {
                     &syscall_frame as *const SyscallFrame,
                     page_table_pointer,
                     &long_return_frame as *const LongReturnFrame,
+                    is_kernel,
                 )
             }
         }
@@ -239,6 +252,7 @@ unsafe extern "C" {
         frame: *const SyscallFrame,
         page_table_pointer: u64,
         long_return_frame: *const LongReturnFrame,
+        is_kernel: u64,
     );
 }
 

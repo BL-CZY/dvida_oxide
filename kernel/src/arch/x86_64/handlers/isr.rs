@@ -4,7 +4,7 @@ use x86_64::structures::idt::{InterruptStackFrame, PageFaultErrorCode};
 
 use crate::{
     arch::x86_64::handlers::{InterruptErrcodeFrame, InterruptNoErrcodeFrame},
-    handler_wrapper, iprintln,
+    handler_wrapper_errcode, handler_wrapper_noerrcode, iprintln,
 };
 
 extern "C" fn breakpoint_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
@@ -13,7 +13,7 @@ extern "C" fn breakpoint_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
 
 #[unsafe(naked)]
 pub extern "x86-interrupt" fn breakpoint_handler(stack_frame: InterruptStackFrame) {
-    handler_wrapper!(breakpoint_handler_inner);
+    handler_wrapper_noerrcode!(breakpoint_handler_inner);
 }
 
 extern "C" fn pagefault_handler_inner(stack_frame: InterruptErrcodeFrame) {
@@ -26,7 +26,7 @@ pub extern "x86-interrupt" fn pagefault_handler(
     stack_frame: InterruptStackFrame,
     code: PageFaultErrorCode,
 ) {
-    handler_wrapper!(pagefault_handler_inner);
+    handler_wrapper_errcode!(pagefault_handler_inner);
 }
 
 extern "C" fn doublefault_handler_inner(stack_frame: InterruptErrcodeFrame) {
@@ -42,5 +42,5 @@ pub extern "x86-interrupt" fn doublefault_handler(
     _stack_frame: InterruptStackFrame,
     _err_code: u64,
 ) -> ! {
-    handler_wrapper!(doublefault_handler_inner)
+    handler_wrapper_errcode!(doublefault_handler_inner)
 }

@@ -62,10 +62,31 @@ pub struct InterruptErrcodeFrame {
 }
 
 #[macro_export]
-macro_rules! handler_wrapper {
+macro_rules! handler_inner_header {
+    ($stack_frame:ident) => {
+        if $stack_frame.cs & 0b111 == 0b11 {
+            unsafe {
+                asm!("swapgs");
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! handler_wrapper_noerrcode {
     ($handler:ident) => {
     naked_asm!(
         r#"
+        push rax
+        mov rax, [rsp + 16]
+        test al, 0b11
+
+        jz 1f
+        swapgs
+        
+        1:
+        pop rax
+
         push r15
         push r14
         push r13
@@ -100,6 +121,84 @@ macro_rules! handler_wrapper {
         pop r13
         pop r14
         pop r15
+        
+        push rax
+        mov rax, [rsp + 16]
+        test al, 0b11
+
+        jz 2f
+        swapgs
+        
+        2:
+        pop rax
+
+        iretq
+    "#,
+        handler = sym $handler,
+    )
+    };
+}
+
+#[macro_export]
+macro_rules! handler_wrapper_errcode {
+    ($handler:ident) => {
+    naked_asm!(
+        r#"
+        push rax
+        mov rax, [rsp + 24]
+        test al, 0b11
+
+        jz 1f 
+        swapgs
+        
+        1:
+        pop rax
+
+        push r15
+        push r14
+        push r13
+        push r12
+        push r11
+        push r10
+        push r9
+        push r8
+        push rbp
+        push rsi
+        push rdi
+        push rdx
+        push rcx
+        push rbx
+        push rax
+
+        mov rdi, rsp
+        call {handler}
+
+        pop rax
+        pop rbx
+        pop rcx
+        pop rdx
+        pop rdi
+        pop rsi
+        pop rbp
+        pop r8
+        pop r9
+        pop r10
+        pop r11
+        pop r12
+        pop r13
+        pop r14
+        pop r15
+
+        push rax
+        mov rax, [rsp + 24]
+        test al, 0b11
+
+        jz 2f
+        swapgs
+        
+        2:
+        pop rax
+
         iretq
     "#,
         handler = sym $handler,

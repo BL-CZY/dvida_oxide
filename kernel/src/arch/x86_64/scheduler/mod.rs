@@ -18,7 +18,7 @@ lazy_static! {
 
 #[derive(Debug, Default)]
 pub struct GPRegisterState {
-    pub rax: i64,
+    pub rax: u64,
     pub rbx: u64,
     pub rcx: u64,
     pub rdx: u64,
@@ -65,7 +65,7 @@ pub struct ThreadState {
     pub state: State,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub enum PrivilageLevel {
     Kernel,
     User,

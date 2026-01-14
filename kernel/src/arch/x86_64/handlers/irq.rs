@@ -1,17 +1,19 @@
 use core::arch::naked_asm;
 
 use ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS, TIMER_WAKERS};
-use x86_64::{instructions::port::Port, structures::idt::InterruptStackFrame};
+use x86_64::{
+    instructions::port::Port, registers::rflags::RFlags, structures::idt::InterruptStackFrame,
+};
 
 use crate::{
     arch::x86_64::{
         handlers::InterruptNoErrcodeFrame,
         pic::{PRIMARY_PIC_OFFSET, get_pic},
-        scheduler::CURRENT_THREAD,
+        scheduler::{CURRENT_THREAD, THREADS},
     },
     debug::terminal::WRITER,
     hal::keyboard::process_scancode,
-    handler_wrapper,
+    handler_wrapper_noerrcode, set_register, set_registers,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -36,7 +38,7 @@ pub enum IrqIndex {
     SecondaryIDE,
 }
 
-extern "C" fn timer_handler_inner(_stack_frame: InterruptNoErrcodeFrame) {
+extern "C" fn timer_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
     x86_64::instructions::interrupts::without_interrupts(|| {
         for w in TIMER_WAKERS.lock().drain(..) {
             w.wake();
@@ -47,7 +49,21 @@ extern "C" fn timer_handler_inner(_stack_frame: InterruptNoErrcodeFrame) {
             thread.ticks_left -= 1;
 
             if thread.ticks_left == 0 {
-                // pause thread
+                // takes it
+                let mut thread = CURRENT_THREAD
+                    .spin_acquire_lock()
+                    .take()
+                    .expect("Impossible error");
+
+                let registers = &mut thread.state.registers;
+
+                set_registers!(registers, stack_frame);
+                thread.state.state = crate::arch::x86_64::scheduler::State::Paused {
+                    instruction_pointer: stack_frame.rip,
+                    rflags: RFlags::from_bits_retain(stack_frame.rflags),
+                };
+
+                THREADS.spin_acquire_lock().push_back(thread);
             }
         }
     });
@@ -59,7 +75,7 @@ extern "C" fn timer_handler_inner(_stack_frame: InterruptNoErrcodeFrame) {
 
 #[unsafe(naked)]
 pub extern "x86-interrupt" fn timer_handler(_stack_frame: InterruptStackFrame) {
-    handler_wrapper!(timer_handler_inner);
+    handler_wrapper_noerrcode!(timer_handler_inner);
 }
 
 extern "C" fn keyboard_handler_inner(_stack_frame: InterruptNoErrcodeFrame) {
@@ -74,7 +90,7 @@ extern "C" fn keyboard_handler_inner(_stack_frame: InterruptNoErrcodeFrame) {
 
 #[unsafe(naked)]
 pub extern "x86-interrupt" fn keyboard_handler(_stack_frame: InterruptStackFrame) {
-    handler_wrapper!(keyboard_handler_inner);
+    handler_wrapper_noerrcode!(keyboard_handler_inner);
 }
 
 extern "C" fn primary_ide_handler_inner(_stack_frame: InterruptNoErrcodeFrame) {
@@ -91,7 +107,7 @@ extern "C" fn primary_ide_handler_inner(_stack_frame: InterruptNoErrcodeFrame) {
 
 #[unsafe(naked)]
 pub extern "x86-interrupt" fn primary_ide_handler(_stack_frame: InterruptStackFrame) {
-    handler_wrapper!(primary_ide_handler_inner);
+    handler_wrapper_noerrcode!(primary_ide_handler_inner);
 }
 
 extern "C" fn secondary_ide_handler_inner(_stack_frame: InterruptNoErrcodeFrame) {
@@ -108,5 +124,5 @@ extern "C" fn secondary_ide_handler_inner(_stack_frame: InterruptNoErrcodeFrame)
 
 #[unsafe(naked)]
 pub extern "x86-interrupt" fn secondary_ide_handler(_stack_frame: InterruptStackFrame) {
-    handler_wrapper!(secondary_ide_handler_inner);
+    handler_wrapper_noerrcode!(secondary_ide_handler_inner);
 }

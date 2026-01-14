@@ -55,7 +55,7 @@ resume_thread_from_syscall:
 ; rdi = stack frame with above layout
 ; rsi = page table
 ; rdx = long return frame defined in syscall.rs
-; rcx = 0 if is kernel, = 1 if is user space
+; rcx = 1 if is kernel, = 0 if is user space
 resume_paused_thread:
     mov rax, rsi
     mov cr3, rax
