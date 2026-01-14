@@ -1,11 +1,17 @@
+use core::arch::naked_asm;
+
 use ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS, TIMER_WAKERS};
-use terminal::{iprint, iprintln};
 use x86_64::{instructions::port::Port, structures::idt::InterruptStackFrame};
 
 use crate::{
-    arch::x86_64::pic::{PRIMARY_PIC_OFFSET, get_pic},
+    arch::x86_64::{
+        handlers::InterruptNoErrcodeFrame,
+        pic::{PRIMARY_PIC_OFFSET, get_pic},
+        scheduler::CURRENT_THREAD,
+    },
     debug::terminal::WRITER,
     hal::keyboard::process_scancode,
+    handler_wrapper,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -30,12 +36,20 @@ pub enum IrqIndex {
     SecondaryIDE,
 }
 
-pub extern "x86-interrupt" fn timer_handler(_stack_frame: InterruptStackFrame) {
+extern "C" fn timer_handler_inner(_stack_frame: InterruptNoErrcodeFrame) {
     x86_64::instructions::interrupts::without_interrupts(|| {
         for w in TIMER_WAKERS.lock().drain(..) {
             w.wake();
         }
         WRITER.lock().blink_debug_cursor();
+
+        if let Some(ref mut thread) = *CURRENT_THREAD.spin_acquire_lock() {
+            thread.ticks_left -= 1;
+
+            if thread.ticks_left == 0 {
+                // pause thread
+            }
+        }
     });
 
     unsafe {
@@ -43,7 +57,12 @@ pub extern "x86-interrupt" fn timer_handler(_stack_frame: InterruptStackFrame) {
     }
 }
 
-pub extern "x86-interrupt" fn keyboard_handler(_stack_frame: InterruptStackFrame) {
+#[unsafe(naked)]
+pub extern "x86-interrupt" fn timer_handler(_stack_frame: InterruptStackFrame) {
+    handler_wrapper!(timer_handler_inner);
+}
+
+extern "C" fn keyboard_handler_inner(_stack_frame: InterruptNoErrcodeFrame) {
     let mut port = Port::new(0x60);
     let scancode: u8 = unsafe { port.read() };
     process_scancode(scancode);
@@ -53,7 +72,12 @@ pub extern "x86-interrupt" fn keyboard_handler(_stack_frame: InterruptStackFrame
     }
 }
 
-pub extern "x86-interrupt" fn primary_ide_handler(_stack_frame: InterruptStackFrame) {
+#[unsafe(naked)]
+pub extern "x86-interrupt" fn keyboard_handler(_stack_frame: InterruptStackFrame) {
+    handler_wrapper!(keyboard_handler_inner);
+}
+
+extern "C" fn primary_ide_handler_inner(_stack_frame: InterruptNoErrcodeFrame) {
     x86_64::instructions::interrupts::without_interrupts(|| {
         for w in PRIMARY_IDE_WAKERS.lock().drain(..) {
             w.wake();
@@ -65,7 +89,12 @@ pub extern "x86-interrupt" fn primary_ide_handler(_stack_frame: InterruptStackFr
     }
 }
 
-pub extern "x86-interrupt" fn secondary_ide_handler(_stack_frame: InterruptStackFrame) {
+#[unsafe(naked)]
+pub extern "x86-interrupt" fn primary_ide_handler(_stack_frame: InterruptStackFrame) {
+    handler_wrapper!(primary_ide_handler_inner);
+}
+
+extern "C" fn secondary_ide_handler_inner(_stack_frame: InterruptNoErrcodeFrame) {
     x86_64::instructions::interrupts::without_interrupts(|| {
         for w in SECONDARY_IDE_WAKERS.lock().drain(..) {
             w.wake();
@@ -75,4 +104,9 @@ pub extern "x86-interrupt" fn secondary_ide_handler(_stack_frame: InterruptStack
     unsafe {
         get_pic().notify_end_of_interrupt(IrqIndex::SecondaryIDE as u8);
     }
+}
+
+#[unsafe(naked)]
+pub extern "x86-interrupt" fn secondary_ide_handler(_stack_frame: InterruptStackFrame) {
+    handler_wrapper!(secondary_ide_handler_inner);
 }

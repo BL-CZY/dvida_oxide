@@ -55,9 +55,17 @@ resume_thread_from_syscall:
 ; rdi = stack frame with above layout
 ; rsi = page table
 ; rdx = long return frame defined in syscall.rs
+; rcx = 0 if is kernel, = 1 if is user space
 resume_paused_thread:
     mov rax, rsi
     mov cr3, rax
+
+    cmp rcx, 0
+    jne .resume
+
+    swapgs
+
+    .resume:
 
     push qword ptr [rdx + 0]
     push qword ptr [rdx + 0x8]
@@ -81,6 +89,5 @@ resume_paused_thread:
     mov rbp, qword ptr [rdi + 0x70]
     mov rdi, qword ptr [rdi + 0x40]         ; rdi should not be used from now on
     
-    swapgs
     iretq
 

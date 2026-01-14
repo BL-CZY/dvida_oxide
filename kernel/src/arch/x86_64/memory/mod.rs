@@ -6,6 +6,7 @@ pub mod page_table;
 pub mod pmm;
 
 use crate::arch::x86_64::gdt::{self, AlignedTSS, DOUBLE_FAULT_IST_INDEX, STACK_PAGE_SIZE, TSS};
+use crate::arch::x86_64::handlers::{RSP0_STACK_GUARD_PAGE, RSP0_STACK_LENGTH};
 use crate::arch::x86_64::memory::bitmap::BitMap;
 use crate::arch::x86_64::memory::heap::KHeap;
 use crate::arch::x86_64::memory::memmap::get_memmap;
@@ -105,6 +106,7 @@ pub fn init() -> MemoryMappings {
         //     VirtAddr::from_ptr(double_fault_stack_start as *mut u8);
         tss.interrupt_stack_table[gdt::DOUBLE_FAULT_IST_INDEX as usize] =
             VirtAddr::from_ptr(double_fault_stack_start as *mut u8);
+        tss.privilege_stack_table[0] = VirtAddr::new(RSP0_STACK_GUARD_PAGE + RSP0_STACK_LENGTH);
         tss
     };
 

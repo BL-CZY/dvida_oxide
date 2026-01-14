@@ -46,6 +46,10 @@ resume_thread_from_syscall:
 resume_paused_thread:
     mov rax, rsi
     mov cr3, rax
+    cmp rcx, 0
+    jne .resume
+    swapgs
+    .resume:
     push qword ptr [rdx + 0]
     push qword ptr [rdx + 0x8]
     push qword ptr [rdx + 0x10]
@@ -67,5 +71,4 @@ resume_paused_thread:
     mov rbp, qword ptr [rdi + 0x70]
     mov rdi, qword ptr [rdi + 0x40]         
     
-    swapgs
     iretq

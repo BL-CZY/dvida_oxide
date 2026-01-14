@@ -32,6 +32,7 @@ pub mod time;
 
 use crate::{
     arch::x86_64::{
+        handlers::setup_rsp0_stack,
         memory::{
             MemoryMappings,
             frame_allocator::{BitmapAllocator, FRAME_ALLOCATOR, setup_stack_for_kernel_task},
@@ -157,6 +158,8 @@ unsafe extern "C" fn _start() -> ! {
         .expect("Failed to set executor");
 
     let _ = SPAWNER.set(spawner).expect("Failed to set spawner");
+
+    setup_rsp0_stack();
 
     let kernel_task_stack_start = setup_stack_for_kernel_task().as_u64();
     setup_stack_for_syscall_handler();
