@@ -2,12 +2,18 @@ pub mod elf;
 pub mod loader;
 pub mod syscall;
 
+use core::sync::atomic::AtomicUsize;
+
+use alloc::collections::{btree_map::BTreeMap, vec_deque::VecDeque};
 use ejcineque::sync::mutex::Mutex;
 use lazy_static::lazy_static;
 use x86_64::{PhysAddr, VirtAddr, registers::rflags::RFlags};
 
 lazy_static! {
     pub static ref CURRENT_THREAD: Mutex<Option<Thread>> = Mutex::new(None);
+    pub static ref THREADS: Mutex<VecDeque<Thread>> = Mutex::new(VecDeque::new());
+    pub static ref WAITING_QUEUE: Mutex<BTreeMap<usize, Thread>> = Mutex::new(BTreeMap::new());
+    pub static ref WAITING_QUEUE_IDX: AtomicUsize = AtomicUsize::new(0);
 }
 
 #[derive(Debug, Default)]
@@ -35,13 +41,14 @@ pub struct FPURegisterState {}
 #[derive(Debug)]
 pub struct SIMDRegisterState {}
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum State {
     Paused {
         instruction_pointer: u64,
         rflags: RFlags,
     },
     Waiting,
+    Ready,
 }
 
 #[derive(Debug)]

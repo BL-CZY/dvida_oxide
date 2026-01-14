@@ -1,4 +1,4 @@
-use core::arch::{asm, global_asm};
+use core::arch::global_asm;
 
 use x86_64::{
     VirtAddr,
@@ -7,9 +7,9 @@ use x86_64::{
 
 use crate::arch::x86_64::{
     err::ErrNo,
-    gdt::{GDT, KERNEL_CODE_SEGMENT_IDX, USER_CODE_SEGMENT_IDX},
+    gdt::GDT,
     memory::{PAGE_SIZE, frame_allocator::setup_stack},
-    scheduler::{CURRENT_THREAD, State, Thread},
+    scheduler::{CURRENT_THREAD, State, THREADS, Thread, WAITING_QUEUE, WAITING_QUEUE_IDX},
 };
 
 pub const WRITE_SYSCALL: i64 = 1;
@@ -130,11 +130,10 @@ macro_rules! set_registers {
 #[unsafe(no_mangle)]
 extern "C" fn syscall_handler(stack_frame: SyscallFrame) {
     let mut current_thread = CURRENT_THREAD.spin_acquire_lock();
-    let current_thread = current_thread.as_mut().expect("Corrupted thread context");
+    let mut current_thread = current_thread.take().expect("Corrupted thread context");
 
     // saves the current thread's registers
     current_thread.state.state = State::Waiting;
-
     let registers = &mut current_thread.state.registers;
 
     // save state
@@ -147,12 +146,32 @@ extern "C" fn syscall_handler(stack_frame: SyscallFrame) {
         }
 
         _ => {
+            current_thread.state.state = State::Ready;
             registers.rax = ErrNo::OperationNotSupported as i64;
         }
     }
+
+    if current_thread.state.state != State::Ready {
+        let idx = WAITING_QUEUE_IDX.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
+
+        // interrupt will be disabled during the handler so this spin will not take too long
+        WAITING_QUEUE
+            .spin_acquire_lock()
+            .insert(idx, current_thread);
+    }
+
+    // interrupt will be disabled during the handler so this spin will not take too long
+    let thread = THREADS.spin_acquire_lock().pop_front();
+
+    if let Some(mut t) = thread {
+        t.ticks_left = 1000;
+        resume_thread(t);
+    } else {
+        panic!("KERNEL task is dead")
+    }
 }
 
-pub fn resume_thread(thread: &Thread) {
+pub fn resume_thread(thread: Thread) {
     match thread.state.state {
         State::Paused {
             instruction_pointer,
@@ -180,28 +199,36 @@ pub fn resume_thread(thread: &Thread) {
                 },
             };
 
+            let page_table_pointer = thread.state.page_table_pointer.as_u64();
+            *CURRENT_THREAD.spin_acquire_lock() = Some(thread);
+
             unsafe {
                 resume_paused_thread(
                     &syscall_frame as *const SyscallFrame,
-                    thread.state.page_table_pointer.as_u64(),
+                    page_table_pointer,
                     &long_return_frame as *const LongReturnFrame,
                 )
             }
         }
 
-        State::Waiting => {
+        State::Ready => {
             let mut syscall_frame = SyscallFrame::default();
             let registers = &thread.state.registers;
             set_registers!(syscall_frame, registers);
             syscall_frame.rsp = thread.state.stack_pointer.as_u64();
 
+            let page_table_pointer = thread.state.page_table_pointer.as_u64();
+            *CURRENT_THREAD.spin_acquire_lock() = Some(thread);
+
             unsafe {
                 resume_thread_from_syscall(
                     &syscall_frame as *const SyscallFrame,
-                    thread.state.page_table_pointer.as_u64(),
+                    page_table_pointer,
                 )
             }
         }
+
+        _ => {}
     }
 }
 
