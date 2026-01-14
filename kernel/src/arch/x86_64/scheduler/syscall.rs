@@ -8,6 +8,7 @@ use x86_64::{
 use crate::arch::x86_64::{
     gdt::{KERNEL_CODE_SEGMENT_IDX, USER_CODE_SEGMENT_IDX},
     memory::{PAGE_SIZE, frame_allocator::setup_stack},
+    scheduler::{CURRENT_THREAD, State},
 };
 
 //TODO: multicore
@@ -90,8 +91,39 @@ pub fn enable_syscalls() {
     }
 }
 
+macro_rules! set_register {
+    ($thread_state:ident, $stack_frame:ident, $register:ident) => {
+        $thread_state.$register = $stack_frame.$register
+    };
+}
+
 #[unsafe(no_mangle)]
-extern "C" fn syscall_handler(stack_frame: SyscallFrame) {}
+extern "C" fn syscall_handler(stack_frame: SyscallFrame) {
+    let mut current_thread = CURRENT_THREAD.spin_acquire_lock();
+    let current_thread = current_thread.as_mut().expect("Corrupted thread context");
+
+    // saves the current thread's registers
+    current_thread.state.state = State::Waiting;
+
+    let registers = &mut current_thread.state.registers;
+
+    // save state
+    set_register!(registers, stack_frame, rax);
+    set_register!(registers, stack_frame, rbx);
+    set_register!(registers, stack_frame, rcx);
+    set_register!(registers, stack_frame, rdx);
+    set_register!(registers, stack_frame, rdi);
+    set_register!(registers, stack_frame, rsi);
+    set_register!(registers, stack_frame, rbp);
+    set_register!(registers, stack_frame, r8);
+    set_register!(registers, stack_frame, r9);
+    set_register!(registers, stack_frame, r10);
+    set_register!(registers, stack_frame, r11);
+    set_register!(registers, stack_frame, r12);
+    set_register!(registers, stack_frame, r13);
+    set_register!(registers, stack_frame, r14);
+    set_register!(registers, stack_frame, r15);
+}
 
 unsafe extern "C" {
     pub unsafe fn syscall_handler_warpper();
