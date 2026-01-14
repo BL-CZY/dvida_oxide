@@ -12,7 +12,7 @@ lazy_static! {
 
 #[derive(Debug, Default)]
 pub struct GPRegisterState {
-    pub rax: u64,
+    pub rax: i64,
     pub rbx: u64,
     pub rcx: u64,
     pub rdx: u64,

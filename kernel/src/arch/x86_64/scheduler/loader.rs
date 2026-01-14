@@ -373,7 +373,9 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
     Ok(ThreadState {
         registers: GPRegisterState::default(),
         stack_pointer: stack_top,
-        instruction_pointer: elf.header.entry_offset,
+        state: crate::arch::x86_64::scheduler::State::Paused {
+            instruction_pointer: elf.header.entry_offset,
+        },
         thread_local_segment: tls_ptr.map_or(VirtAddr::zero(), |p| p),
         page_table_pointer: table_phys_addr,
         fpu_registers: None,

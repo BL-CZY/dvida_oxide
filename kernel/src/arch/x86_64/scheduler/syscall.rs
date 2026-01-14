@@ -6,10 +6,13 @@ use x86_64::{
 };
 
 use crate::arch::x86_64::{
+    err::ErrNo,
     gdt::{KERNEL_CODE_SEGMENT_IDX, USER_CODE_SEGMENT_IDX},
     memory::{PAGE_SIZE, frame_allocator::setup_stack},
-    scheduler::{CURRENT_THREAD, State},
+    scheduler::{CURRENT_THREAD, State, Thread},
 };
+
+pub const WRITE_SYSCALL: i64 = 1;
 
 //TODO: multicore
 #[repr(C, packed)]
@@ -51,7 +54,7 @@ pub struct SyscallFrame {
     pub rdx: u64,
     pub rcx: u64,
     pub rbx: u64,
-    pub rax: u64,
+    pub rax: i64,
     pub rbp: u64,
     pub rsp: u64,
 }
@@ -123,10 +126,32 @@ extern "C" fn syscall_handler(stack_frame: SyscallFrame) {
     set_register!(registers, stack_frame, r13);
     set_register!(registers, stack_frame, r14);
     set_register!(registers, stack_frame, r15);
+    current_thread.state.stack_pointer = VirtAddr::new(stack_frame.rsp);
+
+    match stack_frame.rax {
+        WRITE_SYSCALL => {
+            todo!()
+        }
+
+        _ => {
+            registers.rax = ErrNo::OperationNotSupported as i64;
+        }
+    }
+}
+
+pub fn resume_thread(thread: &Thread) {
+    match thread.state.state {
+        State::Paused {
+            instruction_pointer,
+        } => {}
+
+        State::Waiting => unsafe { resume_thread_from_syscall() },
+    }
 }
 
 unsafe extern "C" {
     pub unsafe fn syscall_handler_warpper();
+    pub unsafe fn resume_thread_from_syscall();
 }
 
 global_asm!(include_str!("./syscall.s"));
