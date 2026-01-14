@@ -98,6 +98,13 @@ async fn kernel_main(spawner: Spawner) {
 #[unsafe(link_section = ".requests")]
 static BASE_REVISION: BaseRevision = BaseRevision::new();
 
+// #[inline(never)]
+// fn force_overflow(n: u64) {
+//     let large_array = [0u8; STACK_SIZE as usize]; // Allocate space on the stack to speed up the crash
+//     core::hint::black_box(&large_array);
+//     core::hint::black_box(force_overflow(n + 1));
+// }
+
 #[unsafe(no_mangle)]
 unsafe extern "C" fn _start() -> ! {
     // All limine requests must also be referenced in a called function, otherwise they may be
@@ -123,12 +130,6 @@ unsafe extern "C" fn _start() -> ! {
     log!("Interrupts enabled!");
     configure_pit();
 
-    // #[inline(never)]
-    // fn force_overflow(n: u64) {
-    //     let _large_array = [0u64; 1000]; // Allocate space on the stack to speed up the crash
-    //     core::hint::black_box(force_overflow(n + 1));
-    // }
-    //
     // force_overflow(100);
 
     init_kheap(
