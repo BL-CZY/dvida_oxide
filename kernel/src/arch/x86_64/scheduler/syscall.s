@@ -33,22 +33,55 @@ resume_thread_from_syscall:
     mov rax, rsi
     mov cr3, rax
 
-    mov r15, [rdi + 0]
-    mov r14, [rdi + 0x8]
-    mov r13, [rdi + 0x10]
-    mov r12, [rdi + 0x18]
-    mov r11, [rdi + 0x20]
-    mov r10, [rdi + 0x28]
-    mov r9, [rdi + 0x30]
-    mov r8, [rdi + 0x38]
-    mov rsi, [rdi + 0x48]
-    mov rdx, [rdi + 0x50]
-    mov rcx, [rdi + 0x58]
-    mov rbx, [rdi + 0x60]
-    mov rax, [rdi + 0x68]
-    mov rbp, [rdi + 0x70]
-    mov rsp, [rdi + 0x78]         ; pivot the stack
-    mov rdi, [rdi + 0x40]
+    mov r15, qword [rdi + 0]
+    mov r14, qword [rdi + 0x8]
+    mov r13, qword [rdi + 0x10]
+    mov r12, qword [rdi + 0x18]
+    mov r11, qword [rdi + 0x20]         ; rflags
+    mov r10, qword [rdi + 0x28]
+    mov r9, qword [rdi + 0x30]
+    mov r8, qword [rdi + 0x38]
+    mov rsi, qword [rdi + 0x48]
+    mov rdx, qword [rdi + 0x50]
+    mov rcx, qword [rdi + 0x58]         ; rip
+    mov rbx, qword [rdi + 0x60]
+    mov rax, qword [rdi + 0x68]
+    mov rbp, qword [rdi + 0x70]
+    mov rsp, qword [rdi + 0x78]         ; pivot the stack
+    mov rdi, qword [rdi + 0x40]
 
     swapgs
     sysretq
+
+; rdi = stack frame with above layout
+; rsi = page table
+; rdx = long return frame defined in syscall.rs
+resume_paused_thread:
+    mov rax, rsi
+    mov cr3, rax
+
+    push qword [rdx + 0]
+    push qword [rdx + 0x8]
+    push qword [rdx + 0x10]
+    push qword [rdx + 0x18]
+    push qword [rdx + 0x20]
+
+    mov r15, qword [rdi + 0]
+    mov r14, qword [rdi + 0x8]
+    mov r13, qword [rdi + 0x10]
+    mov r12, qword [rdi + 0x18]
+    mov r11, qword [rdi + 0x20]         
+    mov r10, qword [rdi + 0x28]
+    mov r9, qword [rdi + 0x30]
+    mov r8, qword [rdi + 0x38]
+    mov rsi, qword [rdi + 0x48]         ; rsi should not be used from now on
+    mov rdx, qword [rdi + 0x50]         ; rdx should not be used from now on
+    mov rcx, qword [rdi + 0x58]         
+    mov rbx, qword [rdi + 0x60]
+    mov rax, qword [rdi + 0x68]
+    mov rbp, qword [rdi + 0x70]
+    mov rdi, qword [rdi + 0x40]         ; rdi should not be used from now on
+    
+    swapgs
+    iretq
+

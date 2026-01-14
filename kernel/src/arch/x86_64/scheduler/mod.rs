@@ -37,7 +37,10 @@ pub struct SIMDRegisterState {}
 
 #[derive(Debug)]
 pub enum State {
-    Paused { instruction_pointer: u64 },
+    Paused {
+        instruction_pointer: u64,
+        rflags: RFlags,
+    },
     Waiting,
 }
 
@@ -56,9 +59,16 @@ pub struct ThreadState {
 }
 
 #[derive(Debug)]
+pub enum PrivilageLevel {
+    Kernel,
+    User,
+}
+
+#[derive(Debug)]
 pub struct Thread {
     pub id: usize,
     pub state: ThreadState,
+    pub privilage_level: PrivilageLevel,
     pub ticks_left: u64,
 }
 

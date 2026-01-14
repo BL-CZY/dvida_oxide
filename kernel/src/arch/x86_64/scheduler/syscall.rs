@@ -7,7 +7,7 @@ use x86_64::{
 
 use crate::arch::x86_64::{
     err::ErrNo,
-    gdt::{KERNEL_CODE_SEGMENT_IDX, USER_CODE_SEGMENT_IDX},
+    gdt::{GDT, KERNEL_CODE_SEGMENT_IDX, USER_CODE_SEGMENT_IDX},
     memory::{PAGE_SIZE, frame_allocator::setup_stack},
     scheduler::{CURRENT_THREAD, State, Thread},
 };
@@ -39,6 +39,7 @@ pub fn setup_stack_for_syscall_handler() {
     }
 }
 
+#[derive(Default)]
 #[repr(C, packed)]
 pub struct SyscallFrame {
     pub r15: u64,
@@ -56,15 +57,21 @@ pub struct SyscallFrame {
     pub rbx: u64,
     pub rax: i64,
     pub rbp: u64,
+    pub rsp: u64, // not used for paused tasks for better code structure
+}
+
+#[repr(C, packed)]
+pub struct LongReturnFrame {
+    pub ss: u64,
     pub rsp: u64,
+    pub rflags: u64,
+    pub cs: u64,
+    pub rip: u64,
 }
 
 const STAR_MSR: u32 = 0xC0000081;
 const LSTAR_MSR: u32 = 0xC0000082;
 const FMASK_MSR: u32 = 0xC0000084;
-
-const RING_0: u16 = 0b00;
-const RING_3: u16 = 0b11;
 
 // more information from Intel® 64 and IA-32 Architectures
 // Software Developer’s Manual
@@ -73,8 +80,8 @@ const RING_3: u16 = 0b11;
 // section 5.8.8
 
 pub fn enable_syscalls() {
-    let syscall_target_code_segment = KERNEL_CODE_SEGMENT_IDX << 3 | RING_0;
-    let sysret_target_code_segment = USER_CODE_SEGMENT_IDX << 3 | RING_3;
+    let syscall_target_code_segment = GDT.1.kernel_code_selector.0;
+    let sysret_target_code_segment = GDT.1.user_code_selector.0;
 
     let mask = RFlags::INTERRUPT_FLAG
         | RFlags::DIRECTION_FLAG
@@ -95,8 +102,28 @@ pub fn enable_syscalls() {
 }
 
 macro_rules! set_register {
-    ($thread_state:ident, $stack_frame:ident, $register:ident) => {
-        $thread_state.$register = $stack_frame.$register
+    ($target:ident, $input:ident, $register:ident) => {
+        $target.$register = $input.$register
+    };
+}
+
+macro_rules! set_registers {
+    ($target:ident, $input:ident) => {
+        set_register!($target, $input, rax);
+        set_register!($target, $input, rbx);
+        set_register!($target, $input, rcx);
+        set_register!($target, $input, rdx);
+        set_register!($target, $input, rdi);
+        set_register!($target, $input, rsi);
+        set_register!($target, $input, rbp);
+        set_register!($target, $input, r8);
+        set_register!($target, $input, r9);
+        set_register!($target, $input, r10);
+        set_register!($target, $input, r11);
+        set_register!($target, $input, r12);
+        set_register!($target, $input, r13);
+        set_register!($target, $input, r14);
+        set_register!($target, $input, r15);
     };
 }
 
@@ -111,21 +138,7 @@ extern "C" fn syscall_handler(stack_frame: SyscallFrame) {
     let registers = &mut current_thread.state.registers;
 
     // save state
-    set_register!(registers, stack_frame, rax);
-    set_register!(registers, stack_frame, rbx);
-    set_register!(registers, stack_frame, rcx);
-    set_register!(registers, stack_frame, rdx);
-    set_register!(registers, stack_frame, rdi);
-    set_register!(registers, stack_frame, rsi);
-    set_register!(registers, stack_frame, rbp);
-    set_register!(registers, stack_frame, r8);
-    set_register!(registers, stack_frame, r9);
-    set_register!(registers, stack_frame, r10);
-    set_register!(registers, stack_frame, r11);
-    set_register!(registers, stack_frame, r12);
-    set_register!(registers, stack_frame, r13);
-    set_register!(registers, stack_frame, r14);
-    set_register!(registers, stack_frame, r15);
+    set_registers!(registers, stack_frame);
     current_thread.state.stack_pointer = VirtAddr::new(stack_frame.rsp);
 
     match stack_frame.rax {
@@ -143,15 +156,63 @@ pub fn resume_thread(thread: &Thread) {
     match thread.state.state {
         State::Paused {
             instruction_pointer,
-        } => {}
+            rflags,
+        } => {
+            let mut syscall_frame = SyscallFrame::default();
+            let registers = &thread.state.registers;
+            set_registers!(syscall_frame, registers);
+            syscall_frame.rsp = thread.state.stack_pointer.as_u64();
 
-        State::Waiting => unsafe { resume_thread_from_syscall() },
+            let long_return_frame = match thread.privilage_level {
+                super::PrivilageLevel::User => LongReturnFrame {
+                    ss: GDT.1.user_data_selector.0 as u64,
+                    rsp: thread.state.stack_pointer.as_u64(),
+                    rflags: rflags.bits(),
+                    cs: GDT.1.user_code_selector.0 as u64,
+                    rip: instruction_pointer,
+                },
+                super::PrivilageLevel::Kernel => LongReturnFrame {
+                    ss: GDT.1.kernel_data_selector.0 as u64,
+                    rsp: thread.state.stack_pointer.as_u64(),
+                    rflags: rflags.bits(),
+                    cs: GDT.1.kernel_code_selector.0 as u64,
+                    rip: instruction_pointer,
+                },
+            };
+
+            unsafe {
+                resume_paused_thread(
+                    &syscall_frame as *const SyscallFrame,
+                    thread.state.page_table_pointer.as_u64(),
+                    &long_return_frame as *const LongReturnFrame,
+                )
+            }
+        }
+
+        State::Waiting => {
+            let mut syscall_frame = SyscallFrame::default();
+            let registers = &thread.state.registers;
+            set_registers!(syscall_frame, registers);
+            syscall_frame.rsp = thread.state.stack_pointer.as_u64();
+
+            unsafe {
+                resume_thread_from_syscall(
+                    &syscall_frame as *const SyscallFrame,
+                    thread.state.page_table_pointer.as_u64(),
+                )
+            }
+        }
     }
 }
 
 unsafe extern "C" {
     pub unsafe fn syscall_handler_warpper();
-    pub unsafe fn resume_thread_from_syscall();
+    pub unsafe fn resume_thread_from_syscall(frame: *const SyscallFrame, page_table_ptr: u64);
+    pub unsafe fn resume_paused_thread(
+        frame: *const SyscallFrame,
+        page_table_pointer: u64,
+        long_return_frame: *const LongReturnFrame,
+    );
 }
 
 global_asm!(include_str!("./syscall.s"));

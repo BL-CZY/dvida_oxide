@@ -25,28 +25,32 @@ pub static TSS: OnceCell<AlignedTSS> = OnceCell::new();
 pub struct AlignedTSS(pub TaskStateSegment);
 
 lazy_static! {
-    static ref GDT: (GlobalDescriptorTable, Selectors) = {
+    pub static ref GDT: (GlobalDescriptorTable, Selectors) = {
         let mut gdt = GlobalDescriptorTable::new();
         let kernel_code_selector = gdt.append(Descriptor::kernel_code_segment());
         let kernel_data_selector = gdt.append(Descriptor::kernel_data_segment());
-        gdt.append(Descriptor::user_code_segment());
-        gdt.append(Descriptor::user_data_segment());
+        let user_code_selector = gdt.append(Descriptor::user_code_segment());
+        let user_data_selector = gdt.append(Descriptor::user_data_segment());
         let tss_selector = gdt.append(Descriptor::tss_segment(&TSS.get().expect("No TSS found").0));
         (
             gdt,
             Selectors {
                 kernel_code_selector,
                 kernel_data_selector,
+                user_code_selector,
+                user_data_selector,
                 tss_selector,
             },
         )
     };
 }
 
-struct Selectors {
-    kernel_code_selector: SegmentSelector,
-    kernel_data_selector: SegmentSelector,
-    tss_selector: SegmentSelector,
+pub struct Selectors {
+    pub kernel_code_selector: SegmentSelector,
+    pub kernel_data_selector: SegmentSelector,
+    pub user_code_selector: SegmentSelector,
+    pub user_data_selector: SegmentSelector,
+    pub tss_selector: SegmentSelector,
 }
 
 pub fn init_gdt() {
