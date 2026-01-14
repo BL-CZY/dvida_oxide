@@ -1,5 +1,4 @@
 use alloc::boxed::Box;
-use dvida_serialize::DvDeserialize;
 use terminal::log;
 
 use crate::{
@@ -23,17 +22,7 @@ pub async fn identify_ext2(drive_id: usize, entry: &GPTEntry) -> Option<SuperBlo
         }
     }
 
-    let super_block =
-        match SuperBlock::deserialize(dvida_serialize::Endianness::Little, buf.as_mut()) {
-            Ok(res) => res.0,
-            Err(e) => {
-                log!(
-                    "Failed to identify ext2 because of deserialization error: {:?}",
-                    e
-                );
-                return None;
-            }
-        };
+    let super_block: SuperBlock = *bytemuck::from_bytes(&buf[0..size_of::<SuperBlock>()]);
 
     log!("Read Superblock: {:?}", super_block);
 

@@ -218,8 +218,10 @@ impl Ext2Fs {
 
         buf.fill(0);
 
-        self.super_block
-            .serialize(dvida_serialize::Endianness::Little, &mut buf[0..])?;
+        let super_block_bytes = bytemuck::bytes_of(&self.super_block);
+        for i in 0..super_block_bytes.len() {
+            buf[i] = super_block_bytes[i];
+        }
 
         self.write_sectors(buf, RESERVED_BOOT_RECORD_OFFSET).await?;
         self.block_allocator.write_freed_blocks().await?;

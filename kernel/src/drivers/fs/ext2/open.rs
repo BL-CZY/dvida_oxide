@@ -196,7 +196,8 @@ impl Ext2Fs {
 
         let mut buf: Box<[u8]> = Box::new([0u8; SECTOR_SIZE]);
         buf = self.read_sectors(buf, inode_table_loc).await?;
-        log!("inode size: {:?}", self.super_block.s_inode_size);
+        let temp = self.super_block.s_inode_size;
+        log!("inode size: {:?}", temp);
 
         let mut inode = self.get_nth_inode(2).await?;
 

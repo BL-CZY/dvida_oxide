@@ -124,8 +124,12 @@ impl Ext2Fs {
             self.write_sectors(buf.clone(), lba + lba_offset).await?;
 
             self.super_block.s_free_inodes_count -= 1;
-            self.super_block
-                .serialize(dvida_serialize::Endianness::Little, &mut buf)?;
+
+            let super_block_bytes = bytemuck::bytes_of(&self.super_block);
+            for i in 0..super_block_bytes.len() {
+                buf[i] = super_block_bytes[i];
+            }
+
             self.write_sectors(buf, 3).await?;
         }
 

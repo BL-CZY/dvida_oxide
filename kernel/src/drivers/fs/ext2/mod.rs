@@ -18,7 +18,8 @@ pub use inode::InodePlus;
 
 /// The ext2 superblock structure - located at byte offset 1024 from start
 /// All fields stored in little-endian format on disk
-#[derive(DvDeSer, Debug, Clone)]
+#[derive(Debug, Clone, Pod, Zeroable, Copy)]
+#[repr(C, packed)]
 pub struct SuperBlock {
     // Base fields (revision 0 and 1)
     /// Total number of inodes
