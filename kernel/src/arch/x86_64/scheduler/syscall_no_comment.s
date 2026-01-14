@@ -1,12 +1,10 @@
 .global syscall_handler_wrapper
 .global resume_thread_from_syscall
-
 syscall_handler_wrapper:
-    swapgs                        ; swap out gs
-    mov gs:[0x8], rsp             ; temporarily save rsp
-    mov rsp, gs:[0x0]             ; pivot stack
-
-    push qword ptr gs:[0x10]          ; user rsp
+    swapgs                        
+    mov gs:[0x8], rsp             
+    mov rsp, gs:[0x0]             
+    push qword ptr gs:[0x10]          
     push rbp
     push rax
     push rbx
@@ -22,49 +20,11 @@ syscall_handler_wrapper:
     push r13
     push r14
     push r15
-
-    mov rdi, rsp                  ; pass this entire struct to rdi
-    call syscall_handler          ; call the handler 
-
-; rdi = stack frame with above layout
-; rsi = page table
+    mov rdi, rsp                  
+    call syscall_handler          
 resume_thread_from_syscall:
     mov rax, rsi
     mov cr3, rax
-
-    mov r15, qword ptr [rdi + 0]
-    mov r14, qword ptr [rdi + 0x8]
-    mov r13, qword ptr [rdi + 0x10]
-    mov r12, qword ptr [rdi + 0x18]
-    mov r11, qword ptr [rdi + 0x20]         ; rflags
-    mov r10, qword ptr [rdi + 0x28]
-    mov r9, qword ptr [rdi + 0x30]
-    mov r8, qword ptr [rdi + 0x38]
-    mov rsi, qword ptr [rdi + 0x48]
-    mov rdx, qword ptr [rdi + 0x50]
-    mov rcx, qword ptr [rdi + 0x58]         ; rip
-    mov rbx, qword ptr [rdi + 0x60]
-    mov rax, qword ptr [rdi + 0x68]
-    mov rbp, qword ptr [rdi + 0x70]
-    mov rsp, qword ptr [rdi + 0x78]         ; pivot the stack
-    mov rdi, qword ptr [rdi + 0x40]
-
-    swapgs
-    sysretq
-
-; rdi = stack frame with above layout
-; rsi = page table
-; rdx = long return frame defined in syscall.rs
-resume_paused_thread:
-    mov rax, rsi
-    mov cr3, rax
-
-    push qword ptr [rdx + 0]
-    push qword ptr [rdx + 0x8]
-    push qword ptr [rdx + 0x10]
-    push qword ptr [rdx + 0x18]
-    push qword ptr [rdx + 0x20]
-
     mov r15, qword ptr [rdi + 0]
     mov r14, qword ptr [rdi + 0x8]
     mov r13, qword ptr [rdi + 0x10]
@@ -73,14 +33,39 @@ resume_paused_thread:
     mov r10, qword ptr [rdi + 0x28]
     mov r9, qword ptr [rdi + 0x30]
     mov r8, qword ptr [rdi + 0x38]
-    mov rsi, qword ptr [rdi + 0x48]         ; rsi should not be used from now on
-    mov rdx, qword ptr [rdi + 0x50]         ; rdx should not be used from now on
+    mov rsi, qword ptr [rdi + 0x48]
+    mov rdx, qword ptr [rdi + 0x50]
     mov rcx, qword ptr [rdi + 0x58]         
     mov rbx, qword ptr [rdi + 0x60]
     mov rax, qword ptr [rdi + 0x68]
     mov rbp, qword ptr [rdi + 0x70]
-    mov rdi, qword ptr [rdi + 0x40]         ; rdi should not be used from now on
+    mov rsp, qword ptr [rdi + 0x78]         
+    mov rdi, qword ptr [rdi + 0x40]
+    swapgs
+    sysretq
+resume_paused_thread:
+    mov rax, rsi
+    mov cr3, rax
+    push qword ptr [rdx + 0]
+    push qword ptr [rdx + 0x8]
+    push qword ptr [rdx + 0x10]
+    push qword ptr [rdx + 0x18]
+    push qword ptr [rdx + 0x20]
+    mov r15, qword ptr [rdi + 0]
+    mov r14, qword ptr [rdi + 0x8]
+    mov r13, qword ptr [rdi + 0x10]
+    mov r12, qword ptr [rdi + 0x18]
+    mov r11, qword ptr [rdi + 0x20]         
+    mov r10, qword ptr [rdi + 0x28]
+    mov r9, qword ptr [rdi + 0x30]
+    mov r8, qword ptr [rdi + 0x38]
+    mov rsi, qword ptr [rdi + 0x48]         
+    mov rdx, qword ptr [rdi + 0x50]         
+    mov rcx, qword ptr [rdi + 0x58]         
+    mov rbx, qword ptr [rdi + 0x60]
+    mov rax, qword ptr [rdi + 0x68]
+    mov rbp, qword ptr [rdi + 0x70]
+    mov rdi, qword ptr [rdi + 0x40]         
     
     swapgs
     iretq
-

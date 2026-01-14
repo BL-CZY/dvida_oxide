@@ -4,6 +4,7 @@ use alloc::{vec, vec::Vec};
 use bytemuck::{Pod, Zeroable};
 use x86_64::{
     PhysAddr, VirtAddr,
+    registers::rflags::{self, RFlags},
     structures::paging::{
         FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame,
         Size4KiB, mapper::MapToError,
@@ -375,6 +376,7 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
         stack_pointer: stack_top,
         state: crate::arch::x86_64::scheduler::State::Paused {
             instruction_pointer: elf.header.entry_offset,
+            rflags: rflags::read(),
         },
         thread_local_segment: tls_ptr.map_or(VirtAddr::zero(), |p| p),
         page_table_pointer: table_phys_addr,

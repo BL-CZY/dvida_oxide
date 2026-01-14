@@ -96,7 +96,7 @@ pub fn enable_syscalls() {
         star_msr.write(
             (syscall_target_code_segment as u64) << 32 | (sysret_target_code_segment as u64) << 48,
         );
-        lstar_msr.write(syscall_handler_warpper as *const () as u64);
+        lstar_msr.write(syscall_handler_wrapper as *const () as u64);
         fmask_msr.write(mask.bits());
     }
 }
@@ -206,7 +206,7 @@ pub fn resume_thread(thread: &Thread) {
 }
 
 unsafe extern "C" {
-    pub unsafe fn syscall_handler_warpper();
+    pub unsafe fn syscall_handler_wrapper();
     pub unsafe fn resume_thread_from_syscall(frame: *const SyscallFrame, page_table_ptr: u64);
     pub unsafe fn resume_paused_thread(
         frame: *const SyscallFrame,
@@ -215,4 +215,4 @@ unsafe extern "C" {
     );
 }
 
-global_asm!(include_str!("./syscall.s"));
+global_asm!(include_str!("./syscall_no_comment.s"));

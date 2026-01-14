@@ -27,15 +27,20 @@ EXPAND_DIR=src/drivers/fs/mod.rs
 
 # Default target.
 .PHONY: all
-all:
+all: asm
 		cargo build --target $(RUST_TARGET) --profile $(RUST_PROFILE)
 		cp target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR)/kernel kernel
 
 .PHONY: all-test
-all-test:
+all-test: asm
 		rm -rf target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR)/deps/*kernel*
 		cargo build --tests --keep-going --target $(RUST_TARGET) --profile $(RUST_PROFILE)
 		cp target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR)/deps/$$(cd target/$(RUST_TARGET)/$(RUST_PROFILE_SUBDIR)/deps && find . -maxdepth 1 -type f -regex "./kernel-................") kernel
+
+.PHONY: asm
+asm:
+	sed -e "s/[;#].*//" -e "/^$$/d" src/arch/x86_64/scheduler/syscall.s > src/arch/x86_64/scheduler/syscall_no_comment.s
+
 
 .PHONY: expand
 expand:
