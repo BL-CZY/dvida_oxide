@@ -20,6 +20,13 @@ impl<T> SpinMutex<T> {
         }
     }
 
+    pub const fn new_const(val: T) -> Self {
+        SpinMutex {
+            inner: UnsafeCell::new(val),
+            is_locked: AtomicBool::new(false),
+        }
+    }
+
     pub fn lock<'a>(&'a self) -> SpinMutexGuard<'a, T> {
         let mut count = 10_000_000;
 

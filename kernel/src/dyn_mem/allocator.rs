@@ -1,13 +1,56 @@
-use linked_list_allocator::LockedHeap;
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    ptr::NonNull,
+};
+
+use ejcineque::sync::spin::SpinMutex;
+use linked_list_allocator::Heap;
 use terminal::log;
+use x86_64::instructions::interrupts::without_interrupts;
 
 #[global_allocator]
-static ALLOCATOR: LockedHeap = LockedHeap::empty();
+static ALLOCATOR: HeapAllocator = HeapAllocator::new();
 
 pub fn init_kheap(heap_bottom: *mut u8, heap_size: usize) {
-    unsafe {
-        ALLOCATOR.lock().init(heap_bottom, heap_size);
-    }
+    ALLOCATOR.init(heap_bottom, heap_size);
 
     log!("Kheap initialization finished");
+}
+
+pub struct HeapAllocator {
+    heap: SpinMutex<Heap>,
+}
+
+impl HeapAllocator {
+    pub const fn new() -> Self {
+        Self {
+            heap: SpinMutex::new_const(Heap::empty()),
+        }
+    }
+
+    pub fn init(&self, bottom: *mut u8, size: usize) {
+        without_interrupts(|| unsafe {
+            self.heap.lock().init(bottom, size);
+        });
+    }
+}
+
+unsafe impl GlobalAlloc for HeapAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        without_interrupts(|| {
+            self.heap
+                .lock()
+                .allocate_first_fit(layout)
+                .expect("heap is empty")
+                .as_ptr()
+        })
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        without_interrupts(|| unsafe {
+            self.heap
+                .lock()
+                .deallocate(NonNull::new(ptr).expect("Corrupted metadata"), layout);
+        })
+    }
 }
