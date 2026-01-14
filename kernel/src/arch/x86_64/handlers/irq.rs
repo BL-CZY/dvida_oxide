@@ -9,7 +9,7 @@ use crate::{
     arch::x86_64::{
         handlers::InterruptNoErrcodeFrame,
         pic::{PRIMARY_PIC_OFFSET, get_pic},
-        scheduler::{CURRENT_THREAD, THREADS},
+        scheduler::{CURRENT_THREAD, THREADS, syscall::resume_thread},
     },
     debug::terminal::WRITER,
     hal::keyboard::process_scancode,
@@ -63,7 +63,16 @@ extern "C" fn timer_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
                     rflags: RFlags::from_bits_retain(stack_frame.rflags),
                 };
 
-                THREADS.spin_acquire_lock().push_back(thread);
+                let mut threads = THREADS.spin_acquire_lock();
+                threads.push_back(thread);
+                let thread = threads.pop_front();
+
+                if let Some(mut t) = thread {
+                    t.ticks_left = 1000;
+                    resume_thread(t);
+                } else {
+                    panic!("KERNEL THREAD IS DEAD")
+                }
             }
         }
     });

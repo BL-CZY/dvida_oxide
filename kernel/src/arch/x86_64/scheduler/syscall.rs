@@ -171,7 +171,7 @@ extern "C" fn syscall_handler(stack_frame: SyscallFrame) {
         t.ticks_left = 1000;
         resume_thread(t);
     } else {
-        panic!("KERNEL task is dead")
+        panic!("KERNEL THREAD IS DEAD")
     }
 }
 
