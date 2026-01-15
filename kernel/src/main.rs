@@ -39,7 +39,10 @@ use crate::{
             page_table::initialize_page_table,
         },
         pit::configure_pit,
-        scheduler::syscall::{enable_syscalls, setup_stack_for_syscall_handler},
+        scheduler::{
+            load_kernel_thread,
+            syscall::{enable_syscalls, setup_stack_for_syscall_handler},
+        },
     },
     args::parse_args,
     crypto::random::run_random,
@@ -162,28 +165,29 @@ unsafe extern "C" fn _start() -> ! {
 
     setup_rsp0_stack();
 
-    let kernel_task_stack_start = setup_stack_for_kernel_task().as_u64();
+    // let kernel_task_stack_start = setup_stack_for_kernel_task().as_u64();
     setup_stack_for_syscall_handler();
+    load_kernel_thread();
 
-    jump_to_kernel_task(kernel_task_stack_start);
+    // jump_to_kernel_task(kernel_task_stack_start);
 }
 
-fn jump_to_kernel_task(stack_top: u64) -> ! {
-    unsafe {
-        core::arch::asm!("mov rsp, {0}", "xor rbp, rbp", "call {1}", in(reg) stack_top, in(reg) kernel_thread_entry_point as u64, options(noreturn));
-    }
-}
-
-#[unsafe(no_mangle)]
-extern "C" fn kernel_thread_entry_point() -> ! {
-    EXECUTOR
-        .get()
-        .expect("Failed to get the executor")
-        .spin_acquire_lock()
-        .run();
-
-    hcf();
-}
+// pub fn jump_to_kernel_task(stack_top: u64) -> ! {
+//     unsafe {
+//         core::arch::asm!("mov rsp, {0}", "xor rbp, rbp", "call {1}", in(reg) stack_top, in(reg) kernel_thread_entry_point as u64, options(noreturn));
+//     }
+// }
+//
+// #[unsafe(no_mangle)]
+// extern "C" fn kernel_thread_entry_point() -> ! {
+//     EXECUTOR
+//         .get()
+//         .expect("Failed to get the executor")
+//         .spin_acquire_lock()
+//         .run();
+//
+//     hcf();
+// }
 
 #[panic_handler]
 fn rust_panic(_info: &core::panic::PanicInfo) -> ! {
@@ -191,7 +195,7 @@ fn rust_panic(_info: &core::panic::PanicInfo) -> ! {
     hcf();
 }
 
-fn hcf() -> ! {
+pub fn hcf() -> ! {
     unsafe {
         asm!("cli");
         loop {

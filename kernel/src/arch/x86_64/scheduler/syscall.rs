@@ -190,7 +190,7 @@ extern "C" fn syscall_handler(stack_frame: SyscallFrame) {
     }
 }
 
-pub fn resume_thread(thread: Thread) {
+pub fn resume_thread(thread: Thread) -> ! {
     match thread.state.state {
         State::Paused {
             instruction_pointer,
@@ -256,19 +256,21 @@ pub fn resume_thread(thread: Thread) {
             }
         }
 
-        _ => {}
+        _ => {
+            panic!("Corrupted data");
+        }
     }
 }
 
 unsafe extern "C" {
     pub unsafe fn syscall_handler_wrapper();
-    pub unsafe fn resume_thread_from_syscall(frame: *const SyscallFrame, page_table_ptr: u64);
+    pub unsafe fn resume_thread_from_syscall(frame: *const SyscallFrame, page_table_ptr: u64) -> !;
     pub unsafe fn resume_paused_thread(
         frame: *const SyscallFrame,
         page_table_pointer: u64,
         long_return_frame: *const LongReturnFrame,
         is_kernel: u64,
-    );
+    ) -> !;
 }
 
 global_asm!(include_str!("./syscall_no_comment.s"));
