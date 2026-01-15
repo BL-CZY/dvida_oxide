@@ -4,12 +4,12 @@ use alloc::sync::Arc;
 use alloc::task::Wake;
 // use terminal::{iprint, iprintln, log};
 
+use crate::sync::spin::SpinMutex as Mutex;
 use core::arch::asm;
 use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::AtomicU64;
 use core::task::{Context, Poll, Waker};
-use spin::Mutex;
 
 #[derive(Debug, Clone, Copy, Ord, PartialEq, Eq, PartialOrd)]
 pub struct TaskID(u64);
@@ -64,8 +64,10 @@ impl Spawner {
 
         let task = Task { id, future };
 
-        self.tasks.lock().push_back(id);
-        self.tasks_map.lock().insert(id, Arc::new(Mutex::new(task)));
+        x86_64::instructions::interrupts::without_interrupts(|| {
+            self.tasks.lock().push_back(id);
+            self.tasks_map.lock().insert(id, Arc::new(Mutex::new(task)));
+        });
     }
 }
 
@@ -112,14 +114,20 @@ impl Executor {
 
         let task = Task { id, future };
 
-        self.tasks.lock().push_back(id);
-        self.tasks_map.lock().insert(id, Arc::new(Mutex::new(task)));
+        x86_64::instructions::interrupts::without_interrupts(|| {
+            self.tasks.lock().push_back(id);
+            self.tasks_map.lock().insert(id, Arc::new(Mutex::new(task)));
+        });
     }
 
     pub fn run(&self) {
         loop {
             // halt when nothing happens
-            while self.tasks.lock().is_empty() {
+            loop {
+                let is_empty = self.tasks.lock().is_empty();
+                if !is_empty {
+                    break;
+                }
                 unsafe {
                     asm!("hlt");
                 }

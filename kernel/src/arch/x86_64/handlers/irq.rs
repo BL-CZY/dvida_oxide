@@ -1,6 +1,7 @@
 use core::arch::naked_asm;
 
 use ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS, TIMER_WAKERS};
+use terminal::{iprint, log};
 use x86_64::{
     instructions::port::Port, registers::rflags::RFlags, structures::idt::InterruptStackFrame,
 };
@@ -9,7 +10,7 @@ use crate::{
     arch::x86_64::{
         handlers::InterruptNoErrcodeFrame,
         pic::{PRIMARY_PIC_OFFSET, get_pic},
-        scheduler::{CURRENT_THREAD, THREADS, syscall::resume_thread},
+        scheduler::{CURRENT_THREAD, DEFAULT_TICKS_PER_THREAD, THREADS, syscall::resume_thread},
     },
     debug::terminal::WRITER,
     hal::keyboard::process_scancode,
@@ -45,34 +46,46 @@ extern "C" fn timer_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
         }
         WRITER.lock().blink_debug_cursor();
 
-        if let Some(ref mut thread) = *CURRENT_THREAD.spin_acquire_lock() {
+        let mut current_thread_guard = CURRENT_THREAD.spin_acquire_lock();
+
+        let mut ticks_left = 1;
+        if let Some(ref mut thread) = *current_thread_guard {
             thread.ticks_left -= 1;
+            ticks_left = thread.ticks_left;
+        }
 
-            if thread.ticks_left == 0 {
-                // takes it
-                let mut thread = CURRENT_THREAD
-                    .spin_acquire_lock()
-                    .take()
-                    .expect("Impossible error");
+        drop(current_thread_guard);
 
-                let registers = &mut thread.state.registers;
+        if ticks_left == 0 {
+            // takes it
+            let mut thread = CURRENT_THREAD
+                .spin_acquire_lock()
+                .take()
+                .expect("Impossible error");
 
-                set_registers!(registers, stack_frame);
-                thread.state.state = crate::arch::x86_64::scheduler::State::Paused {
-                    instruction_pointer: stack_frame.rip,
-                    rflags: RFlags::from_bits_retain(stack_frame.rflags),
-                };
+            let registers = &mut thread.state.registers;
 
-                let mut threads = THREADS.spin_acquire_lock();
-                threads.push_back(thread);
-                let thread = threads.pop_front();
+            set_registers!(registers, stack_frame);
+            thread.state.state = crate::arch::x86_64::scheduler::State::Paused {
+                instruction_pointer: stack_frame.rip,
+                rflags: RFlags::from_bits_retain(stack_frame.rflags),
+            };
 
-                if let Some(mut t) = thread {
-                    t.ticks_left = 1000;
-                    resume_thread(t);
-                } else {
-                    panic!("KERNEL THREAD IS DEAD")
-                }
+            let mut threads = THREADS.spin_acquire_lock();
+            threads.push_back(thread);
+            let thread = threads.pop_front();
+
+            drop(threads);
+
+            if let Some(mut t) = thread {
+                t.ticks_left = DEFAULT_TICKS_PER_THREAD;
+                // unsafe {
+                //     get_pic().notify_end_of_interrupt(IrqIndex::Timer as u8);
+                // }
+
+                resume_thread(t);
+            } else {
+                panic!("KERNEL THREAD IS DEAD")
             }
         }
     });

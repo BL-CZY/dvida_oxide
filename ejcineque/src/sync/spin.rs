@@ -7,6 +7,7 @@ use core::{
 unsafe impl<T> Send for SpinMutex<T> {}
 unsafe impl<T> Sync for SpinMutex<T> {}
 
+#[derive(Debug, Default)]
 pub struct SpinMutex<T> {
     inner: UnsafeCell<T>,
     is_locked: AtomicBool,
