@@ -1,7 +1,6 @@
 use core::arch::naked_asm;
 
 use ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS, TIMER_WAKERS};
-use terminal::{iprint, log};
 use x86_64::{
     instructions::port::Port, registers::rflags::RFlags, structures::idt::InterruptStackFrame,
 };

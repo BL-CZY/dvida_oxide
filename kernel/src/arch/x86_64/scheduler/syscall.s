@@ -92,7 +92,7 @@ resume_paused_thread:
     push rax
 
     mov al, 0x20
-    out 0x20, al
+    out 0x20, al                            ; manually send end of interrupt
 
     pop rax
     
