@@ -1,8 +1,13 @@
 use core::arch::global_asm;
 
+use terminal::log;
 use x86_64::{
     VirtAddr,
-    registers::{model_specific::Msr, rflags::RFlags},
+    registers::{
+        control::{Efer, EferFlags},
+        model_specific::Msr,
+        rflags::RFlags,
+    },
 };
 
 use crate::arch::x86_64::{
@@ -15,6 +20,7 @@ use crate::arch::x86_64::{
 };
 
 pub const WRITE_SYSCALL: u64 = 1;
+pub const KILL_SYSCALL: u64 = 0x3c;
 
 //TODO: multicore
 #[repr(C, packed)]
@@ -100,6 +106,11 @@ pub fn enable_syscalls() {
         );
         lstar_msr.write(syscall_handler_wrapper as *const () as u64);
         fmask_msr.write(mask.bits());
+
+        Efer::update(|v| {
+            v.set(EferFlags::NO_EXECUTE_ENABLE, true);
+            v.set(EferFlags::SYSTEM_CALL_EXTENSIONS, true);
+        });
     }
 }
 
@@ -146,22 +157,26 @@ extern "C" fn syscall_handler(stack_frame: SyscallFrame) {
 
     match stack_frame.rax {
         WRITE_SYSCALL => {
-            todo!()
+            let idx = WAITING_QUEUE_IDX.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
+
+            // interrupt will be disabled during the handler so this spin will not take too long
+            WAITING_QUEUE
+                .spin_acquire_lock()
+                .insert(idx, current_thread);
+
+            todo!();
+        }
+
+        KILL_SYSCALL => {
+            log!("Terminating thread: {:?}", current_thread);
         }
 
         _ => {
             current_thread.state.state = State::Ready;
             registers.rax = ErrNo::OperationNotSupported as u64;
+
+            THREADS.spin_acquire_lock().push_back(current_thread);
         }
-    }
-
-    if current_thread.state.state != State::Ready {
-        let idx = WAITING_QUEUE_IDX.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
-
-        // interrupt will be disabled during the handler so this spin will not take too long
-        WAITING_QUEUE
-            .spin_acquire_lock()
-            .insert(idx, current_thread);
     }
 
     // interrupt will be disabled during the handler so this spin will not take too long
