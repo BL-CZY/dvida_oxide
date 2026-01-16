@@ -66,8 +66,8 @@ fn check_rsdp(rsdp: &Rsdp) {
     }
 }
 
-fn check_acpi_sdt_header(header: &AcpiSdtHeader) {
-    let buf = bytemuck::bytes_of(header);
+fn check_acpi_sdt_header(header: *const AcpiSdtHeader, length: usize) {
+    let buf = unsafe { core::slice::from_raw_parts(header as *mut u8, length) };
 
     let mut sum = 0;
 
@@ -94,7 +94,7 @@ pub fn parse_rsdp() -> Vec<VirtAddr> {
     let xsdt_pointer = (rsdp.xsdt_addr + get_hhdm_offset().as_u64()) as *const AcpiSdtHeader;
     let xsdt_header = &unsafe { *xsdt_pointer };
 
-    check_acpi_sdt_header(&xsdt_header);
+    check_acpi_sdt_header(xsdt_pointer, xsdt_header.length as usize);
 
     let num_tables = (xsdt_header.length as usize - size_of::<AcpiSdtHeader>()) / 8;
 
@@ -116,7 +116,7 @@ pub fn find_table(pointers: &[VirtAddr], signature: [u8; 4]) -> Option<VirtAddr>
         let header = &unsafe { *header };
 
         if header.signature == signature {
-            check_acpi_sdt_header(header);
+            check_acpi_sdt_header(addr.as_ptr(), header.length as usize);
             return Some(addr.clone());
         }
     }
