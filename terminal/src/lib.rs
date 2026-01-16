@@ -7,6 +7,7 @@ use limine::request::FramebufferRequest;
 use spin::Mutex;
 
 pub mod font;
+pub mod port_dbg;
 use font::BUILTIN_FONT;
 
 pub struct DebugWriter {
@@ -296,11 +297,6 @@ macro_rules! iprint {
 macro_rules! iprintln {
     () => ($crate::print!("\n"));
     ($($arg:tt)*) => ($crate::iprint!("{}\n", format_args!($($arg)*)));
-}
-
-#[macro_export]
-macro_rules! log {
-    ($($arg:tt)*) => ($crate::iprint!("{} - line {}, {}\n", file!(), line!(),  format_args!($($arg)*)));
 }
 
 #[macro_export]

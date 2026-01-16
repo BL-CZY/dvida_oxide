@@ -29,7 +29,7 @@ pub struct PerCPUData {
     thread_rsp: u64,
 }
 
-const SYSCALL_STACK_GUARD_PAGE: u64 = 0xFFFF_FF01_0000_0000;
+const SYSCALL_STACK_GUARD_PAGE: u64 = 0xFFFF_FF81_0000_0000;
 const SYSCALL_STACK_LEN: u64 = 4 * PAGE_SIZE as u64;
 const KERNEL_GS_BASE_MSR: u32 = 0xC0000102;
 

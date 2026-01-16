@@ -94,7 +94,7 @@ pub struct Thread {
     pub ticks_left: u64,
 }
 
-pub const DEFAULT_TICKS_PER_THREAD: u64 = 500;
+pub const DEFAULT_TICKS_PER_THREAD: u64 = 50;
 
 pub fn load_kernel_thread() -> ! {
     let kernel_task_stack_start = setup_stack_for_kernel_task().as_u64();

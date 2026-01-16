@@ -72,7 +72,7 @@ resume_paused_thread:
     mov rdi, qword ptr [rdi + 0x40]         
     push rax
     mov al, 0x20
-    out 0x20, al
+    out 0x20, al                            
     pop rax
     
     iretq

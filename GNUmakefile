@@ -17,7 +17,13 @@ all-test-hdd: clean-img kernel-test $(IMAGE_NAME).hdd
 
 .PHONY: run
 run: clean-img kernel $(IMAGE_NAME).iso
-	qemu-system-x86_64 -m 4G -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk -s
+	qemu-system-x86_64 -m 4G -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk -s -serial stdio
+
+.PHONY: run-dbg
+run-dbg: clean-img kernel $(IMAGE_NAME).iso
+	qemu-system-x86_64 -m 4G -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk -s -serial stdio -S
+
+
 .PHONY: run-test
 run-test: clean-img kernel-test $(IMAGE_NAME).iso
 	qemu-system-x86_64 -m 4G -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk

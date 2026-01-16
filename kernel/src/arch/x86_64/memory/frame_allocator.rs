@@ -109,7 +109,7 @@ pub fn setup_stack(guard_page_loc: u64, len: u64) -> VirtAddr {
 }
 
 pub fn setup_stack_for_kernel_task() -> VirtAddr {
-    const KERNEL_TASK_STACK_GUARD_PAGE: u64 = 0xFFFF_FF00_0000_0000;
+    const KERNEL_TASK_STACK_GUARD_PAGE: u64 = 0xFFFF_FF80_0000_0000;
     const KERNEL_TASK_STACK_LEN: u64 = 16 * PAGE_SIZE as u64;
 
     setup_stack(KERNEL_TASK_STACK_GUARD_PAGE, KERNEL_TASK_STACK_LEN)

@@ -35,7 +35,7 @@ use crate::{
         handlers::setup_rsp0_stack,
         memory::{
             MemoryMappings,
-            frame_allocator::{BitmapAllocator, FRAME_ALLOCATOR, setup_stack_for_kernel_task},
+            frame_allocator::{BitmapAllocator, FRAME_ALLOCATOR},
             page_table::initialize_page_table,
         },
         pit::configure_pit,
@@ -192,6 +192,7 @@ unsafe extern "C" fn _start() -> ! {
 #[panic_handler]
 fn rust_panic(_info: &core::panic::PanicInfo) -> ! {
     iprintln!("{}", _info);
+    log!("{}", _info);
     hcf();
 }
 

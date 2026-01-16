@@ -2,7 +2,8 @@ use core::arch::naked_asm;
 
 use ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS, TIMER_WAKERS};
 use x86_64::{
-    instructions::port::Port, registers::rflags::RFlags, structures::idt::InterruptStackFrame,
+    VirtAddr, instructions::port::Port, registers::rflags::RFlags,
+    structures::idt::InterruptStackFrame,
 };
 
 use crate::{
@@ -69,6 +70,7 @@ extern "C" fn timer_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
                 instruction_pointer: stack_frame.rip,
                 rflags: RFlags::from_bits_retain(stack_frame.rflags),
             };
+            thread.state.stack_pointer = VirtAddr::new(stack_frame.rsp);
 
             let mut threads = THREADS.spin_acquire_lock();
             threads.push_back(thread);
