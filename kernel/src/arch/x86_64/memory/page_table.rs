@@ -1,6 +1,6 @@
 use core::ops::DerefMut;
 
-use alloc::format;
+use alloc::{format, vec::Vec};
 use ejcineque::sync::mutex::Mutex;
 use limine::request::KernelAddressRequest;
 use once_cell_no_std::OnceCell;
@@ -27,7 +27,13 @@ pub struct KernelPageTable {
 }
 
 impl KernelPageTable {
-    pub fn map_to(&self, page: Page<Size4KiB>, frame: PhysFrame, flags: PageTableFlags) {
+    pub fn map_to(
+        &self,
+        page: Page<Size4KiB>,
+        frame: PhysFrame,
+        flags: PageTableFlags,
+        context: &mut Option<&mut Vec<PhysFrame>>,
+    ) {
         let mut offset_table =
             unsafe { OffsetPageTable::new(&mut (*self.table_ptr), self.hhdm_offset) };
 
@@ -39,7 +45,7 @@ impl KernelPageTable {
 
         unsafe {
             offset_table
-                .map_to(page, frame, flags, allocator.deref_mut())
+                .map_to(page, frame, flags, allocator.deref_mut(), context)
                 .expect(&format!(
                     "Failed to map frame: {:?} to page {:?} with flags {:?}",
                     frame, page, flags
@@ -75,7 +81,7 @@ pub async fn create_page_table() -> VirtAddr {
         .expect("Failed to get allocator")
         .lock()
         .await
-        .allocate_frame()
+        .allocate_frame(&mut None)
         .expect("No enough ram");
 
     let hhdm = get_hhdm_offset();

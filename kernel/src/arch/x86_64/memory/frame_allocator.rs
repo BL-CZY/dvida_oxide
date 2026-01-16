@@ -106,6 +106,7 @@ pub fn setup_stack(guard_page_loc: u64, len: u64) -> VirtAddr {
                 | PageTableFlags::WRITABLE
                 | PageTableFlags::PRESENT
                 | PageTableFlags::GLOBAL,
+            &mut None,
         );
     }
 
@@ -124,7 +125,7 @@ pub static DEALLOCATOR_SENDER: OnceCell<UnboundedSender<Vec<PhysFrame>>> = OnceC
 /// intended to be used by interrupt handlers
 pub async fn deallocator_task() {
     let (tx, rx) = unbounded_channel::<Vec<PhysFrame>>();
-    DEALLOCATOR_SENDER
+    let _ = DEALLOCATOR_SENDER
         .set(tx)
         .expect("Failed to set deallocate sender");
 
