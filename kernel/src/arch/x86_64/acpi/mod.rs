@@ -1,11 +1,14 @@
+pub mod apic;
+
 use alloc::{vec, vec::Vec};
 use bytemuck::{Pod, Zeroable};
 use limine::request::RsdpRequest;
+use terminal::log;
 use x86_64::VirtAddr;
 
 use crate::arch::x86_64::memory::get_hhdm_offset;
 
-#[derive(Clone, Copy, Pod, Zeroable, Default)]
+#[derive(Clone, Copy, Pod, Zeroable, Default, Debug)]
 #[repr(C, packed)]
 pub struct Rsdp {
     signature: [u8; 8],
@@ -81,6 +84,10 @@ pub fn parse_rsdp() -> Vec<VirtAddr> {
 
     let rsdp = &unsafe { *(response.address() as *const Rsdp) };
 
+    assert_eq!(&rsdp.signature, b"RSD PTR ");
+
+    log!("{:?}", rsdp);
+
     if rsdp.revision != ACPI_2_0 {
         panic!("Non supported ACPI");
     }
@@ -120,6 +127,6 @@ pub fn find_table(pointers: &[VirtAddr], signature: [u8; 4]) -> Option<VirtAddr>
     None
 }
 
-pub fn find_acpi(pointers: &[VirtAddr]) -> Option<VirtAddr> {
+pub fn find_apic(pointers: &[VirtAddr]) -> Option<VirtAddr> {
     find_table(pointers, [b'A', b'P', b'I', b'C'])
 }

@@ -40,6 +40,17 @@ lazy_static! {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct ThreadId(usize);
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct ProcessId(usize);
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct CpuCoreId(usize);
+
+pub struct SchedulerContext {
+    pub processes: BTreeMap<ProcessId, Vec<(CpuCoreId, ThreadId)>>,
+    pub cpu_contexts: Vec<SchedulerCpuContext>,
+}
+
 #[derive(Debug)]
 pub struct SchedulerCpuContext {
     pub thread_map: BTreeMap<ThreadId, Thread>,

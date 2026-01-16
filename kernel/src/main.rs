@@ -32,6 +32,7 @@ pub mod time;
 
 use crate::{
     arch::x86_64::{
+        acpi::parse_rsdp,
         handlers::setup_rsp0_stack,
         memory::{
             MemoryMappings,
@@ -128,6 +129,15 @@ unsafe extern "C" fn _start() -> ! {
         }))
         .expect("Failed to set frame allocator");
 
+    init_kheap(
+        kheap.kheap_start,
+        (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
+    );
+
+    log!("{:?}", parse_rsdp());
+
+    panic!("pause");
+
     init_gdt();
     init_idt();
     init_pic();
@@ -137,12 +147,8 @@ unsafe extern "C" fn _start() -> ! {
 
     // force_overflow(100);
 
-    init_kheap(
-        kheap.kheap_start,
-        (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
-    );
-
     unsafe { initialize_page_table() };
+
     enable_syscalls();
 
     STORAGE_CONTEXT_ARR[hal::storage::PRIMARY]

@@ -17,11 +17,11 @@ all-test-hdd: clean-img kernel-test $(IMAGE_NAME).hdd
 
 .PHONY: run
 run: clean-img kernel $(IMAGE_NAME).iso
-	qemu-system-x86_64 -m 4G -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk -s -serial stdio
+	qemu-system-x86_64 -m 4G -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk -s -serial stdio -machine q35 -smp 4 -bios ovmf/OVMF.fd
 
 .PHONY: run-dbg
 run-dbg: clean-img kernel $(IMAGE_NAME).iso
-	qemu-system-x86_64 -m 4G -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk -s -serial stdio -S
+	qemu-system-x86_64 -m 4G -boot d -cdrom $(IMAGE_NAME).iso -drive file=storage.img,format=raw,media=disk -s -serial stdio -S -machine q35 -smp 4 -bios ovmf/OVMF.fd
 
 
 .PHONY: run-test
