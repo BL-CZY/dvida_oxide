@@ -1,3 +1,4 @@
+pub mod acpi;
 pub mod err;
 pub mod gdt;
 pub mod handlers;
