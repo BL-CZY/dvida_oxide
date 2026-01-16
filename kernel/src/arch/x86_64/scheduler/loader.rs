@@ -69,7 +69,7 @@ pub async fn copy_data(
             .expect("Failed to get the allocator")
             .lock()
             .await
-            .allocate_frame()
+            .allocate_frame(&mut None)
             .ok_or(LoadErr::NoEnoughMemory)?;
 
         phys_frames.push(frame);
@@ -144,6 +144,7 @@ pub async fn handle_tls(
     page_table: &mut OffsetPageTable<'_>,
     tls_entry: &ElfProgramHeaderEntry,
     fd: i64,
+    allocated_frames: &mut Vec<PhysFrame<Size4KiB>>,
 ) -> Result<VirtAddr, LoadErr> {
     let length = tls_entry.size_in_memory;
     let aligned_length = (length + tls_entry.alignment - 1) & !(tls_entry.alignment - 1);
@@ -180,7 +181,7 @@ pub async fn handle_tls(
                 .expect("Failed to get allocator")
                 .lock()
                 .await
-                .allocate_frame()
+                .allocate_frame(&mut None)
                 .ok_or(LoadErr::NoEnoughMemory)?,
         );
 
@@ -235,6 +236,8 @@ pub async fn handle_tls(
                 .expect("Failed to create page");
 
         unsafe {
+            allocated_frames.push(*frame);
+
             let _ = page_table
                 .map_to(
                     page,
@@ -244,6 +247,7 @@ pub async fn handle_tls(
                         | PageTableFlags::PRESENT
                         | PageTableFlags::USER_ACCESSIBLE,
                     allocator.deref_mut(),
+                    &mut Some(allocated_frames),
                 )
                 .map_err(LoadErr::MappingErr)?;
         };
@@ -252,7 +256,10 @@ pub async fn handle_tls(
     Ok(VirtAddr::new(TLS_START + aligned_length))
 }
 
-pub async fn get_stack(page_table: &mut OffsetPageTable<'_>) -> Result<VirtAddr, LoadErr> {
+pub async fn get_stack(
+    page_table: &mut OffsetPageTable<'_>,
+    allocated_frames: &mut Vec<PhysFrame<Size4KiB>>,
+) -> Result<VirtAddr, LoadErr> {
     const STACK_START: u64 = STACK_GUARD_PAGE + PAGE_SIZE as u64;
     const STACK_GUARD_PAGE: u64 = 0x7FFF_FFFF_0000;
     const STACK_LEN: u64 = 16 * PAGE_SIZE as u64;
@@ -267,7 +274,7 @@ pub async fn get_stack(page_table: &mut OffsetPageTable<'_>) -> Result<VirtAddr,
 
     for _ in 0..15 {
         let frame = allocator
-            .allocate_frame()
+            .allocate_frame(&mut None)
             .expect("Failed to get physical frame");
         frames.push(frame).expect("Failed to push");
     }
@@ -278,6 +285,7 @@ pub async fn get_stack(page_table: &mut OffsetPageTable<'_>) -> Result<VirtAddr,
                 .expect("Failed to create page");
 
         unsafe {
+            allocated_frames.push(*frame);
             let _ = page_table
                 .map_to(
                     page,
@@ -287,6 +295,7 @@ pub async fn get_stack(page_table: &mut OffsetPageTable<'_>) -> Result<VirtAddr,
                         | PageTableFlags::PRESENT
                         | PageTableFlags::USER_ACCESSIBLE,
                     allocator.deref_mut(),
+                    &mut Some(allocated_frames),
                 )
                 .map_err(LoadErr::MappingErr)?;
         };
@@ -300,6 +309,7 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
     let page_table = unsafe { &mut *(create_page_table().await.as_mut_ptr() as *mut PageTable) };
     let mut offset_page_table = unsafe { OffsetPageTable::new(page_table, get_hhdm_offset()) };
     let mut tls_ptr = None;
+    let mut allocated_frames = vec![];
 
     for entry in elf.program_header_table.iter() {
         if entry.segment_type == SegmentType::Null as u32
@@ -324,7 +334,8 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
                 frames: phys_frames,
             });
         } else if entry.segment_type == SegmentType::TLS as u32 {
-            tls_ptr = Some(handle_tls(&mut offset_page_table, entry, fd).await?);
+            tls_ptr =
+                Some(handle_tls(&mut offset_page_table, entry, fd, &mut allocated_frames).await?);
         } else {
             todo!()
         }
@@ -340,7 +351,6 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
         let start = map_entry.entry.vaddr;
         let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
 
-        // TODO: enable no execute
         if map_entry.entry.flags & Flags::Writable as u32 != 0 {
             flags = flags | PageTableFlags::WRITABLE;
         }
@@ -350,6 +360,8 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
         }
 
         for (idx, phys_frame) in map_entry.frames.iter().into_iter().enumerate() {
+            allocated_frames.push(*phys_frame);
+
             unsafe {
                 let _ = offset_page_table
                     .map_to(
@@ -359,18 +371,20 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
                         *phys_frame,
                         flags,
                         frame_allocator.deref_mut(),
+                        &mut Some(&mut allocated_frames),
                     )
                     .map_err(|e| LoadErr::MappingErr(e))?;
             }
         }
     }
 
-    let stack_top = get_stack(&mut offset_page_table).await? - 8;
+    let stack_top = get_stack(&mut offset_page_table, &mut allocated_frames).await? - 8;
 
     let table_virt_addr = VirtAddr::from_ptr(page_table as *mut PageTable);
     let table_phys_addr = PhysAddr::new(table_virt_addr.as_u64() - get_hhdm_offset().as_u64());
 
     Ok(ThreadState {
+        frames: allocated_frames,
         killed: false,
         registers: GPRegisterState::default(),
         stack_pointer: stack_top,

@@ -1,5 +1,8 @@
 use alloc::vec::Vec;
-use ejcineque::sync::mutex::Mutex;
+use ejcineque::sync::{
+    mpsc::unbounded::{UnboundedSender, unbounded_channel},
+    mutex::Mutex,
+};
 use once_cell_no_std::OnceCell;
 use x86_64::{
     PhysAddr, VirtAddr,
@@ -24,11 +27,11 @@ impl BitmapAllocator {
     }
 }
 
-unsafe impl FrameAllocator<Size4KiB, Option<Vec<PhysFrame<Size4KiB>>>> for BitmapAllocator {
+unsafe impl FrameAllocator<Size4KiB, Option<&mut Vec<PhysFrame<Size4KiB>>>> for BitmapAllocator {
     /// must be used along with set_current_allocating_thread
     fn allocate_frame(
         &mut self,
-        context: &mut Option<Vec<PhysFrame<Size4KiB>>>,
+        context: &mut Option<&mut Vec<PhysFrame<Size4KiB>>>,
     ) -> Option<PhysFrame<Size4KiB>> {
         let total_bits = self.bitmap.length as usize * 8;
 
@@ -62,6 +65,7 @@ unsafe impl FrameAllocator<Size4KiB, Option<Vec<PhysFrame<Size4KiB>>>> for Bitma
     }
 }
 
+/// should NEVER be used by an interrupt
 pub static FRAME_ALLOCATOR: OnceCell<Mutex<BitmapAllocator>> = OnceCell::new();
 
 pub fn setup_stack(guard_page_loc: u64, len: u64) -> VirtAddr {
@@ -113,4 +117,23 @@ pub fn setup_stack_for_kernel_task() -> VirtAddr {
     const KERNEL_TASK_STACK_LEN: u64 = 16 * PAGE_SIZE as u64;
 
     setup_stack(KERNEL_TASK_STACK_GUARD_PAGE, KERNEL_TASK_STACK_LEN)
+}
+
+pub static DEALLOCATOR_SENDER: OnceCell<UnboundedSender<Vec<PhysFrame>>> = OnceCell::new();
+
+/// intended to be used by interrupt handlers
+pub async fn deallocator_task() {
+    let (tx, rx) = unbounded_channel::<Vec<PhysFrame>>();
+    DEALLOCATOR_SENDER
+        .set(tx)
+        .expect("Failed to set deallocate sender");
+
+    while let Some(v) = rx.recv().await {
+        FRAME_ALLOCATOR
+            .get()
+            .expect("Failed to get allocator")
+            .lock()
+            .await
+            .free_frames(&v);
+    }
 }

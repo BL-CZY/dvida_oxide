@@ -2,6 +2,7 @@ pub mod elf;
 pub mod loader;
 pub mod syscall;
 
+use alloc::vec;
 use core::sync::atomic::AtomicUsize;
 
 use alloc::{
@@ -20,7 +21,8 @@ use crate::{
     EXECUTOR,
     arch::x86_64::{
         memory::{
-            frame_allocator::setup_stack_for_kernel_task, get_hhdm_offset,
+            frame_allocator::{DEALLOCATOR_SENDER, setup_stack_for_kernel_task},
+            get_hhdm_offset,
             page_table::KERNEL_PAGE_TABLE,
         },
         scheduler::syscall::resume_thread,
@@ -72,6 +74,7 @@ impl SchedulerContext {
             // remove stale thread
             if let Some(ref thread) = self.thread_map.get(&id) {
                 if thread.state.killed {
+                    self.thread_map.remove(&id);
                 } else {
                     self.current_thread = Some(id);
                     return self.thread_map.get_mut(&id).expect("Rust error");
@@ -148,6 +151,17 @@ pub struct Thread {
     pub ticks_left: u64,
 }
 
+impl Drop for Thread {
+    fn drop(&mut self) {
+        let frames_to_free = core::mem::take(&mut self.state.frames);
+
+        DEALLOCATOR_SENDER
+            .get()
+            .expect("Failed to get deallocator sender")
+            .send(frames_to_free);
+    }
+}
+
 pub const DEFAULT_TICKS_PER_THREAD: u64 = 50;
 
 pub fn load_kernel_thread() -> ! {
@@ -175,6 +189,9 @@ pub fn load_kernel_thread() -> ! {
                 instruction_pointer: kernel_thread_entry_point as u64,
                 rflags: rflags::read(),
             },
+
+            // if the kernel dies no need to deallocate
+            frames: vec![],
         },
         privilage_level: PrivilageLevel::Kernel,
         ticks_left: DEFAULT_TICKS_PER_THREAD,
