@@ -35,7 +35,7 @@ use crate::{
         handlers::setup_rsp0_stack,
         memory::{
             MemoryMappings,
-            frame_allocator::{BitmapAllocator, FRAME_ALLOCATOR},
+            frame_allocator::{BitmapAllocator, FRAME_ALLOCATOR, deallocator_task},
             page_table::initialize_page_table,
         },
         pit::configure_pit,
@@ -92,6 +92,8 @@ async fn kernel_main(spawner: Spawner) {
     spawner.spawn(spawn_vfs_task(args.root_drive, args.root_entry));
     yield_now().await;
     log!("VFS task launched");
+
+    spawner.spawn(deallocator_task());
 }
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.

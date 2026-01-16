@@ -191,6 +191,8 @@ extern "C" fn syscall_handler(stack_frame: SyscallFrame) {
 }
 
 pub fn resume_thread(thread: Thread) -> ! {
+    const IA32_FS_BASE: u32 = 0xC000_0100;
+
     match thread.state.state {
         State::Paused {
             instruction_pointer,
@@ -227,6 +229,10 @@ pub fn resume_thread(thread: Thread) -> ! {
                 FALSE
             };
 
+            unsafe {
+                Msr::new(IA32_FS_BASE).write(thread.state.thread_local_segment.as_u64());
+            }
+
             *CURRENT_THREAD.spin_acquire_lock() = Some(thread);
 
             unsafe {
@@ -246,6 +252,11 @@ pub fn resume_thread(thread: Thread) -> ! {
             syscall_frame.rsp = thread.state.stack_pointer.as_u64();
 
             let page_table_pointer = thread.state.page_table_pointer.as_u64();
+
+            unsafe {
+                Msr::new(IA32_FS_BASE).write(thread.state.thread_local_segment.as_u64());
+            }
+
             *CURRENT_THREAD.spin_acquire_lock() = Some(thread);
 
             unsafe {

@@ -41,16 +41,14 @@ lazy_static! {
 pub struct ThreadId(usize);
 
 #[derive(Debug)]
-pub struct SchedulerContext {
+pub struct SchedulerCpuContext {
     pub thread_map: BTreeMap<ThreadId, Thread>,
     thread_id_counter: usize,
     pub thread_queue: VecDeque<ThreadId>,
     pub current_thread: Option<ThreadId>,
-
-    pub threads_to_kill: BTreeSet<ThreadId>,
 }
 
-impl SchedulerContext {
+impl SchedulerCpuContext {
     // the thread will start with paused status
     pub fn spawn_thread(&mut self, mut thread: Thread) {
         thread.id = ThreadId(self.thread_id_counter);
