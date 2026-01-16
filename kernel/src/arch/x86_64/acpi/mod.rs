@@ -61,9 +61,7 @@ fn check_rsdp(rsdp: &Rsdp) {
         sum += rsdp_buf[i] as u32;
     }
 
-    if sum & 0xff != 0 {
-        panic!("ACPI checksum failed");
-    }
+    assert_eq!(sum & 0xff, 0);
 }
 
 fn check_acpi_sdt_header(header: *const AcpiSdtHeader, length: usize) {
@@ -72,12 +70,10 @@ fn check_acpi_sdt_header(header: *const AcpiSdtHeader, length: usize) {
     let mut sum = 0;
 
     for i in buf.iter() {
-        sum += *i as i32;
+        sum += *i as u32;
     }
 
-    if sum != 0 {
-        panic!("ACPI header checksum failed");
-    }
+    assert_eq!(sum & 0xff, 0);
 }
 
 pub fn parse_rsdp() -> Vec<VirtAddr> {
