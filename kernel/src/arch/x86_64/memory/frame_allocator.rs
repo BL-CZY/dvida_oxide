@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use ejcineque::sync::mutex::Mutex;
 use once_cell_no_std::OnceCell;
 use x86_64::{
@@ -7,33 +8,28 @@ use x86_64::{
 
 use crate::arch::x86_64::memory::{PAGE_SIZE, bitmap::BitMap, page_table::KERNEL_PAGE_TABLE};
 
-use super::memmap;
-
-pub struct MinimalAllocator {
-    pub next: usize,
-}
-
-unsafe impl FrameAllocator<Size4KiB> for MinimalAllocator {
-    fn allocate_frame(&mut self) -> Option<x86_64::structures::paging::PhysFrame<Size4KiB>> {
-        let frame = memmap::read_memmap_usable().nth(self.next);
-        self.next += 1;
-        frame
-    }
-}
-
-impl MinimalAllocator {
-    pub fn step(&mut self, steps: usize) {
-        self.next += steps;
-    }
-}
-
 pub struct BitmapAllocator {
     pub bitmap: BitMap,
     pub next: usize,
 }
 
-unsafe impl FrameAllocator<Size4KiB> for BitmapAllocator {
-    fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
+impl BitmapAllocator {
+    pub fn free_frames(&mut self, frames: &[PhysFrame]) {
+        for frame in frames.iter() {
+            let idx = frame.start_address().as_u64() / PAGE_SIZE as u64;
+            let idx = idx as usize;
+
+            self.bitmap[idx / 8] = self.bitmap[idx / 8] & !(0x1 << (idx % 8));
+        }
+    }
+}
+
+unsafe impl FrameAllocator<Size4KiB, Option<Vec<PhysFrame<Size4KiB>>>> for BitmapAllocator {
+    /// must be used along with set_current_allocating_thread
+    fn allocate_frame(
+        &mut self,
+        context: &mut Option<Vec<PhysFrame<Size4KiB>>>,
+    ) -> Option<PhysFrame<Size4KiB>> {
         let total_bits = self.bitmap.length as usize * 8;
 
         for offset in 0..total_bits {
@@ -49,11 +45,15 @@ unsafe impl FrameAllocator<Size4KiB> for BitmapAllocator {
                 self.bitmap[byte_idx] |= 1 << bit_idx;
 
                 self.next = (i + 1) % total_bits;
+                unsafe {
+                    let res: PhysFrame<Size4KiB> =
+                        PhysFrame::from_start_address_unchecked(PhysAddr::new(i as u64 * 4096));
 
-                return unsafe {
-                    Some(PhysFrame::from_start_address_unchecked(PhysAddr::new(
-                        i as u64 * 4096,
-                    )))
+                    if let Some(v) = context {
+                        v.push(res.clone());
+                    }
+
+                    return Some(res);
                 };
             }
         }
@@ -77,7 +77,7 @@ pub fn setup_stack(guard_page_loc: u64, len: u64) -> VirtAddr {
 
     for _ in 0..15 {
         let frame = allocator
-            .allocate_frame()
+            .allocate_frame(&mut None)
             .expect("Failed to get physical frame");
         frames.push(frame).expect("Failed to push");
     }

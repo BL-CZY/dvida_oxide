@@ -4,12 +4,16 @@ pub mod syscall;
 
 use core::sync::atomic::AtomicUsize;
 
-use alloc::collections::{btree_map::BTreeMap, vec_deque::VecDeque};
+use alloc::{
+    collections::{btree_map::BTreeMap, btree_set::BTreeSet, vec_deque::VecDeque},
+    vec::Vec,
+};
 use ejcineque::sync::mutex::Mutex;
 use lazy_static::lazy_static;
 use x86_64::{
     PhysAddr, VirtAddr,
     registers::rflags::{self, RFlags},
+    structures::paging::PhysFrame,
 };
 
 use crate::{
@@ -29,6 +33,52 @@ lazy_static! {
     pub static ref THREADS: Mutex<VecDeque<Thread>> = Mutex::new(VecDeque::new());
     pub static ref WAITING_QUEUE: Mutex<BTreeMap<usize, Thread>> = Mutex::new(BTreeMap::new());
     pub static ref WAITING_QUEUE_IDX: AtomicUsize = AtomicUsize::new(0);
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct ThreadId(usize);
+
+#[derive(Debug)]
+pub struct SchedulerContext {
+    pub thread_map: BTreeMap<ThreadId, Thread>,
+    thread_id_counter: usize,
+    pub thread_queue: VecDeque<ThreadId>,
+    pub current_thread: Option<ThreadId>,
+
+    pub threads_to_kill: BTreeSet<ThreadId>,
+}
+
+impl SchedulerContext {
+    // the thread will start with paused status
+    pub fn spawn_thread(&mut self, mut thread: Thread) {
+        thread.id = ThreadId(self.thread_id_counter);
+        self.thread_map
+            .insert(ThreadId(self.thread_id_counter), thread);
+        self.thread_queue
+            .push_back(ThreadId(self.thread_id_counter));
+
+        self.thread_id_counter += 1;
+    }
+
+    pub fn get_current_thread_ref(&mut self) -> &mut Thread {
+        let id = self.current_thread.as_ref().expect("No current thread");
+        self.thread_map.get_mut(id).expect("Corrupted metadata")
+    }
+
+    pub fn switch_task(&mut self) -> &mut Thread {
+        loop {
+            let id = self.thread_queue.pop_front().expect("KERNEL TASK IS DEAD");
+
+            // remove stale thread
+            if let Some(ref thread) = self.thread_map.get(&id) {
+                if thread.state.killed {
+                } else {
+                    self.current_thread = Some(id);
+                    return self.thread_map.get_mut(&id).expect("Rust error");
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -68,6 +118,8 @@ pub enum State {
 
 #[derive(Debug)]
 pub struct ThreadState {
+    pub killed: bool,
+
     pub registers: GPRegisterState,
     pub stack_pointer: VirtAddr,
     /// fs
@@ -78,6 +130,8 @@ pub struct ThreadState {
     pub fpu_registers: Option<FPURegisterState>,
     pub simd_registers: Option<SIMDRegisterState>,
     pub state: State,
+
+    pub frames: Vec<PhysFrame>,
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
@@ -88,7 +142,7 @@ pub enum PrivilageLevel {
 
 #[derive(Debug)]
 pub struct Thread {
-    pub id: usize,
+    pub id: ThreadId,
     pub state: ThreadState,
     pub privilage_level: PrivilageLevel,
     pub ticks_left: u64,
@@ -100,8 +154,9 @@ pub fn load_kernel_thread() -> ! {
     let kernel_task_stack_start = setup_stack_for_kernel_task().as_u64();
 
     let thread = Thread {
-        id: 0,
+        id: ThreadId(0),
         state: ThreadState {
+            killed: false,
             registers: GPRegisterState::default(),
             stack_pointer: VirtAddr::new(kernel_task_stack_start),
             // kernel doesn't have a thread local segment

@@ -1,0 +1,3 @@
+[submodule "x86_64"]
+	path = x86_64
+	url = git@github.com:BL-CZY/x86_64.git

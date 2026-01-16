@@ -8,7 +8,7 @@ debug = true
 
 [dependencies]
 limine = "0.2.0"
-x86_64 = { version = "0.15.2", features = ["instructions", "nightly"] }
+x86_64 = { path = "../x86_64/", features = ["instructions", "nightly", "no_rec_page_table"] }
 pic8259 = "0.11.0"
 spin = "0.9.8"
 pc-keyboard = "0.7.0"

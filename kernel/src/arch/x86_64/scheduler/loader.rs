@@ -4,7 +4,7 @@ use alloc::{vec, vec::Vec};
 use bytemuck::{Pod, Zeroable};
 use x86_64::{
     PhysAddr, VirtAddr,
-    registers::rflags::{self, RFlags},
+    registers::rflags::{self},
     structures::paging::{
         FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame,
         Size4KiB, mapper::MapToError,
@@ -21,7 +21,6 @@ use crate::{
         scheduler::{
             GPRegisterState, ThreadState,
             elf::{ElfFile, ElfProgramHeaderEntry, Flags, SegmentType},
-            syscall::{PER_CPU_DATA, PerCPUData},
         },
     },
     crypto::random::random_number,
@@ -372,6 +371,7 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
     let table_phys_addr = PhysAddr::new(table_virt_addr.as_u64() - get_hhdm_offset().as_u64());
 
     Ok(ThreadState {
+        killed: false,
         registers: GPRegisterState::default(),
         stack_pointer: stack_top,
         state: crate::arch::x86_64::scheduler::State::Paused {
