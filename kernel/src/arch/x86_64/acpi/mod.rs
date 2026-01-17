@@ -1,5 +1,6 @@
 pub mod apic;
 pub mod facp;
+pub mod mcfg;
 
 use alloc::{vec, vec::Vec};
 use bytemuck::{Pod, Zeroable};

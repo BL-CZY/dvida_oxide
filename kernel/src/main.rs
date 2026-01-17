@@ -31,7 +31,12 @@ pub mod time;
 
 use crate::{
     arch::x86_64::{
-        acpi::{apic::init_apic, find_madt, find_mcfg, parse_rsdp},
+        acpi::{
+            apic::init_apic,
+            find_madt, find_mcfg,
+            mcfg::{iterate_pcie_entries, parse_mcfg},
+            parse_rsdp,
+        },
         handlers::setup_rsp0_stack,
         memory::{
             MemoryMappings,
@@ -151,17 +156,16 @@ unsafe extern "C" fn _start() -> ! {
     local_apic.calibrate_timer(mappings[0]);
 
     let mcfg = find_mcfg(&table_ptrs).expect("No mcfg found");
-    log!("mcfg ptr: {:?}", mcfg);
+    let mcfg = parse_mcfg(mcfg);
+    log!("mcfg table: {:?}", mcfg);
+
+    let device_tree = iterate_pcie_entries(&mcfg.entries);
 
     unsafe {
         loop {
             asm!("hlt");
         }
     }
-
-    configure_pit();
-
-    // force_overflow(100);
 
     unsafe { initialize_page_table() };
 
