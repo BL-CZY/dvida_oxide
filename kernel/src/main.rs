@@ -32,7 +32,7 @@ pub mod time;
 
 use crate::{
     arch::x86_64::{
-        acpi::parse_rsdp,
+        acpi::{apic::discover_apic, find_madt, find_mcfg, parse_rsdp},
         handlers::setup_rsp0_stack,
         memory::{
             MemoryMappings,
@@ -134,7 +134,14 @@ unsafe extern "C" fn _start() -> ! {
         (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
     );
 
-    log!("{:?}", parse_rsdp());
+    let table_ptrs = parse_rsdp();
+
+    let madt = find_madt(&table_ptrs).expect("No apic found");
+    log!("madt ptr: {:?}", madt);
+    discover_apic(madt);
+
+    let mcfg = find_mcfg(&table_ptrs).expect("No mcfg found");
+    log!("mcfg ptr: {:?}", mcfg);
 
     panic!("pause");
 

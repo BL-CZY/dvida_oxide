@@ -24,7 +24,7 @@ pub struct Rsdp {
     reserved: [u8; 3],
 }
 
-#[derive(Clone, Copy, Pod, Zeroable, Default)]
+#[derive(Clone, Copy, Pod, Zeroable, Default, Debug)]
 #[repr(C, packed)]
 pub struct AcpiSdtHeader {
     signature: [u8; 4],
@@ -107,7 +107,8 @@ pub fn parse_rsdp() -> Vec<VirtAddr> {
     let mut table_pointers: Vec<VirtAddr> = vec![];
 
     for i in 0..num_tables {
-        table_pointers.push(xsdt_pointer + i as u64 * 8);
+        let pointer: u32 = unsafe { *((xsdt_pointer + (i as u64 * 8)).as_ptr()) };
+        table_pointers.push(VirtAddr::new(pointer as u64) + get_hhdm_offset().as_u64());
     }
 
     table_pointers
@@ -127,6 +128,10 @@ pub fn find_table(pointers: &[VirtAddr], signature: [u8; 4]) -> Option<VirtAddr>
     None
 }
 
-pub fn find_apic(pointers: &[VirtAddr]) -> Option<VirtAddr> {
+pub fn find_madt(pointers: &[VirtAddr]) -> Option<VirtAddr> {
     find_table(pointers, [b'A', b'P', b'I', b'C'])
+}
+
+pub fn find_mcfg(pointers: &[VirtAddr]) -> Option<VirtAddr> {
+    find_table(pointers, [b'M', b'C', b'F', b'G'])
 }
