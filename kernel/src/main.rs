@@ -32,13 +32,14 @@ pub mod time;
 
 use crate::{
     arch::x86_64::{
-        acpi::{apic::discover_apic, find_madt, find_mcfg, parse_rsdp},
+        acpi::{apic::init_apic, find_madt, find_mcfg, parse_rsdp},
         handlers::setup_rsp0_stack,
         memory::{
             MemoryMappings,
             frame_allocator::{BitmapAllocator, FRAME_ALLOCATOR, deallocator_task},
             page_table::initialize_page_table,
         },
+        pic::disable_pic,
         pit::configure_pit,
         scheduler::{
             load_kernel_thread,
@@ -138,7 +139,7 @@ unsafe extern "C" fn _start() -> ! {
 
     let madt = find_madt(&table_ptrs).expect("No apic found");
     log!("madt ptr: {:?}", madt);
-    discover_apic(madt);
+    init_apic(madt);
 
     let mcfg = find_mcfg(&table_ptrs).expect("No mcfg found");
     log!("mcfg ptr: {:?}", mcfg);
@@ -147,7 +148,8 @@ unsafe extern "C" fn _start() -> ! {
 
     init_gdt();
     init_idt();
-    init_pic();
+    disable_pic();
+
     x86_64::instructions::interrupts::enable();
     log!("Interrupts enabled!");
     configure_pit();

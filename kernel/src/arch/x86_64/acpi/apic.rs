@@ -5,7 +5,10 @@ use bytemuck::{Pod, Zeroable};
 use terminal::log;
 use x86_64::VirtAddr;
 
-use crate::arch::x86_64::{acpi::AcpiSdtHeader, memory::get_hhdm_offset};
+use crate::arch::x86_64::{
+    acpi::AcpiSdtHeader, idt::SPURIOUS_INTERRUPT_HANDLER_IDX, memory::get_hhdm_offset,
+    pic::PRIMARY_ISA_PIC_OFFSET,
+};
 
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 #[repr(C, packed)]
@@ -148,7 +151,7 @@ impl Processor {
     }
 }
 
-pub fn discover_apic(mut madt_ptr: VirtAddr) {
+pub fn init_apic(mut madt_ptr: VirtAddr) {
     // no need to do the checksum, it's already done
     let header = unsafe { *(madt_ptr.as_ptr() as *const MadtHeader) };
     let mut remaining_length = header.header.length as usize - size_of::<MadtHeader>();
@@ -162,6 +165,8 @@ pub fn discover_apic(mut madt_ptr: VirtAddr) {
     let mut local_nmi_sources: Vec<LocalNmiSourceData> = Vec::new();
 
     let mut isa_irq_gsi: [u32; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    let mut isa_irq_gsi_trigger_modes_overrides: [Option<u8>; 16] = [None; 16];
+    let mut isa_irq_gsi_polarity_overrides: [Option<u8>; 16] = [None; 16];
 
     let mut processors: BTreeMap<u8, Processor> = BTreeMap::new();
 
@@ -210,6 +215,28 @@ pub fn discover_apic(mut madt_ptr: VirtAddr) {
 
                 let data =
                     unsafe { *(madt_ptr.as_ptr() as *const IoApicInterruptSourceOverrideData) };
+
+                const ACTIVE_HIGH: u16 = 0b01;
+                const ACTIVE_LOW: u16 = 0b11;
+
+                const EDGE_TRIGGER: u16 = 0b01;
+                const LEVEL_TRIGGER: u16 = 0b11;
+
+                if data.flags & 0b11 == ACTIVE_HIGH {
+                    isa_irq_gsi_polarity_overrides[data.irq_source as usize] =
+                        Some(IoApicInterruptPolarity::HIGH_ACTIVE);
+                } else if data.flags & 0b11 == ACTIVE_LOW {
+                    isa_irq_gsi_polarity_overrides[data.irq_source as usize] =
+                        Some(IoApicInterruptPolarity::LOW_ACTIVE);
+                }
+
+                if (data.flags >> 2) & 0b11 == EDGE_TRIGGER {
+                    isa_irq_gsi_trigger_modes_overrides[data.irq_source as usize] =
+                        Some(IoApicInterruptTriggerMode::EDGE_SENSITIVE);
+                } else if (data.flags >> 2) & 0b11 == LEVEL_TRIGGER {
+                    isa_irq_gsi_trigger_modes_overrides[data.irq_source as usize] =
+                        Some(IoApicInterruptTriggerMode::LEVEL_SENSITIVE);
+                }
 
                 isa_irq_gsi[data.irq_source as usize] = data.global_system_interrupt;
             }
@@ -378,6 +405,11 @@ impl LocalApic {
         let addr: *const u32 = addr.as_ptr();
         unsafe { addr.read_volatile() }
     }
+
+    pub fn enable(&mut self) {
+        self.write_task_priority(0);
+        self.write_spurious_interrupt_vector((SPURIOUS_INTERRUPT_HANDLER_IDX as u32) | (0x1 << 8));
+    }
 }
 
 pub struct IoApicDeliveryMode {}
@@ -410,7 +442,7 @@ impl IoApicInterruptTriggerMode {
 
 pub struct IoApicDestinationMode {}
 impl IoApicDestinationMode {
-    pub const PHYSICA: u8 = 0;
+    pub const PHYSICAL: u8 = 0;
     pub const LOGICAL: u8 = 1;
 }
 
@@ -516,21 +548,65 @@ impl IoApic {
         self.read_io_data()
     }
 
-    pub fn write_redirection_entry(&mut self, entry_num: u32, value: u64) {
-        let register_id = Self::REDIRECTION_TABLE_BASE + entry_num * 2;
+    pub fn write_redirection_entry(&mut self, entry_num: u8, value: u64) {
+        let register_id = Self::REDIRECTION_TABLE_BASE + entry_num as u32 * 2;
         self.write_io_cmd(register_id);
         self.write_io_data(value as u32);
         self.write_io_cmd(register_id + 1);
         self.write_io_data((value >> 32) as u32);
     }
 
-    pub fn read_redirection_entry(&mut self, entry_num: u32) -> u64 {
-        let register_id = Self::REDIRECTION_TABLE_BASE + entry_num * 2;
+    pub fn read_redirection_entry(&mut self, entry_num: u8) -> u64 {
+        let register_id = Self::REDIRECTION_TABLE_BASE + entry_num as u32 * 2;
         let mut res;
         self.write_io_cmd(register_id);
         res = self.read_io_data() as u64;
         self.write_io_cmd(register_id + 1);
         res += (self.read_io_data() as u64) << 32;
         res
+    }
+
+    pub fn isa_bootstrap(
+        &mut self,
+        irq_to_gsi_map: [u32; 16],
+        isa_irq_gsi_trigger_modes_overrides: [Option<u8>; 16],
+        isa_irq_gsi_polarity_overrides: [Option<u8>; 16],
+        local_apic_id: u8,
+    ) {
+        for i in 0..16 {
+            let gsi = irq_to_gsi_map[i as usize];
+
+            // Skip if this GSI belongs to a different I/O APIC
+            if (gsi as u32) < self.global_system_interrupt_base
+                || (gsi as u32)
+                    >= self.global_system_interrupt_base + ((self.read_version() >> 16) & 0xFF) + 1
+            {
+                continue;
+            }
+
+            let idx_in_apic = gsi - self.global_system_interrupt_base;
+            let mut entry = IoApicRedirectionEntry(0);
+
+            entry.set_vector(PRIMARY_ISA_PIC_OFFSET + i);
+            entry.set_delivery_mode(IoApicDeliveryMode::FIXED);
+            entry.set_destination_mode(IoApicDestinationMode::PHYSICAL);
+
+            if let Some(p) = isa_irq_gsi_polarity_overrides[i as usize] {
+                entry.set_polarity(p);
+            } else {
+                entry.set_polarity(IoApicInterruptPolarity::HIGH_ACTIVE);
+            }
+
+            if let Some(m) = isa_irq_gsi_trigger_modes_overrides[i as usize] {
+                entry.set_trigger_mode(m);
+            } else {
+                entry.set_trigger_mode(IoApicInterruptTriggerMode::EDGE_SENSITIVE);
+            }
+
+            entry.set_interrupt_mask(IoApicInterruptMask::UNMASKED);
+            entry.set_destination(local_apic_id);
+
+            self.write_redirection_entry(idx_in_apic as u8, entry.0);
+        }
     }
 }

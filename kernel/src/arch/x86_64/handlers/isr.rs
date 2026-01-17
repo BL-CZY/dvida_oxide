@@ -51,3 +51,6 @@ pub extern "x86-interrupt" fn doublefault_handler(
 ) -> ! {
     handler_wrapper_errcode!(doublefault_handler_inner)
 }
+
+/// does nothing
+pub extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStackFrame) {}

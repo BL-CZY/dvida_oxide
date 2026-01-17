@@ -3,11 +3,11 @@ use terminal::log;
 
 use crate::drivers::keyboard::read_remain_val;
 
-pub const PRIMARY_PIC_OFFSET: u8 = 32;
-pub const SECONDARY_PIC_OFFSET: u8 = PRIMARY_PIC_OFFSET + 8;
+pub const PRIMARY_ISA_PIC_OFFSET: u8 = 32;
+pub const SECONDARY_ISA_PIC_OFFSET: u8 = PRIMARY_ISA_PIC_OFFSET + 8;
 
 pub fn get_pic() -> ChainedPics {
-    unsafe { ChainedPics::new(PRIMARY_PIC_OFFSET, SECONDARY_PIC_OFFSET) }
+    unsafe { ChainedPics::new(PRIMARY_ISA_PIC_OFFSET, SECONDARY_ISA_PIC_OFFSET) }
 }
 
 pub fn init_pic() {
@@ -21,4 +21,15 @@ pub fn init_pic() {
     }
 
     log!("PIC initialization finished");
+}
+
+pub fn disable_pic() {
+    unsafe {
+        let mut pics = ChainedPics::new(
+            PRIMARY_ISA_PIC_OFFSET + 0x80,
+            SECONDARY_ISA_PIC_OFFSET + 0x80,
+        );
+        pics.initialize();
+        pics.write_masks(!0, !0);
+    }
 }

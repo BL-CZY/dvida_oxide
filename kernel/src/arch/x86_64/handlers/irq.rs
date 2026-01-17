@@ -9,7 +9,7 @@ use x86_64::{
 use crate::{
     arch::x86_64::{
         handlers::InterruptNoErrcodeFrame,
-        pic::{PRIMARY_PIC_OFFSET, get_pic},
+        pic::{PRIMARY_ISA_PIC_OFFSET, get_pic},
         scheduler::{CURRENT_THREAD, DEFAULT_TICKS_PER_THREAD, THREADS, syscall::resume_thread},
     },
     debug::terminal::WRITER,
@@ -21,7 +21,7 @@ use crate::{
 // makes it like c enums
 #[repr(u8)]
 pub enum IrqIndex {
-    Timer = PRIMARY_PIC_OFFSET,
+    Timer = PRIMARY_ISA_PIC_OFFSET,
     Keyboard,
     Cascade,
     Com24,

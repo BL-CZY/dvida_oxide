@@ -1,4 +1,5 @@
 pub mod apic;
+pub mod facp;
 
 use alloc::{vec, vec::Vec};
 use bytemuck::{Pod, Zeroable};
@@ -134,4 +135,8 @@ pub fn find_madt(pointers: &[VirtAddr]) -> Option<VirtAddr> {
 
 pub fn find_mcfg(pointers: &[VirtAddr]) -> Option<VirtAddr> {
     find_table(pointers, [b'M', b'C', b'F', b'G'])
+}
+
+pub fn find_fadt(pointers: &[VirtAddr]) -> Option<VirtAddr> {
+    find_table(pointers, [b'F', b'A', b'C', b'P'])
 }
