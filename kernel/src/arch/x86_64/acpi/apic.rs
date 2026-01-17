@@ -310,9 +310,31 @@ pub fn init_apic(mut madt_ptr: VirtAddr) {
         }
     }
 
+    let local_apic_id = local_apic.read_id();
+    log!("Id of the bootstrap cpu: {local_apic_id}");
+
+    for io_apic in io_apics.iter_mut() {
+        // this is isa
+        if io_apic.global_system_interrupt_base == 0 {
+            log!("Initializing isa apic: {:?}", io_apic);
+
+            io_apic.isa_bootstrap(
+                isa_irq_gsi,
+                isa_irq_gsi_trigger_modes_overrides,
+                isa_irq_gsi_polarity_overrides,
+                local_apic_id as u8,
+            );
+        }
+    }
+
+    processors
+        .get_mut(&(local_apic_id as u8))
+        .expect("CPU Identity Crises")
+        .local_apic
+        .enable();
+
     log!("Processors: {:?}", processors);
     log!("Io Apic(s): {:?}", io_apics);
-    log!("ISA Io Apic: {:?}", isa_io_apic.expect("No isa io apic"));
     log!("isa irq gsi mapping : {:?}", isa_irq_gsi);
     log!("NMI sources: {:?}", nmi_sources);
 }

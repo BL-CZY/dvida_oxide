@@ -1,6 +1,7 @@
 use core::arch::naked_asm;
 
 use ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS, TIMER_WAKERS};
+use terminal::log;
 use x86_64::{
     VirtAddr, instructions::port::Port, registers::rflags::RFlags,
     structures::idt::InterruptStackFrame,
@@ -41,6 +42,8 @@ pub enum IrqIndex {
 
 extern "C" fn timer_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
     x86_64::instructions::interrupts::without_interrupts(|| {
+        log!("A");
+
         for w in TIMER_WAKERS.lock().drain(..) {
             w.wake();
         }

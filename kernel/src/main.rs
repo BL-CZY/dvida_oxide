@@ -144,7 +144,11 @@ unsafe extern "C" fn _start() -> ! {
     let mcfg = find_mcfg(&table_ptrs).expect("No mcfg found");
     log!("mcfg ptr: {:?}", mcfg);
 
-    panic!("pause");
+    unsafe {
+        loop {
+            asm!("hlt");
+        }
+    }
 
     init_gdt();
     init_idt();
