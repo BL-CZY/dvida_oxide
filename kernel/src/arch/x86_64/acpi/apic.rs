@@ -310,8 +310,14 @@ pub fn init_apic(mut madt_ptr: VirtAddr) {
         }
     }
 
-    let local_apic_id = local_apic.read_id();
+    let local_apic_id = local_apic.read_id() >> 24;
     log!("Id of the bootstrap cpu: {local_apic_id}");
+
+    processors
+        .get_mut(&(local_apic_id as u8))
+        .expect("CPU Identity Crises")
+        .local_apic
+        .enable();
 
     for io_apic in io_apics.iter_mut() {
         // this is isa
@@ -326,12 +332,6 @@ pub fn init_apic(mut madt_ptr: VirtAddr) {
             );
         }
     }
-
-    processors
-        .get_mut(&(local_apic_id as u8))
-        .expect("CPU Identity Crises")
-        .local_apic
-        .enable();
 
     log!("Processors: {:?}", processors);
     log!("Io Apic(s): {:?}", io_apics);

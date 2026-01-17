@@ -135,11 +135,18 @@ unsafe extern "C" fn _start() -> ! {
         (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
     );
 
+    init_gdt();
+    init_idt();
+    disable_pic();
+
     let table_ptrs = parse_rsdp();
 
     let madt = find_madt(&table_ptrs).expect("No apic found");
     log!("madt ptr: {:?}", madt);
     init_apic(madt);
+
+    x86_64::instructions::interrupts::enable();
+    log!("Interrupts enabled!");
 
     let mcfg = find_mcfg(&table_ptrs).expect("No mcfg found");
     log!("mcfg ptr: {:?}", mcfg);
@@ -150,12 +157,6 @@ unsafe extern "C" fn _start() -> ! {
         }
     }
 
-    init_gdt();
-    init_idt();
-    disable_pic();
-
-    x86_64::instructions::interrupts::enable();
-    log!("Interrupts enabled!");
     configure_pit();
 
     // force_overflow(100);
