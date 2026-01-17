@@ -1,3 +1,5 @@
+// TODO: support x2apic
+
 use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 use bytemuck::{Pod, Zeroable};
 use terminal::log;
@@ -98,7 +100,7 @@ pub struct ProcessorIds {
 #[derive(Debug, Clone, Copy)]
 pub struct IoApic {
     pub id: u8,
-    pub io_apic_addr: VirtAddr,
+    pub base: VirtAddr,
     // the idx in the idt at which this apic starts
     pub global_system_interrupt_base: u32,
 }
@@ -191,14 +193,14 @@ pub fn discover_apic(mut madt_ptr: VirtAddr) {
                 if data.global_system_interrupt_base == 0 {
                     isa_io_apic = Some(IoApic {
                         id: data.id,
-                        io_apic_addr: get_hhdm_offset() + data.io_apic_addr as u64,
+                        base: get_hhdm_offset() + data.io_apic_addr as u64,
                         global_system_interrupt_base: data.global_system_interrupt_base,
                     });
                 }
 
                 io_apics.push(IoApic {
                     id: data.id,
-                    io_apic_addr: get_hhdm_offset() + data.io_apic_addr as u64,
+                    base: get_hhdm_offset() + data.io_apic_addr as u64,
                     global_system_interrupt_base: data.global_system_interrupt_base,
                 });
             }
@@ -375,5 +377,160 @@ impl LocalApic {
         let addr = self.base + IRR_BASE + number * ALIGNMENT;
         let addr: *const u32 = addr.as_ptr();
         unsafe { addr.read_volatile() }
+    }
+}
+
+pub struct IoApicDeliveryMode {}
+impl IoApicDeliveryMode {
+    pub const FIXED: u8 = 0b000;
+    pub const LOWEST_PRIORITY: u8 = 0b001;
+    pub const SMI: u8 = 0b010;
+    pub const NMI: u8 = 0b100;
+    pub const INIT: u8 = 0b101;
+    pub const EXT_INT: u8 = 0b111;
+}
+
+pub struct IoApicInterruptMask {}
+impl IoApicInterruptMask {
+    pub const MASKED: u8 = 1;
+    pub const UNMASKED: u8 = 0;
+}
+
+pub struct IoApicInterruptPolarity {}
+impl IoApicInterruptPolarity {
+    pub const HIGH_ACTIVE: u8 = 0;
+    pub const LOW_ACTIVE: u8 = 1;
+}
+
+pub struct IoApicInterruptTriggerMode {}
+impl IoApicInterruptTriggerMode {
+    pub const EDGE_SENSITIVE: u8 = 0;
+    pub const LEVEL_SENSITIVE: u8 = 1;
+}
+
+pub struct IoApicDestinationMode {}
+impl IoApicDestinationMode {
+    pub const PHYSICA: u8 = 0;
+    pub const LOGICAL: u8 = 1;
+}
+
+pub struct IoApicRedirectionEntry(pub u64);
+
+impl IoApicRedirectionEntry {
+    pub fn set_vector(&mut self, vector: u8) {
+        self.0 = (self.0 & !0b11111111) + vector as u64;
+    }
+
+    pub fn get_vector(&self) -> u8 {
+        (self.0 & 0b11111111) as u8
+    }
+
+    pub fn get_delivery_mode(&self) -> u8 {
+        ((self.0 >> 8) & 0b111) as u8
+    }
+
+    pub fn set_delivery_mode(&mut self, mode: u8) {
+        self.0 &= !(0b111u64 << 8);
+        self.0 |= (mode as u64) << 8;
+    }
+
+    pub fn get_destination_mode(&self) -> u8 {
+        ((self.0 >> 11) & 0b1) as u8
+    }
+
+    pub fn set_destination_mode(&mut self, mode: u8) {
+        self.0 &= !(0b1u64 << 11);
+        self.0 |= (mode as u64) << 11;
+    }
+
+    pub fn get_delivery_status(&self) -> u8 {
+        ((self.0 >> 12) & 0b1) as u8
+    }
+
+    pub fn get_polarity(&self) -> u8 {
+        ((self.0 >> 13) & 0b1) as u8
+    }
+
+    pub fn set_polarity(&mut self, polarity: u8) {
+        self.0 &= !(0b1u64 << 13);
+        self.0 |= (polarity as u64) << 13;
+    }
+
+    pub fn get_remote_irr(&self) -> u8 {
+        ((self.0 >> 14) & 0b1) as u8
+    }
+
+    pub fn get_trigger_mode(&self) -> u8 {
+        ((self.0 >> 15) & 0b1) as u8
+    }
+
+    pub fn set_trigger_mode(&mut self, mode: u8) {
+        self.0 &= !(0b1u64 << 15);
+        self.0 |= (mode as u64) << 15;
+    }
+
+    pub fn get_interrupt_mask(&self) -> u8 {
+        ((self.0 >> 16) & 0b1) as u8
+    }
+
+    pub fn set_interrupt_mask(&mut self, mask: u8) {
+        self.0 &= !(0b1u64 << 16);
+        self.0 |= (mask as u64) << 16;
+    }
+
+    pub fn get_destination(&self) -> u8 {
+        (self.0 >> 56) as u8
+    }
+
+    pub fn set_destination(&mut self, destination: u8) {
+        self.0 &= !(0b11111111u64 << 56);
+        self.0 |= (destination as u64) << 56;
+    }
+}
+
+impl IoApic {
+    apic_impl!(<io_cmd, 0x00, "rw">, <io_data, 0x10, "rw">);
+
+    const IOAPICID: u32 = 0x00;
+    const IOAPICVER: u32 = 0x01;
+    const IOAPICARB: u32 = 0x02;
+    const REDIRECTION_TABLE_BASE: u32 = 0x10;
+
+    pub fn read_id(&mut self) -> u32 {
+        self.write_io_cmd(Self::IOAPICID);
+        self.read_io_data()
+    }
+
+    pub fn write_id(&mut self, input: u32) {
+        self.write_io_cmd(Self::IOAPICID);
+        self.write_io_cmd(input);
+    }
+
+    pub fn read_version(&mut self) -> u32 {
+        self.write_io_cmd(Self::IOAPICVER);
+        self.read_io_data()
+    }
+
+    pub fn read_arbitration_id(&mut self) -> u32 {
+        self.write_io_cmd(Self::IOAPICARB);
+        self.read_io_data()
+    }
+
+    pub fn write_redirection_entry(&mut self, entry_num: u32, value: u64) {
+        let register_id = Self::REDIRECTION_TABLE_BASE + entry_num * 2;
+        self.write_io_cmd(register_id);
+        self.write_io_data(value as u32);
+        self.write_io_cmd(register_id + 1);
+        self.write_io_data((value >> 32) as u32);
+    }
+
+    pub fn read_redirection_entry(&mut self, entry_num: u32) -> u64 {
+        let register_id = Self::REDIRECTION_TABLE_BASE + entry_num * 2;
+        let mut res;
+        self.write_io_cmd(register_id);
+        res = self.read_io_data() as u64;
+        self.write_io_cmd(register_id + 1);
+        res += (self.read_io_data() as u64) << 32;
+        res
     }
 }
