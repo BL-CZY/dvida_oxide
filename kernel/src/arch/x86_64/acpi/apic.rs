@@ -1,5 +1,7 @@
 // TODO: support x2apic
 
+use core::sync::atomic::AtomicU64;
+
 use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 use bytemuck::{Pod, Zeroable};
 use terminal::log;
@@ -9,6 +11,8 @@ use crate::arch::x86_64::{
     acpi::AcpiSdtHeader, idt::SPURIOUS_INTERRUPT_HANDLER_IDX, memory::get_hhdm_offset,
     pic::PRIMARY_ISA_PIC_OFFSET,
 };
+
+pub static LOCAL_APIC_ADDR: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 #[repr(C, packed)]
@@ -151,7 +155,7 @@ impl Processor {
     }
 }
 
-pub fn init_apic(mut madt_ptr: VirtAddr) {
+pub fn init_apic(mut madt_ptr: VirtAddr) -> [u32; 16] {
     // no need to do the checksum, it's already done
     let header = unsafe { *(madt_ptr.as_ptr() as *const MadtHeader) };
     let mut remaining_length = header.header.length as usize - size_of::<MadtHeader>();
@@ -159,7 +163,6 @@ pub fn init_apic(mut madt_ptr: VirtAddr) {
 
     let mut processors_partial: Vec<ProcessorIds> = Vec::new();
     let mut io_apics: Vec<IoApic> = Vec::new();
-    let mut isa_io_apic: Option<IoApic> = None;
     let mut local_apic_addr = get_hhdm_offset() + header.local_apic_addr as u64;
     let mut nmi_sources: Vec<IoNmiSource> = Vec::new();
     let mut local_nmi_sources: Vec<LocalNmiSourceData> = Vec::new();
@@ -193,15 +196,6 @@ pub fn init_apic(mut madt_ptr: VirtAddr) {
                 remaining_length -= entry_header.record_length as usize;
 
                 let data = unsafe { *(madt_ptr.as_ptr() as *const IoApicData) };
-
-                // This is ISA
-                if data.global_system_interrupt_base == 0 {
-                    isa_io_apic = Some(IoApic {
-                        id: data.id,
-                        base: get_hhdm_offset() + data.io_apic_addr as u64,
-                        global_system_interrupt_base: data.global_system_interrupt_base,
-                    });
-                }
 
                 io_apics.push(IoApic {
                     id: data.id,
@@ -333,10 +327,17 @@ pub fn init_apic(mut madt_ptr: VirtAddr) {
         }
     }
 
+    LOCAL_APIC_ADDR.store(
+        local_apic.base.as_u64(),
+        core::sync::atomic::Ordering::Relaxed,
+    );
+
     log!("Processors: {:?}", processors);
     log!("Io Apic(s): {:?}", io_apics);
     log!("isa irq gsi mapping : {:?}", isa_irq_gsi);
     log!("NMI sources: {:?}", nmi_sources);
+
+    return isa_irq_gsi;
 }
 
 macro_rules! apic_impl {
@@ -630,5 +631,11 @@ impl IoApic {
 
             self.write_redirection_entry(idx_in_apic as u8, entry.0);
         }
+    }
+}
+
+pub fn get_local_apic() -> LocalApic {
+    LocalApic {
+        base: VirtAddr::new(LOCAL_APIC_ADDR.load(core::sync::atomic::Ordering::Relaxed)),
     }
 }

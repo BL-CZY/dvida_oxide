@@ -9,8 +9,8 @@ use x86_64::{
 
 use crate::{
     arch::x86_64::{
+        acpi::apic::get_local_apic,
         handlers::InterruptNoErrcodeFrame,
-        pic::{PRIMARY_ISA_PIC_OFFSET, get_pic},
         scheduler::{CURRENT_THREAD, DEFAULT_TICKS_PER_THREAD, THREADS, syscall::resume_thread},
     },
     debug::terminal::WRITER,
@@ -19,10 +19,9 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy)]
-// makes it like c enums
-#[repr(u8)]
+#[repr(usize)]
 pub enum IrqIndex {
-    Timer = PRIMARY_ISA_PIC_OFFSET,
+    Timer = 0,
     Keyboard,
     Cascade,
     Com24,
@@ -94,9 +93,7 @@ extern "C" fn timer_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
         }
     });
 
-    unsafe {
-        get_pic().notify_end_of_interrupt(IrqIndex::Timer as u8);
-    }
+    get_local_apic().write_eoi(0);
 }
 
 #[unsafe(naked)]
@@ -109,9 +106,7 @@ extern "C" fn keyboard_handler_inner(_stack_frame: InterruptNoErrcodeFrame) {
     let scancode: u8 = unsafe { port.read() };
     process_scancode(scancode);
 
-    unsafe {
-        get_pic().notify_end_of_interrupt(IrqIndex::Keyboard as u8);
-    }
+    get_local_apic().write_eoi(0);
 }
 
 #[unsafe(naked)]
@@ -126,9 +121,7 @@ extern "C" fn primary_ide_handler_inner(_stack_frame: InterruptNoErrcodeFrame) {
         }
     });
 
-    unsafe {
-        get_pic().notify_end_of_interrupt(IrqIndex::PrimaryIDE as u8);
-    }
+    get_local_apic().write_eoi(0);
 }
 
 #[unsafe(naked)]
@@ -143,9 +136,7 @@ extern "C" fn secondary_ide_handler_inner(_stack_frame: InterruptNoErrcodeFrame)
         }
     });
 
-    unsafe {
-        get_pic().notify_end_of_interrupt(IrqIndex::SecondaryIDE as u8);
-    }
+    get_local_apic().write_eoi(0);
 }
 
 #[unsafe(naked)]

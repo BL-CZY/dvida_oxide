@@ -1,32 +1,40 @@
+use crate::arch::x86_64::handlers::irq::IrqIndex;
+use crate::arch::x86_64::pic::PRIMARY_ISA_PIC_OFFSET;
+
 use super::gdt;
 use super::handlers::{irq, isr};
-use lazy_static::lazy_static;
+use once_cell_no_std::OnceCell;
 use terminal::log;
 use x86_64::structures::idt::InterruptDescriptorTable;
 
 pub const SPURIOUS_INTERRUPT_HANDLER_IDX: u8 = 0xFF;
 
-lazy_static! {
-    pub static ref IDT: InterruptDescriptorTable = {
-        let mut idt = InterruptDescriptorTable::new();
-        idt.breakpoint.set_handler_fn(isr::breakpoint_handler);
-        idt.double_fault.set_handler_fn(isr::doublefault_handler);
-        idt[irq::IrqIndex::Timer as u8].set_handler_fn(irq::timer_handler);
-        idt[irq::IrqIndex::Keyboard as u8].set_handler_fn(irq::keyboard_handler);
-        idt[irq::IrqIndex::PrimaryIDE as u8].set_handler_fn(irq::primary_ide_handler);
-        idt[irq::IrqIndex::SecondaryIDE as u8].set_handler_fn(irq::secondary_ide_handler);
-        idt[SPURIOUS_INTERRUPT_HANDLER_IDX].set_handler_fn(isr::spurious_interrupt_handler);
-        unsafe {
-            idt.page_fault
-                .set_handler_fn(isr::pagefault_handler)
-                .set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
-        };
-        idt
-    };
-}
+pub static IDT: OnceCell<InterruptDescriptorTable> = OnceCell::new();
 
-pub fn init_idt() {
-    IDT.load();
+pub fn init_idt(gsi_to_irq_mapping: [u32; 16]) {
+    let mut idt = InterruptDescriptorTable::new();
+    idt.breakpoint.set_handler_fn(isr::breakpoint_handler);
+    idt.double_fault.set_handler_fn(isr::doublefault_handler);
+
+    // the mapping usually maps timer to 2
+    idt[PRIMARY_ISA_PIC_OFFSET + gsi_to_irq_mapping[IrqIndex::Timer as usize] as u8]
+        .set_handler_fn(irq::timer_handler);
+    idt[PRIMARY_ISA_PIC_OFFSET + gsi_to_irq_mapping[IrqIndex::Keyboard as usize] as u8]
+        .set_handler_fn(irq::keyboard_handler);
+    idt[PRIMARY_ISA_PIC_OFFSET + gsi_to_irq_mapping[IrqIndex::PrimaryIDE as usize] as u8]
+        .set_handler_fn(irq::primary_ide_handler);
+    idt[PRIMARY_ISA_PIC_OFFSET + gsi_to_irq_mapping[IrqIndex::SecondaryIDE as usize] as u8]
+        .set_handler_fn(irq::secondary_ide_handler);
+    idt[SPURIOUS_INTERRUPT_HANDLER_IDX].set_handler_fn(isr::spurious_interrupt_handler);
+    unsafe {
+        idt.page_fault
+            .set_handler_fn(isr::pagefault_handler)
+            .set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
+    };
+
+    let _ = IDT.set(idt);
+
+    IDT.get().expect("Rust error").load();
 
     log!("IDT initialization finished");
 }

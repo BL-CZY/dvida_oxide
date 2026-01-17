@@ -136,14 +136,15 @@ unsafe extern "C" fn _start() -> ! {
     );
 
     init_gdt();
-    init_idt();
     disable_pic();
 
     let table_ptrs = parse_rsdp();
 
     let madt = find_madt(&table_ptrs).expect("No apic found");
     log!("madt ptr: {:?}", madt);
-    init_apic(madt);
+    let mappings = init_apic(madt);
+
+    init_idt(mappings);
 
     x86_64::instructions::interrupts::enable();
     log!("Interrupts enabled!");
