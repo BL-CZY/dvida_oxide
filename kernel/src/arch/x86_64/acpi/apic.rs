@@ -1,12 +1,9 @@
-use alloc::vec::Vec;
+use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 use bytemuck::{Pod, Zeroable};
 use terminal::log;
 use x86_64::VirtAddr;
 
-use crate::{
-    arch::x86_64::{acpi::AcpiSdtHeader, memory::get_hhdm_offset},
-    pcie_port_readonly, pcie_port_readwrite,
-};
+use crate::arch::x86_64::{acpi::AcpiSdtHeader, memory::get_hhdm_offset};
 
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 #[repr(C, packed)]
@@ -115,7 +112,7 @@ pub struct IoNmiSource {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct LocalNmiSource {
+pub struct LocalNmiSourceData {
     pub acpi_processor_id: u8,
     pub flags: u16,
     pub lint: u8,
@@ -133,20 +130,38 @@ pub struct Processor {
     pub nmi_source: LocalNmiSource,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct LocalNmiSource {
+    pub flags: u16,
+    pub lint: u8,
+}
+
+impl Processor {
+    pub fn new(ids: ProcessorIds, local_apic: LocalApic) -> Self {
+        Self {
+            ids,
+            local_apic,
+            nmi_source: LocalNmiSource { flags: 0, lint: 0 },
+        }
+    }
+}
+
 pub fn discover_apic(mut madt_ptr: VirtAddr) {
     // no need to do the checksum, it's already done
     let header = unsafe { *(madt_ptr.as_ptr() as *const MadtHeader) };
     let mut remaining_length = header.header.length as usize - size_of::<MadtHeader>();
     madt_ptr += size_of::<MadtHeader>() as u64;
 
-    let mut processors: Vec<ProcessorIds> = Vec::new();
+    let mut processors_partial: Vec<ProcessorIds> = Vec::new();
     let mut io_apics: Vec<IoApic> = Vec::new();
     let mut isa_io_apic: Option<IoApic> = None;
     let mut local_apic_addr = get_hhdm_offset() + header.local_apic_addr as u64;
     let mut nmi_sources: Vec<IoNmiSource> = Vec::new();
-    let mut local_nmi_sources: Vec<LocalNmiSource> = Vec::new();
+    let mut local_nmi_sources: Vec<LocalNmiSourceData> = Vec::new();
 
     let mut isa_irq_gsi: [u32; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+
+    let mut processors: BTreeMap<u8, Processor> = BTreeMap::new();
 
     while remaining_length != 0 {
         let entry_header = unsafe { *(madt_ptr.as_ptr() as *const MadtEntryHeader) };
@@ -160,7 +175,7 @@ pub fn discover_apic(mut madt_ptr: VirtAddr) {
 
                 // is it enabled?
                 if data.flags & 0b1 == 0b1 {
-                    processors.push(ProcessorIds {
+                    processors_partial.push(ProcessorIds {
                         processor_id: data.processor_id,
                         apic_id: data.apic_id,
                     });
@@ -215,7 +230,7 @@ pub fn discover_apic(mut madt_ptr: VirtAddr) {
 
                 let data = unsafe { *(madt_ptr.as_ptr() as *const LocalApicNonMaskableInterrupts) };
 
-                local_nmi_sources.push(LocalNmiSource {
+                local_nmi_sources.push(LocalNmiSourceData {
                     acpi_processor_id: data.acpi_processor_id,
                     flags: data.flags,
                     lint: data.lint,
@@ -242,13 +257,35 @@ pub fn discover_apic(mut madt_ptr: VirtAddr) {
         base: local_apic_addr,
     };
 
+    for p_ids in processors_partial.drain(0..) {
+        processors.insert(p_ids.processor_id, Processor::new(p_ids, local_apic));
+    }
+
+    for local_nmi_source in local_nmi_sources.iter() {
+        if local_nmi_source.acpi_processor_id == 0xff {
+            for (_, val) in processors.iter_mut() {
+                val.nmi_source = LocalNmiSource {
+                    flags: local_nmi_source.flags,
+                    lint: local_nmi_source.lint,
+                };
+            }
+        } else {
+            processors
+                .entry(local_nmi_source.acpi_processor_id)
+                .and_modify(|v| {
+                    v.nmi_source = LocalNmiSource {
+                        flags: local_nmi_source.flags,
+                        lint: local_nmi_source.lint,
+                    };
+                });
+        }
+    }
+
     log!("Processors: {:?}", processors);
     log!("Io Apic(s): {:?}", io_apics);
     log!("ISA Io Apic: {:?}", isa_io_apic.expect("No isa io apic"));
     log!("isa irq gsi mapping : {:?}", isa_irq_gsi);
-    log!("Local Apic addr: {:?}", local_apic_addr);
     log!("NMI sources: {:?}", nmi_sources);
-    log!("local NMI sources: {:?}", local_nmi_sources);
 }
 
 macro_rules! apic_impl {
@@ -295,11 +332,6 @@ impl LocalApic {
         <destination_format, 0xE0, "rw">,
         <spurious_interrupt_vector, 0xF0, "rw">,
 
-        // Interrupt Status/Request bits (Base of the 8-register sets)
-        <in_service_0, 0x100, "r">,
-        <trigger_mode_0, 0x180, "r">,
-        <interrupt_request_0, 0x200, "r">,
-
         <error_status, 0x280, "r">,
         <lvt_cmci, 0x2F0, "rw">,
 
@@ -320,4 +352,28 @@ impl LocalApic {
         <timer_current_count, 0x390, "r">,
         <timer_divide_config, 0x3E0, "rw">
     );
+
+    pub fn read_isr(&self, number: u64) -> u32 {
+        const ISR_BASE: u64 = 0x100;
+        const ALIGNMENT: u64 = 0x10;
+        let addr = self.base + ISR_BASE + number * ALIGNMENT;
+        let addr: *const u32 = addr.as_ptr();
+        unsafe { addr.read_volatile() }
+    }
+
+    pub fn read_tmr(&self, number: u64) -> u32 {
+        const TMR_BASE: u64 = 0x180;
+        const ALIGNMENT: u64 = 0x10;
+        let addr = self.base + TMR_BASE + number * ALIGNMENT;
+        let addr: *const u32 = addr.as_ptr();
+        unsafe { addr.read_volatile() }
+    }
+
+    pub fn read_irr(&self, number: u64) -> u32 {
+        const IRR_BASE: u64 = 0x200;
+        const ALIGNMENT: u64 = 0x10;
+        let addr = self.base + IRR_BASE + number * ALIGNMENT;
+        let addr: *const u32 = addr.as_ptr();
+        unsafe { addr.read_volatile() }
+    }
 }
