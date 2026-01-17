@@ -16,7 +16,6 @@ use arch::x86_64::{
     gdt::init_gdt,
     idt::init_idt,
     memory::{self, PAGE_SIZE, memmap::log_memmap},
-    pic::init_pic,
 };
 #[allow(unused_imports)]
 use dyn_mem::{KHEAP_PAGE_COUNT, allocator::init_kheap};
@@ -40,11 +39,11 @@ use crate::{
             page_table::initialize_page_table,
         },
         pic::disable_pic,
-        pit::configure_pit,
         scheduler::{
             load_kernel_thread,
             syscall::{enable_syscalls, setup_stack_for_syscall_handler},
         },
+        timer::configure_pit,
     },
     args::parse_args,
     crypto::random::run_random,
@@ -142,12 +141,14 @@ unsafe extern "C" fn _start() -> ! {
 
     let madt = find_madt(&table_ptrs).expect("No apic found");
     log!("madt ptr: {:?}", madt);
-    let mappings = init_apic(madt);
+    let (_processors, mappings, mut local_apic, _io_apics) = init_apic(madt);
 
     init_idt(mappings);
 
     x86_64::instructions::interrupts::enable();
     log!("Interrupts enabled!");
+
+    local_apic.calibrate_timer(mappings[0]);
 
     let mcfg = find_mcfg(&table_ptrs).expect("No mcfg found");
     log!("mcfg ptr: {:?}", mcfg);

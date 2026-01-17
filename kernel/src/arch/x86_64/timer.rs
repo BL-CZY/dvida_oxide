@@ -1,0 +1,86 @@
+use core::sync::atomic::AtomicU32;
+
+use terminal::log;
+use x86_64::instructions::port::{Port, PortWriteOnly};
+
+use crate::arch::x86_64::{acpi::apic::LocalApic, pic::PRIMARY_ISA_PIC_OFFSET};
+
+pub const PIT_DATA_PORT: u16 = 0x40;
+pub const PIT_CMD_REGISTER: u16 = 0x43;
+
+pub static APIC_TIMER_TICKS_PER_MS: AtomicU32 = AtomicU32::new(0);
+
+pub fn configure_pit() {
+    const CHANNEL_3_OSCILATOR: u8 = 0x36;
+    configure_pit_with_divisor(0, CHANNEL_3_OSCILATOR);
+
+    log!("PIT configured to have a divisor of 0")
+}
+
+pub fn configure_pit_with_divisor(divisor: u16, channel: u8) {
+    let mut data_port: PortWriteOnly<u8> = PortWriteOnly::new(PIT_DATA_PORT);
+    let mut cmd_port: Port<u8> = Port::new(PIT_CMD_REGISTER);
+
+    unsafe {
+        x86_64::instructions::interrupts::without_interrupts(|| {
+            cmd_port.write(channel);
+            data_port.write((divisor & 0xFF) as u8);
+            data_port.write(((divisor >> 8) & 0xFF) as u8);
+        });
+    }
+}
+
+pub fn read_pit_count() -> u16 {
+    let mut data_port: Port<u8> = Port::new(PIT_DATA_PORT);
+    let mut cmd_port: Port<u8> = Port::new(PIT_CMD_REGISTER);
+
+    const LATCH_CHANNEL_0: u8 = 0;
+
+    unsafe {
+        cmd_port.write(LATCH_CHANNEL_0);
+        let lo: u8;
+        lo = data_port.read();
+        let hi: u8;
+        hi = data_port.read();
+
+        lo as u16 | (hi as u16) << 8
+    }
+}
+
+impl LocalApic {
+    pub fn calibrate_timer(&mut self, vector: u32) {
+        const DIVIDE_BY_16_CONF: u32 = 0x3;
+        const TEN_MS_DIVISOR: u16 = 11932;
+
+        self.write_timer_divide_config(DIVIDE_BY_16_CONF);
+
+        const CHANNEL_1_COUNT_DOWN: u8 = 0x30;
+        configure_pit_with_divisor(TEN_MS_DIVISOR, CHANNEL_1_COUNT_DOWN);
+        self.write_timer_initial_count(u32::MAX);
+
+        let mut ticks_elapsed;
+        let init_time = self.read_timer_current_count();
+
+        loop {
+            let time = self.read_timer_current_count();
+            ticks_elapsed = init_time - time;
+
+            let count = read_pit_count();
+
+            if count == 0 || count > TEN_MS_DIVISOR {
+                break;
+            }
+        }
+
+        APIC_TIMER_TICKS_PER_MS.store(ticks_elapsed / 10, core::sync::atomic::Ordering::Relaxed);
+
+        log!(
+            "{ticks_elapsed} ticks have elapsed in 10 ms! Enabling the timer to vector: {:?}",
+            vector + PRIMARY_ISA_PIC_OFFSET as u32
+        );
+
+        const TIMER_PERIODIC_MODE: u32 = 0x20000;
+        self.write_lvt_timer((vector + PRIMARY_ISA_PIC_OFFSET as u32) | TIMER_PERIODIC_MODE);
+        self.write_timer_initial_count(ticks_elapsed);
+    }
+}

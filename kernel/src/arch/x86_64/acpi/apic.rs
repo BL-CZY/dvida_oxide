@@ -155,7 +155,9 @@ impl Processor {
     }
 }
 
-pub fn init_apic(mut madt_ptr: VirtAddr) -> [u32; 16] {
+pub fn init_apic(
+    mut madt_ptr: VirtAddr,
+) -> (BTreeMap<u8, Processor>, [u32; 16], LocalApic, Vec<IoApic>) {
     // no need to do the checksum, it's already done
     let header = unsafe { *(madt_ptr.as_ptr() as *const MadtHeader) };
     let mut remaining_length = header.header.length as usize - size_of::<MadtHeader>();
@@ -337,7 +339,7 @@ pub fn init_apic(mut madt_ptr: VirtAddr) -> [u32; 16] {
     log!("isa irq gsi mapping : {:?}", isa_irq_gsi);
     log!("NMI sources: {:?}", nmi_sources);
 
-    return isa_irq_gsi;
+    return (processors, isa_irq_gsi, local_apic, io_apics);
 }
 
 macro_rules! apic_impl {
@@ -626,7 +628,13 @@ impl IoApic {
                 entry.set_trigger_mode(IoApicInterruptTriggerMode::EDGE_SENSITIVE);
             }
 
-            entry.set_interrupt_mask(IoApicInterruptMask::UNMASKED);
+            // no pit interrupts
+            if i != 0 {
+                entry.set_interrupt_mask(IoApicInterruptMask::UNMASKED);
+            } else {
+                entry.set_interrupt_mask(IoApicInterruptMask::MASKED);
+            }
+
             entry.set_destination(local_apic_id);
 
             self.write_redirection_entry(idx_in_apic as u8, entry.0);
