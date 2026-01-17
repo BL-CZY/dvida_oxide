@@ -3,7 +3,10 @@ use bytemuck::{Pod, Zeroable};
 use terminal::log;
 use x86_64::VirtAddr;
 
-use crate::arch::x86_64::{acpi::AcpiSdtHeader, memory::get_hhdm_offset};
+use crate::{
+    arch::x86_64::{acpi::AcpiSdtHeader, memory::get_hhdm_offset},
+    pcie_port_readonly, pcie_port_readwrite,
+};
 
 #[derive(Debug, Clone, Copy, Zeroable, Pod)]
 #[repr(C, packed)]
@@ -118,6 +121,18 @@ pub struct LocalNmiSource {
     pub lint: u8,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct LocalApic {
+    pub base: VirtAddr,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Processor {
+    pub ids: ProcessorIds,
+    pub local_apic: LocalApic,
+    pub nmi_source: LocalNmiSource,
+}
+
 pub fn discover_apic(mut madt_ptr: VirtAddr) {
     // no need to do the checksum, it's already done
     let header = unsafe { *(madt_ptr.as_ptr() as *const MadtHeader) };
@@ -223,6 +238,10 @@ pub fn discover_apic(mut madt_ptr: VirtAddr) {
         madt_ptr += entry_header.record_length as u64 - size_of::<MadtEntryHeader>() as u64;
     }
 
+    let local_apic = LocalApic {
+        base: local_apic_addr,
+    };
+
     log!("Processors: {:?}", processors);
     log!("Io Apic(s): {:?}", io_apics);
     log!("ISA Io Apic: {:?}", isa_io_apic.expect("No isa io apic"));
@@ -230,4 +249,75 @@ pub fn discover_apic(mut madt_ptr: VirtAddr) {
     log!("Local Apic addr: {:?}", local_apic_addr);
     log!("NMI sources: {:?}", nmi_sources);
     log!("local NMI sources: {:?}", local_nmi_sources);
+}
+
+macro_rules! apic_impl {
+    () => {};
+
+    (<$name:ident, $val:expr, "r">, $($rest:tt)*) => {
+        $crate::pcie_port_readonly!($name, u32, |self| { (self.base + $val).as_mut_ptr() });
+        apic_impl!($($rest)*);
+    };
+
+    (<$name:ident, $val:expr, "w">, $($rest:tt)*) => {
+        $crate::pcie_port_writeonly!($name, u32, |self| { (self.base + $val).as_mut_ptr() });
+        apic_impl!($($rest)*);
+    };
+
+    (<$name:ident, $val:expr, "rw">, $($rest:tt)*) => {
+        $crate::pcie_port_readwrite!($name, u32, |self| { (self.base + $val).as_mut_ptr() });
+        apic_impl!($($rest)*);
+    };
+
+    (<$name:ident, $val:expr, "r">) => {
+        apic_impl!(<$name, $val, "r">, );
+    };
+
+    (<$name:ident, $val:expr, "w">) => {
+        apic_impl!(<$name, $val, "w">, );
+    };
+
+    (<$name:ident, $val:expr, "rw">) => {
+        apic_impl!(<$name, $val, "rw">, );
+    };
+}
+
+impl LocalApic {
+    apic_impl!(
+        <id, 0x20, "r">,
+        <version, 0x30, "r">,
+        <task_priority, 0x80, "rw">,
+        <arbitration_priority, 0x90, "r">,
+        <processor_priority, 0xA0, "r">,
+        <eoi, 0xB0, "w">,
+        <remote_read, 0xC0, "r">,
+        <logical_destination, 0xD0, "rw">,
+        <destination_format, 0xE0, "rw">,
+        <spurious_interrupt_vector, 0xF0, "rw">,
+
+        // Interrupt Status/Request bits (Base of the 8-register sets)
+        <in_service_0, 0x100, "r">,
+        <trigger_mode_0, 0x180, "r">,
+        <interrupt_request_0, 0x200, "r">,
+
+        <error_status, 0x280, "r">,
+        <lvt_cmci, 0x2F0, "rw">,
+
+        // Interrupt Command Register (Split into two 32-bit halves)
+        <icr_low, 0x300, "rw">,
+        <icr_high, 0x310, "rw">,
+
+        // Local Vector Table (LVT)
+        <lvt_timer, 0x320, "rw">,
+        <lvt_thermal, 0x330, "rw">,
+        <lvt_perf_mon, 0x340, "rw">,
+        <lvt_lint0, 0x350, "rw">,
+        <lvt_lint1, 0x360, "rw">,
+        <lvt_error, 0x370, "rw">,
+
+        // Timer Registers
+        <timer_initial_count, 0x380, "rw">,
+        <timer_current_count, 0x390, "r">,
+        <timer_divide_config, 0x3E0, "rw">
+    );
 }
