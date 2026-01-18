@@ -6,7 +6,8 @@ use crate::arch::x86_64::pcie::{
 };
 use crate::crypto::guid::Guid;
 use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE, PataDevice};
-use crate::drivers::ata::sata::ahci::SataAhci;
+use crate::drivers::ata::sata::AhciSata;
+use crate::drivers::ata::sata::ahci::Ahci;
 use crate::hal::buffer::Buffer;
 use crate::hal::gpt::{GPTEntry, GPTErr, GPTHeader};
 use alloc::collections::btree_map::BTreeMap;
@@ -31,7 +32,7 @@ pub enum DeviceType {
     Unidentified,
     PataPio(PataDevice),
     PataDma,
-    SataAhci(SataAhci),
+    SataAhci(Ahci),
     Nvme,
 }
 
@@ -165,9 +166,9 @@ pub async fn run_storage_device(index: usize) {
 }
 
 impl HalStorageDevice {
-    pub fn sata_ahci(base: VirtAddr) -> Self {
+    pub fn sata_ahci(sata: AhciSata) -> Self {
         HalStorageDevice {
-            device_inner: Box::new(SataAhci::new(base)),
+            device_inner: Box::new(sata),
             available: true,
             pata_port: 0,
         }
@@ -481,11 +482,15 @@ pub fn identify_storage_devices(
             if device.header_partial.subclass == MassStorageControllerSubClass::Sata as u8
                 && device.header_partial.prog_if == SataProgIf::Ahci as u8
             {
-                let mut device = HalStorageDevice::sata_ahci(device.address);
-                match device.init() {
-                    Ok(_) => storage_devices.push(Mutex::new(device)),
-                    Err(e) => {
-                        log!("Failed to initialize Sata Ahci: {}", e);
+                let mut ahci = Ahci::new(device.address);
+
+                for device in ahci.init().drain(0..) {
+                    let mut device = HalStorageDevice::sata_ahci(device);
+                    match device.init() {
+                        Ok(_) => storage_devices.push(Mutex::new(device)),
+                        Err(e) => {
+                            log!("Failed to initialize Sata Ahci: {}", e);
+                        }
                     }
                 }
             }

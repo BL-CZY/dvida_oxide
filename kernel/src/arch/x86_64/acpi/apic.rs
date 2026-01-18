@@ -342,39 +342,40 @@ pub fn init_apic(
     return (processors, isa_irq_gsi, local_apic, io_apics);
 }
 
-macro_rules! apic_impl {
+#[macro_export]
+macro_rules! pcie_offset_impl {
     () => {};
 
     (<$name:ident, $val:expr, "r">, $($rest:tt)*) => {
         $crate::pcie_port_readonly!($name, u32, |self| { (self.base + $val).as_mut_ptr() });
-        apic_impl!($($rest)*);
+        $crate::pcie_offset_impl!($($rest)*);
     };
 
     (<$name:ident, $val:expr, "w">, $($rest:tt)*) => {
         $crate::pcie_port_writeonly!($name, u32, |self| { (self.base + $val).as_mut_ptr() });
-        apic_impl!($($rest)*);
+        $crate::pcie_offset_impl!($($rest)*);
     };
 
     (<$name:ident, $val:expr, "rw">, $($rest:tt)*) => {
         $crate::pcie_port_readwrite!($name, u32, |self| { (self.base + $val).as_mut_ptr() });
-        apic_impl!($($rest)*);
+        $crate::pcie_offset_impl!($($rest)*);
     };
 
     (<$name:ident, $val:expr, "r">) => {
-        apic_impl!(<$name, $val, "r">, );
+        $crate::pcie_offset_impl!(<$name, $val, "r">, );
     };
 
     (<$name:ident, $val:expr, "w">) => {
-        apic_impl!(<$name, $val, "w">, );
+        $crate::pcie_offset_impl!(<$name, $val, "w">, );
     };
 
     (<$name:ident, $val:expr, "rw">) => {
-        apic_impl!(<$name, $val, "rw">, );
+        $crate::pcie_offset_impl!(<$name, $val, "rw">, );
     };
 }
 
 impl LocalApic {
-    apic_impl!(
+    pcie_offset_impl!(
         <id, 0x20, "r">,
         <version, 0x30, "r">,
         <task_priority, 0x80, "rw">,
@@ -546,7 +547,7 @@ impl IoApicRedirectionEntry {
 }
 
 impl IoApic {
-    apic_impl!(<io_cmd, 0x00, "rw">, <io_data, 0x10, "rw">);
+    pcie_offset_impl!(<io_cmd, 0x00, "rw">, <io_data, 0x10, "rw">);
 
     const IOAPICID: u32 = 0x00;
     const IOAPICVER: u32 = 0x01;
