@@ -8,17 +8,28 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Ahci {
+/// the AHCI HBA device is a device following the AHCI standard regarding communicating to SATA
+/// drivers
+/// Its global base is stored at BAR[5]
+/// It supports multiple SATA drives
+/// The CAP's bit structure:
+/// 0-4 - number of ports, max 32
+///
+/// The GHC's bit structure:
+/// 0 - rw - hardware reset
+/// 1 - rw - interupt enable
+/// 2 - ro - MSI Revert to Single Message (MRSM)
+/// 31 - rw - set to enable AHCI
+pub struct AhciHba {
     pub location: VirtAddr,
     /// ghc base
     pub base: VirtAddr,
 }
 
-impl Ahci {
-    // Use these offsets when your struct is pointed at BAR5
+impl AhciHba {
     pcie_offset_impl!(
         <cap,      0x00, "r">, // Host Capabilities
-        <ghc,      0x04, "rw">, // Global Host Control (AE bit is here!)
+        <ghc,      0x04, "rw">, // Global Host Control
         <is,       0x08, "rw">, // Interrupt Status (Global)
         <pi,       0x0C, "r">, // Ports Implemented (Bitmask)
         <vs,       0x10, "r">, // Version
@@ -49,6 +60,29 @@ impl Ahci {
         Self { location, base }
     }
 
-    pub fn init(&mut self) -> Vec<AhciSata> {}
+    pub fn init(&mut self) -> Vec<AhciSata> {
+        // set GHC.AE
+        let mut ghc = self.read_ghc();
+        ghc &= !(0x1 << 31);
+        ghc |= 0x1 << 31;
+
+        self.write_ghc(ghc);
+
+        // get devices
+        let mut devices: Vec<AhciSata> = Vec::new();
+        let pi = self.read_pi();
+
+        for i in 0..32 {
+            if pi & 0x1 << i != 0 {
+                let mut sata = AhciSata::new(self.base + 0x100 + i * 0x80);
+
+                sata.reset();
+
+                devices.push(sata);
+            }
+        }
+
+        devices
+    }
 }
 

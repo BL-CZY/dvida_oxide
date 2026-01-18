@@ -53,6 +53,18 @@ impl KernelPageTable {
                 .flush();
         };
     }
+
+    pub fn update_flags(&self, page: Page<Size4KiB>, flags: PageTableFlags) {
+        let mut offset_table =
+            unsafe { OffsetPageTable::new(&mut (*self.table_ptr), self.hhdm_offset) };
+
+        unsafe {
+            offset_table
+                .update_flags(page, flags)
+                .expect("Flush failed")
+                .flush();
+        };
+    }
 }
 
 pub static KERNEL_PAGE_TABLE: OnceCell<Mutex<KernelPageTable>> = OnceCell::new();

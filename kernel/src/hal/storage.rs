@@ -7,7 +7,7 @@ use crate::arch::x86_64::pcie::{
 use crate::crypto::guid::Guid;
 use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE, PataDevice};
 use crate::drivers::ata::sata::AhciSata;
-use crate::drivers::ata::sata::ahci::Ahci;
+use crate::drivers::ata::sata::ahci::AhciHba;
 use crate::hal::buffer::Buffer;
 use crate::hal::gpt::{GPTEntry, GPTErr, GPTHeader};
 use alloc::collections::btree_map::BTreeMap;
@@ -32,7 +32,7 @@ pub enum DeviceType {
     Unidentified,
     PataPio(PataDevice),
     PataDma,
-    SataAhci(Ahci),
+    SataAhci(AhciHba),
     Nvme,
 }
 
@@ -482,7 +482,7 @@ pub fn identify_storage_devices(
             if device.header_partial.subclass == MassStorageControllerSubClass::Sata as u8
                 && device.header_partial.prog_if == SataProgIf::Ahci as u8
             {
-                let mut ahci = Ahci::new(device.address);
+                let mut ahci = AhciHba::new(device.address);
 
                 for device in ahci.init().drain(0..) {
                     let mut device = HalStorageDevice::sata_ahci(device);

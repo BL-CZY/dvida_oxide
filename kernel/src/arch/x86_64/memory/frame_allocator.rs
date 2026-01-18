@@ -25,10 +25,62 @@ impl BitmapAllocator {
             self.bitmap[idx / 8] = self.bitmap[idx / 8] & !(0x1 << (idx % 8));
         }
     }
+
+    pub fn allocate_continuous_frames(
+        &mut self,
+        context: &mut Option<&mut Vec<PhysFrame<Size4KiB>>>,
+        len: usize,
+    ) -> Option<Vec<PhysFrame<Size4KiB>>> {
+        let total_bits = self.bitmap.length as usize * 8;
+
+        let mut indices: Vec<usize> = Vec::new();
+
+        for offset in 0..total_bits {
+            let i = (offset) % total_bits;
+            let byte_idx = i / 8;
+            let bit_idx = i % 8;
+
+            if bit_idx == 0 && self.bitmap[byte_idx] == 0xff {
+                indices.clear();
+                continue;
+            }
+
+            if (self.bitmap[byte_idx] & (1 << bit_idx)) == 0 {
+                indices.push(i);
+            } else {
+                indices.clear();
+            }
+
+            if indices.len() == len {
+                let mut result = Vec::new();
+                for i in indices.iter() {
+                    let byte_idx = i / 8;
+                    let bit_idx = i % 8;
+
+                    self.bitmap[byte_idx] |= 1 << bit_idx;
+
+                    self.next = (i + 1) % total_bits;
+                    unsafe {
+                        let res: PhysFrame<Size4KiB> = PhysFrame::from_start_address_unchecked(
+                            PhysAddr::new(*i as u64 * 4096),
+                        );
+                        result.push(res.clone());
+
+                        if let Some(v) = context {
+                            v.push(res);
+                        }
+                    };
+                }
+
+                return Some(result);
+            }
+        }
+
+        None // Searched everything, no frames left
+    }
 }
 
 unsafe impl FrameAllocator<Size4KiB, Option<&mut Vec<PhysFrame<Size4KiB>>>> for BitmapAllocator {
-    /// must be used along with set_current_allocating_thread
     fn allocate_frame(
         &mut self,
         context: &mut Option<&mut Vec<PhysFrame<Size4KiB>>>,

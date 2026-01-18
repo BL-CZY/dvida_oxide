@@ -1,13 +1,108 @@
-use x86_64::VirtAddr;
+use core::ops::DerefMut;
 
-use crate::{hal::storage::HalBlockDevice, pcie_offset_impl};
+use x86_64::{
+    PhysAddr, VirtAddr,
+    structures::paging::{Page, PageTableFlags},
+};
+
+use crate::{
+    arch::x86_64::memory::{
+        PAGE_SIZE,
+        frame_allocator::FRAME_ALLOCATOR,
+        get_hhdm_offset,
+        page_table::{KERNEL_PAGE_TABLE, KernelPageTable},
+    },
+    hal::storage::HalBlockDevice,
+    pcie_offset_impl,
+};
 
 pub mod ahci;
 pub mod fis;
 
 #[derive(Debug)]
 pub struct AhciSata {
-    base: VirtAddr,
+    pub base: VirtAddr,
+    pub dma_16kb_buffer_vaddr: VirtAddr,
+    pub dma_16kb_buffer_paddr: PhysAddr,
+}
+
+impl AhciSata {
+    const START: u32 = 0x1 << 0;
+    const COMMAND_LIST_RUNNING: u32 = 0x1 << 15;
+    const FIS_RECEIVE_ENABLE: u32 = 0x1 << 4;
+    const FIS_RECEIVE_RUNNING: u32 = 0x1 << 14;
+
+    pub fn new(base: VirtAddr) -> Self {
+        let frames = FRAME_ALLOCATOR
+            .get()
+            .expect("Failed to get allocator")
+            .spin_acquire_lock()
+            .allocate_continuous_frames(&mut None, 4)
+            .expect("No enough memory");
+
+        let page_table = KERNEL_PAGE_TABLE
+            .get()
+            .expect("Failed to get page table")
+            .spin_acquire_lock();
+
+        for frame in frames.iter() {
+            unsafe {
+                core::slice::from_raw_parts_mut(
+                    (get_hhdm_offset() + frame.start_address().as_u64()).as_mut_ptr::<u8>(),
+                    PAGE_SIZE as usize,
+                )
+                .fill(0);
+            }
+
+            page_table.update_flags(
+                Page::from_start_address(get_hhdm_offset() + frame.start_address().as_u64())
+                    .expect("Frame allocator corrupted"),
+                PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE,
+            );
+        }
+
+        Self {
+            base,
+            dma_16kb_buffer_vaddr: get_hhdm_offset() + frames[0].start_address().as_u64(),
+            dma_16kb_buffer_paddr: frames[0].start_address(),
+        }
+    }
+
+    pub fn is_idle(&mut self) -> bool {
+        let cmd_status = self.read_command_and_status();
+
+        if cmd_status
+            & (Self::START
+                | Self::COMMAND_LIST_RUNNING
+                | Self::FIS_RECEIVE_ENABLE
+                | Self::FIS_RECEIVE_RUNNING)
+            != 0
+        {
+            false
+        } else {
+            true
+        }
+    }
+
+    pub fn reset(&mut self) {
+        if self.is_idle() {
+            return;
+        }
+
+        let mut cmd_status = self.read_command_and_status();
+
+        cmd_status &= !(Self::START | Self::FIS_RECEIVE_ENABLE);
+
+        self.write_command_and_status(cmd_status);
+
+        loop {
+            let cmd_status = self.read_command_and_status();
+
+            if cmd_status & (Self::COMMAND_LIST_RUNNING | Self::FIS_RECEIVE_RUNNING) == 0 {
+                break;
+            }
+        }
+    }
 }
 
 impl HalBlockDevice for AhciSata {
