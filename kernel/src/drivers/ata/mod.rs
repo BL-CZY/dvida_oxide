@@ -1,4 +1,5 @@
 pub mod pata;
+pub mod sata;
 
 // ATA Ports
 pub mod offsets {

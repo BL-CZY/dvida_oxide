@@ -171,16 +171,6 @@ unsafe extern "C" fn _start() -> ! {
 
     enable_syscalls();
 
-    STORAGE_CONTEXT_ARR[hal::storage::PRIMARY]
-        .try_lock()
-        .expect("Internal error: should be unlocked")
-        .init();
-    STORAGE_CONTEXT_ARR[hal::storage::SECONDARY]
-        .try_lock()
-        .expect("Internal error: should be unlocked")
-        .init();
-    log!("Initialized the storage drives");
-
     let executor: Executor = Executor::new();
     let spawner = executor.spawner();
     executor.spawn(kernel_main(spawner.clone()));

@@ -1,7 +1,12 @@
+use crate::arch::x86_64::pcie::{
+    MassStorageControllerSubClass, PciBaseClass, PciDevice, SataProgIf,
+};
 use crate::crypto::guid::Guid;
 use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE, PataDevice};
+use crate::drivers::ata::sata::ahci::SataAhci;
 use crate::hal::buffer::Buffer;
 use crate::hal::gpt::{GPTEntry, GPTErr, GPTHeader};
+use alloc::collections::btree_map::BTreeMap;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -12,6 +17,7 @@ use lazy_static::lazy_static;
 use once_cell_no_std::OnceCell;
 use terminal::{iprintln, log};
 use thiserror::Error;
+use x86_64::VirtAddr;
 
 pub static PRIMARY_STORAGE_SENDER: OnceCell<UnboundedSender<HalStorageOperation>> = OnceCell::new();
 pub static SECONDARY_STORAGE_SENDER: OnceCell<UnboundedSender<HalStorageOperation>> =
@@ -20,13 +26,9 @@ pub static SECONDARY_STORAGE_SENDER: OnceCell<UnboundedSender<HalStorageOperatio
 #[derive(Debug)]
 pub enum DeviceType {
     Unidentified,
-    /// I only know this lol
     PataPio(PataDevice),
-    /// I might be able to do this in the future
     PataDma,
-    /// Trust me I will do it
-    Sata,
-    /// no
+    SataAhci(SataAhci),
     Nvme,
 }
 
@@ -56,7 +58,6 @@ pub enum IoErr {
 #[derive(Debug)]
 pub struct HalStorageDevice {
     pub device_io_type: DeviceType,
-    pub device_loc: usize,
     pub available: bool,
     pub pata_port: u16,
 }
@@ -99,10 +100,12 @@ pub enum HalStorageOperation {
     },
 }
 
+pub static STORAGE_DEVICES: OnceCell<Vec<Mutex<HalStorageDevice>>> = OnceCell::new();
+
 lazy_static! {
     pub static ref STORAGE_CONTEXT_ARR: Vec<Mutex<HalStorageDevice>> = vec![
-        Mutex::new(HalStorageDevice::new(PRIMARY, PATA_PRIMARY_BASE)),
-        Mutex::new(HalStorageDevice::new(SECONDARY, PATA_SECONDARY_BASE))
+        Mutex::new(HalStorageDevice::new(PATA_PRIMARY_BASE)),
+        Mutex::new(HalStorageDevice::new(PATA_SECONDARY_BASE))
     ];
 }
 
@@ -129,12 +132,19 @@ pub async fn run_storage_device(index: usize) {
 }
 
 impl HalStorageDevice {
-    pub fn new(loc: usize, pata_port: u16) -> Self {
+    pub fn new(pata_port: u16) -> Self {
         HalStorageDevice {
             device_io_type: DeviceType::Unidentified,
-            device_loc: loc,
             available: false,
             pata_port,
+        }
+    }
+
+    pub fn sata_ahci(base: VirtAddr) -> Self {
+        HalStorageDevice {
+            device_io_type: DeviceType::SataAhci(SataAhci::new(base)),
+            available: true,
+            pata_port: 0,
         }
     }
 
@@ -242,14 +252,16 @@ impl HalStorageDevice {
         }
     }
 
-    pub fn init(&mut self) {
+    pub fn init(&mut self) -> Option<()> {
         // test pata
         let mut pata = PataDevice::new(self.pata_port);
         if let Ok(()) = pata.identify() {
             self.available = true;
             self.device_io_type = DeviceType::PataPio(pata);
-            return;
+            return None;
         }
+
+        Some(())
     }
 
     pub fn sector_count(&self) -> u64 {
@@ -490,4 +502,33 @@ pub enum HalStorageOperationErr {
     NoEnoughSpace,
     #[error("Internal error at {0}, {1}: {2}")]
     Internal(u32, u32, String),
+}
+
+pub fn identify_storage_devices(
+    device_tree: &mut BTreeMap<u8, BTreeMap<u8, BTreeMap<u8, PciDevice>>>,
+) {
+    let mut storage_devices: Vec<Mutex<HalStorageDevice>> = Vec::new();
+
+    let mut device = HalStorageDevice::new(PATA_PRIMARY_BASE);
+    if device.init().is_some() {
+        storage_devices.push(Mutex::new(device));
+    }
+
+    let mut device = HalStorageDevice::new(PATA_SECONDARY_BASE);
+    if device.init().is_some() {
+        storage_devices.push(Mutex::new(device));
+    }
+
+    if let Some(m) = device_tree.get(&(PciBaseClass::MassStorage as u8)) {
+        for (_, device) in m.values().flatten() {
+            if device.header_partial.subclass == MassStorageControllerSubClass::Sata as u8
+                && device.header_partial.prog_if == SataProgIf::Ahci as u8
+            {
+                let device = HalStorageDevice::sata_ahci(device.address);
+                storage_devices.push(Mutex::new(device));
+            }
+        }
+    }
+
+    log!("Initialized the storage drives");
 }
