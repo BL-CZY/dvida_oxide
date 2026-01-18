@@ -24,7 +24,6 @@ use ejcineque::{
     futures::yield_now,
     sync::mutex::Mutex,
 };
-use hal::storage::STORAGE_CONTEXT_ARR;
 use limine::{BaseRevision, request::StackSizeRequest};
 pub mod args;
 pub mod time;

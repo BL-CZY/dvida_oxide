@@ -1,3 +1,6 @@
+use core::fmt::Debug;
+use core::pin::Pin;
+
 use crate::arch::x86_64::pcie::{
     MassStorageControllerSubClass, PciBaseClass, PciDevice, SataProgIf,
 };
@@ -57,9 +60,9 @@ pub enum IoErr {
 
 #[derive(Debug)]
 pub struct HalStorageDevice {
-    pub device_io_type: DeviceType,
     pub available: bool,
     pub pata_port: u16,
+    pub device_inner: Box<dyn HalBlockDevice>,
 }
 
 #[derive(Debug)]
@@ -100,13 +103,43 @@ pub enum HalStorageOperation {
     },
 }
 
-pub static STORAGE_DEVICES: OnceCell<Vec<Mutex<HalStorageDevice>>> = OnceCell::new();
+pub trait HalBlockDevice: Send + Sync + Debug {
+    fn sector_count(&mut self) -> u64;
+    fn sectors_per_track(&mut self) -> u16;
 
-lazy_static! {
-    pub static ref STORAGE_CONTEXT_ARR: Vec<Mutex<HalStorageDevice>> = vec![
-        Mutex::new(HalStorageDevice::new(PATA_PRIMARY_BASE)),
-        Mutex::new(HalStorageDevice::new(PATA_SECONDARY_BASE))
-    ];
+    fn read_sectors_async(
+        &mut self,
+        index: i64,
+        count: u16,
+        output: &mut [u8],
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<(), Box<dyn core::error::Error + Send + Sync>>>
+                + Send
+                + Sync,
+        >,
+    >;
+
+    fn write_sectors_async(
+        &mut self,
+        index: i64,
+        count: u16,
+        input: &[u8],
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<(), Box<dyn core::error::Error + Send + Sync>>>
+                + Send
+                + Sync,
+        >,
+    >;
+
+    fn init(&mut self) -> Result<(), alloc::boxed::Box<dyn core::error::Error + Send + Sync>>;
+}
+
+static STORAGE_DEVICES: OnceCell<Vec<Mutex<HalStorageDevice>>> = OnceCell::new();
+
+fn get_storage_devices() -> &'static Vec<Mutex<HalStorageDevice>> {
+    STORAGE_DEVICES.get().expect("Can't get storage array")
 }
 
 /// After this is executed nothing should directly access those structs
@@ -128,21 +161,13 @@ pub async fn run_storage_device(index: usize) {
     };
 
     log!("Sender initialization complete!");
-    STORAGE_CONTEXT_ARR[index].lock().await.run(rx).await;
+    get_storage_devices()[index].lock().await.run(rx).await;
 }
 
 impl HalStorageDevice {
-    pub fn new(pata_port: u16) -> Self {
-        HalStorageDevice {
-            device_io_type: DeviceType::Unidentified,
-            available: false,
-            pata_port,
-        }
-    }
-
     pub fn sata_ahci(base: VirtAddr) -> Self {
         HalStorageDevice {
-            device_io_type: DeviceType::SataAhci(SataAhci::new(base)),
+            device_inner: Box::new(SataAhci::new(base)),
             available: true,
             pata_port: 0,
         }
@@ -252,46 +277,16 @@ impl HalStorageDevice {
         }
     }
 
-    pub fn init(&mut self) -> Option<()> {
-        // test pata
-        let mut pata = PataDevice::new(self.pata_port);
-        if let Ok(()) = pata.identify() {
-            self.available = true;
-            self.device_io_type = DeviceType::PataPio(pata);
-            return None;
-        }
-
-        Some(())
+    pub fn init(&mut self) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
+        Ok(self.device_inner.init()?)
     }
 
-    pub fn sector_count(&self) -> u64 {
-        match self.device_io_type {
-            DeviceType::PataPio(ref pata) => pata.sector_count(),
-            _ => 0,
-        }
+    pub fn sector_count(&mut self) -> u64 {
+        self.device_inner.sector_count()
     }
 
-    pub fn sectors_per_track(&self) -> u16 {
-        match self.device_io_type {
-            DeviceType::PataPio(ref pata) => pata.sectors_per_track,
-            _ => 0,
-        }
-    }
-
-    pub fn read_sectors(
-        &mut self,
-        index: i64,
-        count: u16,
-        output: &mut [u8],
-    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
-        if !self.available {
-            return Err(Box::new(IoErr::Unavailable));
-        }
-
-        match self.device_io_type {
-            DeviceType::PataPio(ref mut pata) => Ok(pata.pio_read_sectors(index, count, output)?),
-            _ => Err(Box::new(IoErr::Unimplemented)),
-        }
+    pub fn sectors_per_track(&mut self) -> u16 {
+        self.device_inner.sectors_per_track()
     }
 
     pub async fn read_sectors_async(
@@ -300,32 +295,10 @@ impl HalStorageDevice {
         count: u16,
         output: &mut [u8],
     ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
-        if !self.available {
-            return Err(Box::new(IoErr::Unavailable));
-        }
-
-        match self.device_io_type {
-            DeviceType::PataPio(ref mut pata) => {
-                Ok(pata.pio_read_sectors_async(index, count, output).await?)
-            }
-            _ => Err(Box::new(IoErr::Unimplemented)),
-        }
-    }
-
-    pub fn write_sectors(
-        &mut self,
-        index: i64,
-        count: u16,
-        input: &[u8],
-    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
-        if !self.available {
-            return Err(Box::new(IoErr::Unavailable));
-        }
-
-        match self.device_io_type {
-            DeviceType::PataPio(ref mut pata) => Ok(pata.pio_write_sectors(index, count, input)?),
-            _ => Err(Box::new(IoErr::Unimplemented)),
-        }
+        Ok(self
+            .device_inner
+            .read_sectors_async(index, count, output)
+            .await?)
     }
 
     pub async fn write_sectors_async(
@@ -334,16 +307,10 @@ impl HalStorageDevice {
         count: u16,
         input: &[u8],
     ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
-        if !self.available {
-            return Err(Box::new(IoErr::Unavailable));
-        }
-
-        match self.device_io_type {
-            DeviceType::PataPio(ref mut pata) => {
-                Ok(pata.pio_write_sectors_async(index, count, input).await?)
-            }
-            _ => Err(Box::new(IoErr::Unimplemented)),
-        }
+        Ok(self
+            .device_inner
+            .write_sectors_async(index, count, input)
+            .await?)
     }
 }
 
@@ -509,26 +476,23 @@ pub fn identify_storage_devices(
 ) {
     let mut storage_devices: Vec<Mutex<HalStorageDevice>> = Vec::new();
 
-    let mut device = HalStorageDevice::new(PATA_PRIMARY_BASE);
-    if device.init().is_some() {
-        storage_devices.push(Mutex::new(device));
-    }
-
-    let mut device = HalStorageDevice::new(PATA_SECONDARY_BASE);
-    if device.init().is_some() {
-        storage_devices.push(Mutex::new(device));
-    }
-
     if let Some(m) = device_tree.get(&(PciBaseClass::MassStorage as u8)) {
         for (_, device) in m.values().flatten() {
             if device.header_partial.subclass == MassStorageControllerSubClass::Sata as u8
                 && device.header_partial.prog_if == SataProgIf::Ahci as u8
             {
-                let device = HalStorageDevice::sata_ahci(device.address);
-                storage_devices.push(Mutex::new(device));
+                let mut device = HalStorageDevice::sata_ahci(device.address);
+                match device.init() {
+                    Ok(_) => storage_devices.push(Mutex::new(device)),
+                    Err(e) => {
+                        log!("Failed to initialize Sata Ahci: {}", e);
+                    }
+                }
             }
         }
     }
+
+    let _ = STORAGE_DEVICES.set(storage_devices);
 
     log!("Initialized the storage drives");
 }

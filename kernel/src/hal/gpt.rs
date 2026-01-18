@@ -295,7 +295,7 @@ impl HalStorageDevice {
         normal || backup
     }
 
-    fn create_pmbr_buf(&self) -> [u8; 512] {
+    fn create_pmbr_buf(&mut self) -> [u8; 512] {
         log!("Creating PMBR buffer");
         const PMBR_OFFSET: usize = 446;
         let mut result = [0u8; 512];
@@ -350,7 +350,7 @@ impl HalStorageDevice {
         result
     }
 
-    fn create_unhashed_header(&self) -> GPTHeader {
+    fn create_unhashed_header(&mut self) -> GPTHeader {
         let hdr = GPTHeader {
             backup_loc: self.sector_count() - 1,
             last_usable_block: self.sector_count() - 34,
