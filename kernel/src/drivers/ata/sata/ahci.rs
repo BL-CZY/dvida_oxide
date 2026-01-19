@@ -14,6 +14,7 @@ use crate::{
 /// It supports multiple SATA drives
 /// The CAP's bit structure:
 /// 0-4 - number of ports, max 32
+/// 8-12 - number of command slots, max 32
 ///
 /// The GHC's bit structure:
 /// 0 - rw - hardware reset
@@ -68,6 +69,10 @@ impl AhciHba {
 
         self.write_ghc(ghc);
 
+        // get number of commands from CAP
+        let cap = self.read_cap();
+        let num_cmd_slots = (cap >> 8) & 0b11111;
+
         // get devices
         let mut devices: Vec<AhciSata> = Vec::new();
         let pi = self.read_pi();
@@ -85,4 +90,3 @@ impl AhciHba {
         devices
     }
 }
-

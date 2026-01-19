@@ -19,10 +19,15 @@ pub mod command;
 pub mod fis;
 
 #[derive(Debug)]
+/// each sata will have a buffer
+/// the structure of the buffer will be:
+/// 0-1023 (0x400) - 32 command headers of 32 bytes each (1kb alignment)
+/// 1024-1279 (0x500) - the received fis area (256-byte alignment)
+/// 1280-20479 (0x5000) - 32 command tables of 0x200 bytes each
 pub struct AhciSata {
     pub base: VirtAddr,
-    pub dma_16kb_buffer_vaddr: VirtAddr,
-    pub dma_16kb_buffer_paddr: PhysAddr,
+    pub dma_20kb_buffer_vaddr: VirtAddr,
+    pub dma_20kb_buffer_paddr: PhysAddr,
 }
 
 impl AhciSata {
@@ -36,7 +41,7 @@ impl AhciSata {
             .get()
             .expect("Failed to get allocator")
             .spin_acquire_lock()
-            .allocate_continuous_frames(&mut None, 4)
+            .allocate_continuous_frames(&mut None, 5)
             .expect("No enough memory");
 
         let page_table = KERNEL_PAGE_TABLE
@@ -56,14 +61,17 @@ impl AhciSata {
             page_table.update_flags(
                 Page::from_start_address(get_hhdm_offset() + frame.start_address().as_u64())
                     .expect("Frame allocator corrupted"),
-                PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE,
+                PageTableFlags::PRESENT
+                    | PageTableFlags::WRITABLE
+                    | PageTableFlags::NO_CACHE
+                    | PageTableFlags::WRITE_THROUGH,
             );
         }
 
         Self {
             base,
-            dma_16kb_buffer_vaddr: get_hhdm_offset() + frames[0].start_address().as_u64(),
-            dma_16kb_buffer_paddr: frames[0].start_address(),
+            dma_20kb_buffer_vaddr: get_hhdm_offset() + frames[0].start_address().as_u64(),
+            dma_20kb_buffer_paddr: frames[0].start_address(),
         }
     }
 
