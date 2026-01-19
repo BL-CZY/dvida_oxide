@@ -24,7 +24,13 @@ use ejcineque::{
     futures::yield_now,
     sync::mutex::Mutex,
 };
-use limine::{BaseRevision, request::StackSizeRequest};
+use limine::{
+    BaseRevision,
+    request::{RequestsEndMarker, RequestsStartMarker},
+};
+
+use limine::request::StackSizeRequest;
+
 pub mod args;
 pub mod time;
 
@@ -47,7 +53,6 @@ use crate::{
             load_kernel_thread,
             syscall::{enable_syscalls, setup_stack_for_syscall_handler},
         },
-        timer::configure_pit,
     },
     args::parse_args,
     crypto::random::run_random,
@@ -66,6 +71,9 @@ pub mod dyn_mem;
 pub mod hal;
 
 pub const STACK_SIZE: u64 = 0x100000;
+
+#[used]
+#[unsafe(link_section = ".requests")]
 pub static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_size(STACK_SIZE);
 
 // will be locked all the time
@@ -106,7 +114,16 @@ async fn kernel_main(spawner: Spawner) {
 #[used]
 // The .requests section allows limine to find the requests faster and more safely.
 #[unsafe(link_section = ".requests")]
-static BASE_REVISION: BaseRevision = BaseRevision::new();
+static BASE_REVISION: BaseRevision = BaseRevision::with_revision(4);
+
+/// Define the stand and end markers for Limine requests.
+#[used]
+#[unsafe(link_section = ".requests_start_marker")]
+static _START_MARKER: RequestsStartMarker = RequestsStartMarker::new();
+
+#[used]
+#[unsafe(link_section = ".requests_end_marker")]
+static _END_MARKER: RequestsEndMarker = RequestsEndMarker::new();
 
 // #[inline(never)]
 // fn force_overflow(n: u64) {
@@ -119,7 +136,7 @@ static BASE_REVISION: BaseRevision = BaseRevision::new();
 unsafe extern "C" fn _start() -> ! {
     // All limine requests must also be referenced in a called function, otherwise they may be
     // removed by the linker.
-    // clear keyboard port
+
     assert!(BASE_REVISION.is_supported());
 
     WRITER.lock().init_debug_terminal();

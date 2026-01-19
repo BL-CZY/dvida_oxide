@@ -41,6 +41,8 @@ pub struct AcpiSdtHeader {
     creator_revision: u32,
 }
 
+#[used]
+#[unsafe(link_section = ".requests")]
 pub static RSDP_REQUEST: RsdpRequest = RsdpRequest::new();
 
 pub static RSDP_1_0_LENGTH: usize = 8 + 1 + 6 + 1 + 4;
@@ -84,6 +86,8 @@ fn check_acpi_sdt_header(header: *const AcpiSdtHeader, length: usize) {
 
 pub fn parse_rsdp() -> Vec<VirtAddr> {
     let response = RSDP_REQUEST.get_response().expect("no rsdp table detected");
+    let address = response.address();
+    log!("Parsing rsdp at 0x{:x}...", address);
 
     let rsdp = &unsafe { *(response.address() as *const Rsdp) };
 
@@ -120,7 +124,7 @@ pub fn parse_rsdp() -> Vec<VirtAddr> {
 pub fn find_table(pointers: &[VirtAddr], signature: [u8; 4]) -> Option<VirtAddr> {
     for addr in pointers.iter() {
         let header: *const AcpiSdtHeader = addr.as_ptr();
-        let header = &unsafe { *header };
+        let header = unsafe { *header };
 
         if header.signature == signature {
             check_acpi_sdt_header(addr.as_ptr(), header.length as usize);

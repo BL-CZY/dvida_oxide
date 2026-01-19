@@ -1,15 +1,14 @@
-use core::ops::DerefMut;
+use core::{fmt::Debug, ops::DerefMut};
 
 use alloc::{format, vec::Vec};
 use ejcineque::sync::mutex::Mutex;
-use limine::request::KernelAddressRequest;
 use once_cell_no_std::OnceCell;
 use x86_64::{
     VirtAddr,
     registers::control::Cr3,
     structures::paging::{
-        FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame,
-        Size4KiB, page_table::PageTableEntry,
+        FrameAllocator, Mapper, OffsetPageTable, Page, PageSize, PageTable, PageTableFlags,
+        PhysFrame, Size4KiB, page_table::PageTableEntry,
     },
 };
 
@@ -27,13 +26,16 @@ pub struct KernelPageTable {
 }
 
 impl KernelPageTable {
-    pub fn map_to(
+    pub fn map_to<S>(
         &self,
-        page: Page<Size4KiB>,
-        frame: PhysFrame,
+        page: Page<S>,
+        frame: PhysFrame<S>,
         flags: PageTableFlags,
         context: &mut Option<&mut Vec<PhysFrame>>,
-    ) {
+    ) where
+        S: Debug + PageSize,
+        OffsetPageTable<'static>: Mapper<S>,
+    {
         let mut offset_table =
             unsafe { OffsetPageTable::new(&mut (*self.table_ptr), self.hhdm_offset) };
 
@@ -68,8 +70,6 @@ impl KernelPageTable {
 }
 
 pub static KERNEL_PAGE_TABLE: OnceCell<Mutex<KernelPageTable>> = OnceCell::new();
-
-pub static KERNEL_ADDRESS_REQUEST: KernelAddressRequest = KernelAddressRequest::new();
 
 pub unsafe fn initialize_page_table() {
     let (table, _) = Cr3::read();

@@ -13,7 +13,7 @@ use x86_64::structures::tss::TaskStateSegment;
 pub const KERNEL_CODE_SEGMENT_IDX: u16 = 1;
 pub const USER_CODE_SEGMENT_IDX: u16 = 3;
 
-pub const DOUBLE_FAULT_IST_INDEX: u16 = 1;
+pub const PAGE_FAULT_IST_INDEX: u16 = 1;
 
 pub const STACK_PAGE_SIZE: usize = 5;
 pub const STACK_SIZE: usize = 4096 * STACK_PAGE_SIZE;

@@ -5,7 +5,10 @@ use core::sync::atomic::AtomicU64;
 use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 use bytemuck::{Pod, Zeroable};
 use terminal::log;
-use x86_64::{VirtAddr, structures::paging::Page};
+use x86_64::{
+    PhysAddr, VirtAddr,
+    structures::paging::{Page, PhysFrame, Size4KiB},
+};
 
 use crate::arch::x86_64::{
     acpi::{AcpiSdtHeader, MMIO_PAGE_TABLE_FLAGS},
@@ -308,6 +311,19 @@ pub fn init_apic(
         }
     }
 
+    // map those pages into virtual memory
+    let page_table = KERNEL_PAGE_TABLE
+        .get()
+        .expect("Failed to get page table")
+        .spin_acquire_lock();
+
+    page_table.map_to::<Size4KiB>(
+        Page::containing_address(local_apic.base),
+        PhysFrame::containing_address(PhysAddr::new(local_apic.base - get_hhdm_offset())),
+        *MMIO_PAGE_TABLE_FLAGS,
+        &mut None,
+    );
+
     let local_apic_id = local_apic.read_id() >> 24;
     log!("Id of the bootstrap cpu: {local_apic_id}");
 
@@ -317,16 +333,12 @@ pub fn init_apic(
         .local_apic
         .enable();
 
-    // disable caching on those pages
-    let page_table = KERNEL_PAGE_TABLE
-        .get()
-        .expect("Failed to get page table")
-        .spin_acquire_lock();
-
     for io_apic in io_apics.iter_mut() {
-        page_table.update_flags(
+        page_table.map_to::<Size4KiB>(
             Page::containing_address(io_apic.base),
+            PhysFrame::containing_address(PhysAddr::new(io_apic.base - get_hhdm_offset())),
             *MMIO_PAGE_TABLE_FLAGS,
+            &mut None,
         );
 
         // this is isa
@@ -345,11 +357,6 @@ pub fn init_apic(
     LOCAL_APIC_ADDR.store(
         local_apic.base.as_u64(),
         core::sync::atomic::Ordering::Relaxed,
-    );
-
-    page_table.update_flags(
-        Page::containing_address(local_apic.base),
-        *MMIO_PAGE_TABLE_FLAGS,
     );
 
     log!("Processors: {:?}", processors);

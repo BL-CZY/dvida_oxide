@@ -1,11 +1,14 @@
 use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 use bytemuck::{Pod, Zeroable};
 use terminal::log;
-use x86_64::VirtAddr;
+use x86_64::{
+    PhysAddr, VirtAddr,
+    structures::paging::{Page, PhysFrame, Size2MiB, Size4KiB},
+};
 
 use crate::arch::x86_64::{
-    acpi::AcpiSdtHeader,
-    memory::get_hhdm_offset,
+    acpi::{AcpiSdtHeader, MMIO_PAGE_TABLE_FLAGS},
+    memory::{PAGE_SIZE, PAGE_SIZE_2_MIB, get_hhdm_offset, page_table::KERNEL_PAGE_TABLE},
     pcie::{PciDevice, PciHeaderPartial},
 };
 
@@ -111,7 +114,54 @@ pub fn iterate_pcie_entries(
 ) -> BTreeMap<u8, BTreeMap<u8, BTreeMap<u8, PciDevice>>> {
     let mut res: BTreeMap<u8, BTreeMap<u8, BTreeMap<u8, PciDevice>>> = BTreeMap::new();
 
+    let page_table = KERNEL_PAGE_TABLE
+        .get()
+        .expect("Failed to get page table")
+        .spin_acquire_lock();
+
     for entry in entries.iter() {
+        let pci_bus_count = entry.end_pci_bus_number as u64 - entry.start_pci_bus_number as u64 + 1;
+        let base_phys = PhysAddr::new(entry.base_addr);
+
+        // map this entry to memory with as much as 2mib pages as possible
+        let aligned_up_phys_addr = base_phys.align_up(PAGE_SIZE_2_MIB as u64);
+
+        let length =
+            pci_bus_count as u64 * BUS_DEVICE_COUNT * DEVICE_FUNCTION_COUNT * PAGE_SIZE as u64;
+
+        let end = base_phys + length;
+        let aligned_down_end = end.align_down(PAGE_SIZE_2_MIB);
+
+        for addr in (base_phys.as_u64()..aligned_up_phys_addr.as_u64()).step_by(PAGE_SIZE as usize)
+        {
+            page_table.map_to::<Size4KiB>(
+                Page::containing_address(get_hhdm_offset() + addr),
+                PhysFrame::containing_address(PhysAddr::new(addr)),
+                *MMIO_PAGE_TABLE_FLAGS,
+                &mut None,
+            );
+        }
+
+        for addr in (aligned_up_phys_addr.as_u64()..aligned_down_end.as_u64())
+            .step_by(PAGE_SIZE_2_MIB as usize)
+        {
+            page_table.map_to::<Size2MiB>(
+                Page::containing_address(get_hhdm_offset() + addr),
+                PhysFrame::containing_address(PhysAddr::new(addr)),
+                *MMIO_PAGE_TABLE_FLAGS,
+                &mut None,
+            );
+        }
+
+        for addr in (aligned_down_end.as_u64()..end.as_u64()).step_by(PAGE_SIZE as usize) {
+            page_table.map_to::<Size4KiB>(
+                Page::containing_address(get_hhdm_offset() + addr),
+                PhysFrame::containing_address(PhysAddr::new(addr)),
+                *MMIO_PAGE_TABLE_FLAGS,
+                &mut None,
+            );
+        }
+
         iterate_pcie_buses(entry, &mut res);
     }
 

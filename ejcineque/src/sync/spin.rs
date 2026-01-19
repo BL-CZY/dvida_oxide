@@ -14,7 +14,7 @@ pub struct SpinMutex<T> {
 }
 
 impl<T> SpinMutex<T> {
-    pub fn new(val: T) -> Self {
+    pub const fn new(val: T) -> Self {
         SpinMutex {
             inner: UnsafeCell::new(val),
             is_locked: AtomicBool::new(false),

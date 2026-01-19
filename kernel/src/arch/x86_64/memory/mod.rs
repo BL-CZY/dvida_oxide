@@ -5,7 +5,7 @@ pub mod memmap;
 pub mod page_table;
 pub mod pmm;
 
-use crate::arch::x86_64::gdt::{self, AlignedTSS, DOUBLE_FAULT_IST_INDEX, STACK_PAGE_SIZE, TSS};
+use crate::arch::x86_64::gdt::{self, AlignedTSS, PAGE_FAULT_IST_INDEX, STACK_PAGE_SIZE, TSS};
 use crate::arch::x86_64::handlers::{RSP0_STACK_GUARD_PAGE, RSP0_STACK_LENGTH};
 use crate::arch::x86_64::memory::bitmap::BitMap;
 use crate::arch::x86_64::memory::heap::KHeap;
@@ -18,12 +18,14 @@ use terminal::{iprintln, log};
 use x86_64::structures::tss::TaskStateSegment;
 use x86_64::{PhysAddr, VirtAddr};
 
+#[used]
 #[unsafe(link_section = ".requests")]
 static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
 
 static HHDM_OFFSET: OnceCell<u64> = OnceCell::new();
 
 pub const PAGE_SIZE: u32 = 4096;
+pub const PAGE_SIZE_2_MIB: u32 = 4096 * 512;
 pub const BYTE_SIZE: u32 = 8;
 pub const VIRTMEM_OFFSET: u64 = 0x1000;
 
@@ -104,7 +106,7 @@ pub fn init() -> MemoryMappings {
         let mut tss = TaskStateSegment::new();
         // tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] =
         //     VirtAddr::from_ptr(double_fault_stack_start as *mut u8);
-        tss.interrupt_stack_table[gdt::DOUBLE_FAULT_IST_INDEX as usize] =
+        tss.interrupt_stack_table[gdt::PAGE_FAULT_IST_INDEX as usize] =
             VirtAddr::from_ptr(double_fault_stack_start as *mut u8);
         tss.privilege_stack_table[0] = VirtAddr::new(RSP0_STACK_GUARD_PAGE + RSP0_STACK_LENGTH);
         tss

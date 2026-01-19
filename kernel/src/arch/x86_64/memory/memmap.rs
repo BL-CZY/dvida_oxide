@@ -2,12 +2,12 @@ use limine::{
     memory_map::{Entry, EntryType},
     request::MemoryMapRequest,
 };
+use terminal::log;
 use x86_64::{PhysAddr, structures::paging::PhysFrame};
-
-use crate::iprintln;
 
 use super::get_hhdm_offset;
 
+#[used]
 #[unsafe(link_section = ".requests")]
 static MEMMAP_REQUEST: MemoryMapRequest = MemoryMapRequest::new();
 
@@ -20,7 +20,6 @@ enum MemmapEntryType {
     ACPINVS,
     BadMem,
     BootReclaim,
-    KernelAndMods,
     Framebuffer,
 }
 
@@ -33,7 +32,6 @@ impl MemmapEntryType {
             EntryType::ACPI_NVS => MemmapEntryType::ACPINVS,
             EntryType::BAD_MEMORY => MemmapEntryType::BadMem,
             EntryType::BOOTLOADER_RECLAIMABLE => MemmapEntryType::BootReclaim,
-            EntryType::KERNEL_AND_MODULES => MemmapEntryType::KernelAndMods,
             EntryType::FRAMEBUFFER => MemmapEntryType::Framebuffer,
             _ => MemmapEntryType::BadMem,
         }
@@ -54,7 +52,7 @@ pub fn sum_memmap(entries: &[&Entry], hhdm_offset: u64, log: bool) -> (u64, u64)
 
     for (index, entry) in entries.iter().enumerate() {
         if log {
-            iprintln!(
+            log!(
                 "memmap entry {}: type: {:?}, base: {:#x}, length: {:#x}",
                 index,
                 MemmapEntryType::from_entry(entry.entry_type),
@@ -72,7 +70,7 @@ pub fn sum_memmap(entries: &[&Entry], hhdm_offset: u64, log: bool) -> (u64, u64)
             && index >= entries.len() - 1
         {
             if log {
-                iprintln!("Ignored the last entry as it's not usable");
+                log!("Ignored the last entry as it's not usable");
             }
             continue;
         }
@@ -88,7 +86,7 @@ pub fn log_memmap() {
 
     let (total_memory, total_memory_usable) = sum_memmap(get_memmap(), hhdm_offset, true);
 
-    iprintln!(
+    log!(
         "total memory: {}G (round down), total usable: {}G (round down)",
         total_memory / 0x400 / 0x400 / 0x400,
         total_memory_usable / 0x400 / 0x400 / 0x400

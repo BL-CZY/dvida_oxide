@@ -9,7 +9,20 @@ use x86_64::structures::idt::InterruptDescriptorTable;
 
 pub const SPURIOUS_INTERRUPT_HANDLER_IDX: u8 = 0xFF;
 
-pub static IDT: OnceCell<InterruptDescriptorTable> = OnceCell::new();
+static IDT: OnceCell<InterruptDescriptorTable> = OnceCell::new();
+
+pub fn minimal_idt() -> InterruptDescriptorTable {
+    let mut idt = InterruptDescriptorTable::new();
+    idt.breakpoint.set_handler_fn(isr::breakpoint_handler);
+    idt.double_fault.set_handler_fn(isr::doublefault_handler);
+    unsafe {
+        idt.page_fault
+            .set_handler_fn(isr::pagefault_handler)
+            .set_stack_index(gdt::PAGE_FAULT_IST_INDEX);
+    };
+
+    idt
+}
 
 pub fn init_idt(gsi_to_irq_mapping: [u32; 16]) {
     let mut idt = InterruptDescriptorTable::new();
@@ -29,7 +42,7 @@ pub fn init_idt(gsi_to_irq_mapping: [u32; 16]) {
     unsafe {
         idt.page_fault
             .set_handler_fn(isr::pagefault_handler)
-            .set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
+            .set_stack_index(gdt::PAGE_FAULT_IST_INDEX);
     };
 
     let _ = IDT.set(idt);
