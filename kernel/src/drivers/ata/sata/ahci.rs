@@ -80,8 +80,14 @@ impl AhciHba {
         let mut ghc = self.read_ghc();
         ghc &= !(0x1 << 31);
         ghc |= 0x1 << 31;
+        // set GHC.IE
+        ghc &= !(0x1 << 1);
+        ghc |= 0x1 << 1;
 
         self.write_ghc(ghc);
+
+        // doesn't support 32 bits only yet
+        assert!(self.read_cap() & (0x1 << 31) != 0);
 
         // get number of commands from CAP
         let cap = self.read_cap();
@@ -93,11 +99,11 @@ impl AhciHba {
 
         for i in 0..32 {
             if pi & 0x1 << i != 0 {
-                let mut sata = AhciSata::new(self.base + 0x100 + i * 0x80);
+                let mut sata = AhciSata::new(self.base + 0x100 + i * 0x80, num_cmd_slots as u64);
 
-                sata.reset();
-
-                devices.push(sata);
+                if sata.init().is_ok() {
+                    devices.push(sata);
+                }
             }
         }
 

@@ -38,6 +38,10 @@ pub struct RtcDateTime {
     pub weekday: u8,
 }
 
+pub fn get_unix_timestamp() -> u32 {
+    unsafe { formats::rtc_to_posix(&Rtc::new().read_datetime_reliable()) }
+}
+
 /// RTC Driver
 pub struct Rtc {
     address_port: Port<u8>,
