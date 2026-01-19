@@ -1,5 +1,3 @@
-use core::ops::DerefMut;
-
 use x86_64::{
     PhysAddr, VirtAddr,
     structures::paging::{Page, PageTableFlags},
@@ -17,6 +15,7 @@ use crate::{
 };
 
 pub mod ahci;
+pub mod command;
 pub mod fis;
 
 #[derive(Debug)]
