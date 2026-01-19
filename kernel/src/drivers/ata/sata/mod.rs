@@ -4,11 +4,14 @@ use x86_64::{
 };
 
 use crate::{
-    arch::x86_64::memory::{
-        PAGE_SIZE,
-        frame_allocator::FRAME_ALLOCATOR,
-        get_hhdm_offset,
-        page_table::{KERNEL_PAGE_TABLE, KernelPageTable},
+    arch::x86_64::{
+        acpi::MMIO_PAGE_TABLE_FLAGS,
+        memory::{
+            PAGE_SIZE,
+            frame_allocator::FRAME_ALLOCATOR,
+            get_hhdm_offset,
+            page_table::{KERNEL_PAGE_TABLE, KernelPageTable},
+        },
     },
     hal::storage::HalBlockDevice,
     pcie_offset_impl,
@@ -61,10 +64,7 @@ impl AhciSata {
             page_table.update_flags(
                 Page::from_start_address(get_hhdm_offset() + frame.start_address().as_u64())
                     .expect("Frame allocator corrupted"),
-                PageTableFlags::PRESENT
-                    | PageTableFlags::WRITABLE
-                    | PageTableFlags::NO_CACHE
-                    | PageTableFlags::WRITE_THROUGH,
+                *MMIO_PAGE_TABLE_FLAGS,
             );
         }
 

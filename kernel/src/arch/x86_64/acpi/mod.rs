@@ -4,9 +4,10 @@ pub mod mcfg;
 
 use alloc::{vec, vec::Vec};
 use bytemuck::{Pod, Zeroable};
+use lazy_static::lazy_static;
 use limine::request::RsdpRequest;
 use terminal::log;
-use x86_64::VirtAddr;
+use x86_64::{VirtAddr, structures::paging::PageTableFlags};
 
 use crate::arch::x86_64::memory::get_hhdm_offset;
 
@@ -140,4 +141,11 @@ pub fn find_mcfg(pointers: &[VirtAddr]) -> Option<VirtAddr> {
 
 pub fn find_fadt(pointers: &[VirtAddr]) -> Option<VirtAddr> {
     find_table(pointers, [b'F', b'A', b'C', b'P'])
+}
+
+lazy_static! {
+    pub static ref MMIO_PAGE_TABLE_FLAGS: PageTableFlags = PageTableFlags::PRESENT
+        | PageTableFlags::WRITABLE
+        | PageTableFlags::NO_CACHE
+        | PageTableFlags::WRITE_THROUGH;
 }

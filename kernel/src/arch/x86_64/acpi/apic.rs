@@ -5,10 +5,12 @@ use core::sync::atomic::AtomicU64;
 use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 use bytemuck::{Pod, Zeroable};
 use terminal::log;
-use x86_64::VirtAddr;
+use x86_64::{VirtAddr, structures::paging::Page};
 
 use crate::arch::x86_64::{
-    acpi::AcpiSdtHeader, idt::SPURIOUS_INTERRUPT_HANDLER_IDX, memory::get_hhdm_offset,
+    acpi::{AcpiSdtHeader, MMIO_PAGE_TABLE_FLAGS},
+    idt::SPURIOUS_INTERRUPT_HANDLER_IDX,
+    memory::{get_hhdm_offset, page_table::KERNEL_PAGE_TABLE},
     pic::PRIMARY_ISA_PIC_OFFSET,
 };
 
@@ -315,7 +317,18 @@ pub fn init_apic(
         .local_apic
         .enable();
 
+    // disable caching on those pages
+    let page_table = KERNEL_PAGE_TABLE
+        .get()
+        .expect("Failed to get page table")
+        .spin_acquire_lock();
+
     for io_apic in io_apics.iter_mut() {
+        page_table.update_flags(
+            Page::containing_address(io_apic.base),
+            *MMIO_PAGE_TABLE_FLAGS,
+        );
+
         // this is isa
         if io_apic.global_system_interrupt_base == 0 {
             log!("Initializing isa apic: {:?}", io_apic);
@@ -332,6 +345,11 @@ pub fn init_apic(
     LOCAL_APIC_ADDR.store(
         local_apic.base.as_u64(),
         core::sync::atomic::Ordering::Relaxed,
+    );
+
+    page_table.update_flags(
+        Page::containing_address(local_apic.base),
+        *MMIO_PAGE_TABLE_FLAGS,
     );
 
     log!("Processors: {:?}", processors);

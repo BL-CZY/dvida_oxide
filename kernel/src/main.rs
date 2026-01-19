@@ -138,6 +138,8 @@ unsafe extern "C" fn _start() -> ! {
         (KHEAP_PAGE_COUNT * PAGE_SIZE as u64 - 1) as usize,
     );
 
+    unsafe { initialize_page_table() };
+
     init_gdt();
     disable_pic();
 
@@ -165,8 +167,6 @@ unsafe extern "C" fn _start() -> ! {
             asm!("hlt");
         }
     }
-
-    unsafe { initialize_page_table() };
 
     enable_syscalls();
 
