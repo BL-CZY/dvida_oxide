@@ -1,6 +1,11 @@
-use core::sync::atomic::AtomicU32;
+use core::{
+    ops::Sub,
+    sync::atomic::{AtomicU32, AtomicU64},
+    time::Duration,
+};
 
 use crate::log;
+use limine::request::DateAtBootRequest;
 use x86_64::instructions::port::{Port, PortWriteOnly};
 
 use crate::arch::x86_64::{acpi::apic::LocalApic, pic::PRIMARY_ISA_PIC_OFFSET};
@@ -9,6 +14,12 @@ pub const PIT_DATA_PORT: u16 = 0x40;
 pub const PIT_CMD_REGISTER: u16 = 0x43;
 
 pub static APIC_TIMER_TICKS_PER_MS: AtomicU32 = AtomicU32::new(0);
+pub static TSC_TIMER_TICKS_PER_MS: AtomicU64 = AtomicU64::new(0);
+pub static TIME_AT_BOOT: AtomicU64 = AtomicU64::new(0);
+
+#[used]
+#[unsafe(link_section = ".requests")]
+pub static DATE_AT_BOOT_REQUEST: DateAtBootRequest = DateAtBootRequest::new();
 
 pub fn configure_pit() {
     const CHANNEL_3_OSCILATOR: u8 = 0x36;
@@ -52,6 +63,15 @@ impl LocalApic {
         const DIVIDE_BY_16_CONF: u32 = 0x3;
         const TEN_MS_DIVISOR: u16 = 11932;
 
+        // unixtimestamp at boot
+        let date_at_boot = DATE_AT_BOOT_REQUEST
+            .get_response()
+            .expect("No date at boot")
+            .timestamp()
+            .as_secs();
+
+        TIME_AT_BOOT.store(date_at_boot, core::sync::atomic::Ordering::Relaxed);
+
         self.write_timer_divide_config(DIVIDE_BY_16_CONF);
 
         const CHANNEL_1_COUNT_DOWN: u8 = 0x30;
@@ -60,6 +80,7 @@ impl LocalApic {
 
         let mut ticks_elapsed;
         let init_time = self.read_timer_current_count();
+        let init_tick_count = unsafe { core::arch::x86_64::_rdtsc() };
 
         loop {
             let time = self.read_timer_current_count();
@@ -72,15 +93,76 @@ impl LocalApic {
             }
         }
 
+        let tick_count = unsafe { core::arch::x86_64::_rdtsc() } - init_tick_count;
+
+        TSC_TIMER_TICKS_PER_MS.store(tick_count / 10, core::sync::atomic::Ordering::Relaxed);
         APIC_TIMER_TICKS_PER_MS.store(ticks_elapsed / 10, core::sync::atomic::Ordering::Relaxed);
 
         log!(
-            "{ticks_elapsed} ticks have elapsed in 10 ms! Enabling the timer to vector: {:?}",
+            "{ticks_elapsed} ticks have elapsed in 10 ms for APIC! Enabling the timer to vector: {:?}",
             vector + PRIMARY_ISA_PIC_OFFSET as u32
         );
+
+        log!("{tick_count} ticks have elapsed in 10 ms for tsc!",);
 
         const TIMER_PERIODIC_MODE: u32 = 0x20000;
         self.write_lvt_timer((vector + PRIMARY_ISA_PIC_OFFSET as u32) | TIMER_PERIODIC_MODE);
         self.write_timer_initial_count(ticks_elapsed);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
+pub struct Instant(u64);
+
+impl Instant {
+    pub fn now() -> Self {
+        let ticks = unsafe { core::arch::x86_64::_rdtsc() };
+
+        Self(ticks)
+    }
+
+    pub fn as_timestamp_secs(&self) -> u64 {
+        let boot_time = TIME_AT_BOOT.load(core::sync::atomic::Ordering::Relaxed);
+        let ticks_per_millis =
+            TSC_TIMER_TICKS_PER_MS.load(core::sync::atomic::Ordering::Relaxed) as u64;
+        let ticks_per_seconds = ticks_per_millis * 1000;
+
+        if ticks_per_seconds == 0 {
+            panic!("Function should not be called before timer initialization")
+        } else {
+            boot_time + self.0 / ticks_per_seconds
+        }
+    }
+
+    pub fn as_timestamp_millis(&self) -> u64 {
+        let boot_time_ms = TIME_AT_BOOT.load(core::sync::atomic::Ordering::Relaxed) * 1000;
+        let ticks_per_millis =
+            TSC_TIMER_TICKS_PER_MS.load(core::sync::atomic::Ordering::Relaxed) as u64;
+
+        if ticks_per_millis == 0 {
+            panic!("Function should not be called before timer initialization")
+        } else {
+            boot_time_ms + self.0 / ticks_per_millis
+        }
+    }
+}
+
+macro_rules! nanos_per_tick {
+    ($ticks_per_millis:ident) => {
+        1000_000_000u128 / $ticks_per_millis as u128
+    };
+}
+
+impl Sub<Instant> for Instant {
+    type Output = Duration;
+
+    fn sub(self, rhs: Instant) -> Self::Output {
+        let ticks_per_millis =
+            TSC_TIMER_TICKS_PER_MS.load(core::sync::atomic::Ordering::Relaxed) as u64;
+
+        let ticks = self.0.saturating_sub(rhs.0) as u128;
+        let nanos = ticks * nanos_per_tick!(ticks_per_millis);
+
+        Duration::from_nanos_u128(nanos)
     }
 }

@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![feature(duration_from_nanos_u128)]
 #![feature(abi_x86_interrupt)]
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::terminal::test::run_tests)]
