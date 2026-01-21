@@ -11,10 +11,10 @@ use crate::arch::x86_64::memory::bitmap::BitMap;
 use crate::arch::x86_64::memory::heap::KHeap;
 use crate::arch::x86_64::memory::memmap::get_memmap;
 use crate::dyn_mem::KHEAP_PAGE_COUNT;
+use crate::{iprintln, log};
 use limine::memory_map::EntryType;
 use limine::request::HhdmRequest;
 use once_cell_no_std::OnceCell;
-use terminal::{iprintln, log};
 use x86_64::structures::tss::TaskStateSegment;
 use x86_64::{PhysAddr, VirtAddr};
 

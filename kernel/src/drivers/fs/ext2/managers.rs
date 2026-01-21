@@ -1,5 +1,4 @@
 use alloc::boxed::Box;
-use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{BLOCK_GROUP_DESCRIPTOR_SIZE, GroupDescriptor, structs::Ext2BlockGroup},

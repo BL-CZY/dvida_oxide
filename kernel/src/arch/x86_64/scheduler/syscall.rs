@@ -1,6 +1,6 @@
 use core::arch::global_asm;
 
-use terminal::log;
+use crate::log;
 use x86_64::{
     VirtAddr,
     registers::{

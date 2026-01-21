@@ -1,6 +1,7 @@
+use crate::ejcineque;
+use crate::ejcineque::futures::race::Either;
+use crate::ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS};
 use alloc::boxed::Box;
-use ejcineque::futures::race::Either;
-use ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS};
 
 use crate::crypto::binary_test;
 use crate::drivers::ata::cmd;

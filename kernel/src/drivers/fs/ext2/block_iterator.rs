@@ -1,6 +1,6 @@
+use crate::log;
 use alloc::boxed::Box;
 use alloc::{vec, vec::Vec};
-use terminal::log;
 
 use crate::drivers::fs::ext2::Inode;
 use crate::drivers::fs::ext2::structs::{BlockAllocator, Ext2Fs};

@@ -1,8 +1,8 @@
+use crate::log;
 use limine::{
     memory_map::{Entry, EntryType},
     request::MemoryMapRequest,
 };
-use terminal::log;
 use x86_64::{PhysAddr, structures::paging::PhysFrame};
 
 use super::get_hhdm_offset;

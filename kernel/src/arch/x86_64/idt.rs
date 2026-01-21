@@ -3,8 +3,8 @@ use crate::arch::x86_64::pic::PRIMARY_ISA_PIC_OFFSET;
 
 use super::gdt;
 use super::handlers::{irq, isr};
+use crate::log;
 use once_cell_no_std::OnceCell;
-use terminal::log;
 use x86_64::structures::idt::InterruptDescriptorTable;
 
 pub const SPURIOUS_INTERRUPT_HANDLER_IDX: u8 = 0xFF;

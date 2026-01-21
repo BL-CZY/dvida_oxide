@@ -1,7 +1,6 @@
 use core::arch::naked_asm;
 
-use ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS, TIMER_WAKERS};
-use terminal::log;
+use crate::ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS, TIMER_WAKERS};
 use x86_64::{
     VirtAddr, instructions::port::Port, registers::rflags::RFlags,
     structures::idt::InterruptStackFrame,
@@ -13,9 +12,9 @@ use crate::{
         handlers::InterruptNoErrcodeFrame,
         scheduler::{CURRENT_THREAD, DEFAULT_TICKS_PER_THREAD, THREADS, syscall::resume_thread},
     },
-    debug::terminal::WRITER,
     hal::keyboard::process_scancode,
     handler_wrapper_noerrcode, set_register, set_registers,
+    terminal::WRITER,
 };
 
 #[derive(Debug, Clone, Copy)]

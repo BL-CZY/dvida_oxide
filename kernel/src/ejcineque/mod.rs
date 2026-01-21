@@ -1,5 +1,3 @@
-#![no_std]
-
 extern crate alloc;
 extern crate x86_64;
 

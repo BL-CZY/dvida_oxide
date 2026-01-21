@@ -1,5 +1,5 @@
+use crate::log;
 use alloc::boxed::Box;
-use terminal::log;
 
 use crate::{
     drivers::fs::ext2::SuperBlock,

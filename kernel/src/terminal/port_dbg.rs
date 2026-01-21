@@ -59,7 +59,7 @@ pub fn _serial_print(args: fmt::Arguments) {
 
 #[macro_export]
 macro_rules! serial_iprint {
-    ($($arg:tt)*) => ($crate::port_dbg::_serial_print(format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::terminal::port_dbg::_serial_print(format_args!($($arg)*)));
 }
 
 #[macro_export]

@@ -1,5 +1,5 @@
+use crate::log;
 use alloc::{boxed::Box, vec::Vec};
-use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{

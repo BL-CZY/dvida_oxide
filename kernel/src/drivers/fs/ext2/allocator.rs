@@ -1,3 +1,4 @@
+use crate::ejcineque::sync::mutex::Mutex;
 use alloc::{
     boxed::Box,
     collections::{btree_map::BTreeMap, btree_set::BTreeSet},
@@ -5,7 +6,6 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use ejcineque::sync::mutex::Mutex;
 
 use crate::{
     crypto::iterators::{Bit, BitIterator},

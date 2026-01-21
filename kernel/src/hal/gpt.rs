@@ -1,7 +1,7 @@
+use crate::log;
 use alloc::string::{FromUtf16Error, String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
-use terminal::log;
 use thiserror::Error;
 
 use crate::crypto;

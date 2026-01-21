@@ -2,9 +2,9 @@
 
 use core::sync::atomic::AtomicU64;
 
+use crate::log;
 use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 use bytemuck::{Pod, Zeroable};
-use terminal::log;
 use x86_64::{
     PhysAddr, VirtAddr,
     structures::paging::{Page, PhysFrame, Size4KiB},

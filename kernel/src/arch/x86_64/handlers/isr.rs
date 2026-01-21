@@ -1,6 +1,6 @@
 use core::arch::naked_asm;
 
-use terminal::log;
+use crate::log;
 use x86_64::structures::idt::{InterruptStackFrame, PageFaultErrorCode};
 
 use crate::{

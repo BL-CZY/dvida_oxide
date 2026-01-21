@@ -2,11 +2,11 @@ pub mod apic;
 pub mod facp;
 pub mod mcfg;
 
+use crate::log;
 use alloc::{vec, vec::Vec};
 use bytemuck::{Pod, Zeroable};
 use lazy_static::lazy_static;
 use limine::request::RsdpRequest;
-use terminal::log;
 use x86_64::{VirtAddr, structures::paging::PageTableFlags};
 
 use crate::arch::x86_64::memory::get_hhdm_offset;

@@ -1,5 +1,3 @@
-#![no_std]
-
 use core::fmt;
 
 use limine::framebuffer::Framebuffer;
@@ -8,6 +6,7 @@ use spin::Mutex;
 
 pub mod font;
 pub mod port_dbg;
+pub mod test;
 use font::BUILTIN_FONT;
 
 pub struct DebugWriter {
@@ -290,7 +289,7 @@ pub fn _print(args: fmt::Arguments) {
 
 #[macro_export]
 macro_rules! iprint {
-    ($($arg:tt)*) => ($crate::_print(format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::terminal::_print(format_args!($($arg)*)));
 }
 
 #[macro_export]

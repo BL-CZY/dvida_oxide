@@ -1,6 +1,6 @@
+use crate::log;
 use lazy_static::lazy_static;
 use once_cell_no_std::OnceCell;
-use terminal::log;
 use x86_64::instructions::segmentation;
 use x86_64::instructions::tables::load_tss;
 use x86_64::registers::segmentation::{Segment, SegmentSelector};

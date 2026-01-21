@@ -1,6 +1,6 @@
+use crate::log;
 use alloc::boxed::Box;
 use dvida_serialize::{DvDeserialize, DvSerialize};
-use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{

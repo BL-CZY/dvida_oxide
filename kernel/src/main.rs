@@ -2,13 +2,12 @@
 #![no_main]
 #![feature(abi_x86_interrupt)]
 #![feature(custom_test_frameworks)]
-#![test_runner(crate::debug::test::run_tests)]
+#![test_runner(crate::terminal::test::run_tests)]
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 
 use alloc::sync::Arc;
 use once_cell_no_std::OnceCell;
-use terminal::{iprintln, log};
 
 extern crate alloc;
 
@@ -56,19 +55,20 @@ use crate::{
     },
     args::parse_args,
     crypto::random::run_random,
-    debug::terminal::WRITER,
     hal::{
         storage::{PRIMARY, SECONDARY, run_storage_device},
         vfs::spawn_vfs_task,
     },
+    terminal::WRITER,
 };
 
 pub mod arch;
 pub mod crypto;
-pub mod debug;
 pub mod drivers;
 pub mod dyn_mem;
+pub mod ejcineque;
 pub mod hal;
+pub mod terminal;
 
 pub const STACK_SIZE: u64 = 0x100000;
 

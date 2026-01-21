@@ -1,6 +1,6 @@
 use core::sync::atomic::AtomicU32;
 
-use terminal::log;
+use crate::log;
 use x86_64::instructions::port::{Port, PortWriteOnly};
 
 use crate::arch::x86_64::{acpi::apic::LocalApic, pic::PRIMARY_ISA_PIC_OFFSET};

@@ -15,8 +15,6 @@ pc-keyboard = "0.7.0"
 linked_list_allocator = "0.10.5"
 thiserror = { version = "1.0", package = "thiserror-core", default-features = false }
 dvida_serialize = { path = "../dvida_serialize/" }
-ejcineque = { path = "../ejcineque/" }
-terminal = { path = "../terminal/" }
 once_cell_no_std = "0.1.1"
 uuid = { version = "1.18.1", default-features = false }
 memoffset = "0.9.1"

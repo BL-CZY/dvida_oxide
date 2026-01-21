@@ -1,7 +1,7 @@
 use core::{fmt::Debug, ops::DerefMut};
 
+use crate::ejcineque::sync::mutex::Mutex;
 use alloc::{format, vec::Vec};
-use ejcineque::sync::mutex::Mutex;
 use once_cell_no_std::OnceCell;
 use x86_64::{
     VirtAddr,

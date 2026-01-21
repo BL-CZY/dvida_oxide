@@ -1,6 +1,6 @@
-use ejcineque::sync::mpsc::unbounded::{UnboundedSender, unbounded_channel};
+use crate::ejcineque::sync::mpsc::unbounded::{UnboundedSender, unbounded_channel};
+use crate::log;
 use once_cell_no_std::OnceCell;
-use terminal::log;
 
 use crate::time::Rtc;
 

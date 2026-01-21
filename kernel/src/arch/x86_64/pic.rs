@@ -1,5 +1,5 @@
+use crate::log;
 use pic8259::ChainedPics;
-use terminal::log;
 
 use crate::drivers::keyboard::read_remain_val;
 

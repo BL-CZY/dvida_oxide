@@ -4,7 +4,7 @@ use alloc::sync::Arc;
 use alloc::task::Wake;
 // use terminal::{iprint, iprintln, log};
 
-use crate::sync::spin::SpinMutex as Mutex;
+use super::sync::spin::SpinMutex as Mutex;
 use core::arch::asm;
 use core::future::Future;
 use core::pin::Pin;

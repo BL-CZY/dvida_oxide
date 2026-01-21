@@ -3,9 +3,9 @@ use core::{
     ptr::NonNull,
 };
 
-use ejcineque::sync::spin::SpinMutex;
+use crate::ejcineque::sync::spin::SpinMutex;
+use crate::log;
 use linked_list_allocator::Heap;
-use terminal::log;
 use x86_64::instructions::interrupts::without_interrupts;
 
 #[global_allocator]

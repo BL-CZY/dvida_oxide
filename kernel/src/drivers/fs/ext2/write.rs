@@ -1,6 +1,6 @@
+use crate::log;
 use crate::time;
 use alloc::{boxed::Box, vec::Vec};
-use terminal::log;
 
 use crate::{
     drivers::fs::ext2::{

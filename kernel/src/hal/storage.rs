@@ -8,18 +8,20 @@ use crate::crypto::guid::Guid;
 use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE, PataDevice};
 use crate::drivers::ata::sata::AhciSata;
 use crate::drivers::ata::sata::ahci::AhciHba;
+use crate::ejcineque::sync::mpsc::unbounded::{
+    UnboundedReceiver, UnboundedSender, unbounded_channel,
+};
+use crate::ejcineque::sync::mutex::Mutex;
 use crate::hal::buffer::Buffer;
 use crate::hal::gpt::{GPTEntry, GPTErr, GPTHeader};
+use crate::{iprintln, log};
 use alloc::collections::btree_map::BTreeMap;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 use alloc::{boxed::Box, string::String};
-use ejcineque::sync::mpsc::unbounded::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-use ejcineque::sync::mutex::Mutex;
 use lazy_static::lazy_static;
 use once_cell_no_std::OnceCell;
-use terminal::{iprintln, log};
 use thiserror::Error;
 use x86_64::VirtAddr;
 

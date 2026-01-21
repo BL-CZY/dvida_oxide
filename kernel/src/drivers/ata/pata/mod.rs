@@ -3,7 +3,7 @@ use super::{
     offsets::{COMMAND, DRIVE, ERROR, FEATURE, LBA_HIGH, LBA_LOW, LBA_MID, SECTOR_COUNT, STATUS},
 };
 use crate::crypto::binary_test;
-use terminal::log;
+use crate::log;
 use x86_64::instructions::port::{
     Port, PortGeneric, PortReadOnly, PortWriteOnly, ReadOnlyAccess, ReadWriteAccess,
     WriteOnlyAccess,

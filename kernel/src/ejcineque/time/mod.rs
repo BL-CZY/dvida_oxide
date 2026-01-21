@@ -1,6 +1,6 @@
 use core::task::Poll;
 
-use crate::wakers::TIMER_WAKERS;
+use super::wakers::TIMER_WAKERS;
 
 unsafe impl Send for SleepFuture {}
 unsafe impl Sync for SleepFuture {}

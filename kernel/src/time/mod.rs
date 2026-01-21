@@ -1,4 +1,4 @@
-use terminal::log;
+use crate::log;
 use x86_64::instructions::port::Port;
 
 pub mod formats;

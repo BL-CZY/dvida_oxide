@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::task::Waker;
 
-use crate::sync::spin::SpinMutex;
+use crate::ejcineque::sync::spin::SpinMutex;
 use lazy_static::lazy_static;
 // use spin::Mutex;
 

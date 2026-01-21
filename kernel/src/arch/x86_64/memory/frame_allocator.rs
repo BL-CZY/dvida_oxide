@@ -1,8 +1,8 @@
-use alloc::vec::Vec;
-use ejcineque::sync::{
+use crate::ejcineque::sync::{
     mpsc::unbounded::{UnboundedSender, unbounded_channel},
     mutex::Mutex,
 };
+use alloc::vec::Vec;
 use once_cell_no_std::OnceCell;
 use x86_64::{
     PhysAddr, VirtAddr,

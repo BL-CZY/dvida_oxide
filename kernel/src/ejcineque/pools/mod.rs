@@ -1,4 +1,4 @@
-use crate::sync::spin::SpinMutex;
+use crate::ejcineque::sync::spin::SpinMutex;
 use core::{
     cell::UnsafeCell,
     ops::{Deref, DerefMut},

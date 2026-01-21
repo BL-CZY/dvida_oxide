@@ -1,10 +1,10 @@
-use alloc::collections::btree_map::BTreeMap;
-use ejcineque::sync::{
+use crate::ejcineque::sync::{
     mpsc::unbounded::{UnboundedSender, unbounded_channel},
     spsc::cell::{SpscCellSetter, spsc_cells},
 };
+use crate::log;
+use alloc::collections::btree_map::BTreeMap;
 use once_cell_no_std::OnceCell;
-use terminal::log;
 
 use crate::{
     arch::x86_64::err::ErrNo,

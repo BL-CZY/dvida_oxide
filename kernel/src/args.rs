@@ -1,8 +1,8 @@
+use crate::log;
 use alloc::string::String;
-use limine::{request::KernelFileRequest, response::KernelFileResponse};
-use terminal::log;
+use limine::{request::ExecutableCmdlineRequest, response::ExecutableCmdlineResponse};
 
-pub static KERNEL_FILE_REQUEST: KernelFileRequest = KernelFileRequest::new();
+pub static EXECUTABLE_CMDLINE_REQUEST: ExecutableCmdlineRequest = ExecutableCmdlineRequest::new();
 
 #[derive(Debug, Clone)]
 pub struct ArgsRes {
@@ -11,9 +11,8 @@ pub struct ArgsRes {
 }
 
 pub fn parse_args() -> ArgsRes {
-    let response: &KernelFileResponse = KERNEL_FILE_REQUEST.get_response().unwrap();
-
-    let args = String::from_utf8_lossy(response.file().cmdline());
+    let response: &ExecutableCmdlineResponse = EXECUTABLE_CMDLINE_REQUEST.get_response().unwrap();
+    let args = response.cmdline().to_str().unwrap_or_default();
     log!("Received cmdline: {}", args);
 
     let mut root_drive = None;

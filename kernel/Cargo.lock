@@ -90,16 +90,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ejcineque"
-version = "0.1.0"
-dependencies = [
- "lazy_static",
- "spin 0.10.0",
- "terminal",
- "x86_64 0.15.2",
-]
-
-[[package]]
 name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -125,7 +115,6 @@ dependencies = [
  "bitfield",
  "bytemuck",
  "dvida_serialize",
- "ejcineque",
  "heapless",
  "lazy_static",
  "limine",
@@ -135,8 +124,7 @@ dependencies = [
  "paste",
  "pc-keyboard",
  "pic8259",
- "spin 0.9.8",
- "terminal",
+ "spin",
  "thiserror-core",
  "uuid",
  "x86_64 0.15.4",
@@ -148,7 +136,7 @@ version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 dependencies = [
- "spin 0.9.8",
+ "spin",
 ]
 
 [[package]]
@@ -255,15 +243,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "spin"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
-dependencies = [
- "lock_api",
-]
-
-[[package]]
 name = "spinning_top"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -287,15 +266,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "terminal"
-version = "0.1.0"
-dependencies = [
- "limine",
- "spin 0.10.0",
- "x86_64 0.15.2",
 ]
 
 [[package]]

@@ -1,7 +1,6 @@
 use alloc::sync::Arc;
-use terminal::log;
 
-use crate::sync::spin::SpinMutex;
+use crate::ejcineque::sync::spin::SpinMutex;
 use core::task::Waker;
 
 pub struct SpscCell<T> {
