@@ -153,6 +153,7 @@ macro_rules! nanos_per_tick {
     };
 }
 
+// TODO: make the fs driver use this
 impl Sub<Instant> for Instant {
     type Output = Duration;
 
