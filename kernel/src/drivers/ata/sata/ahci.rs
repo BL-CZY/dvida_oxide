@@ -27,6 +27,7 @@ use crate::{
 /// 31 - rw - set to enable AHCI
 pub struct AhciHba {
     pub location: VirtAddr,
+    pub header: PciHeader,
     /// ghc base
     pub base: VirtAddr,
 }
@@ -49,14 +50,14 @@ impl AhciHba {
     pub fn new(location: VirtAddr) -> Self {
         // the BAR address *can* be 64 bits so we use the mask to check, if it's 64 bits bars[4]
         // will be used as the higher half
-        let header: PciHeader = unsafe { *(location.as_ptr() as *const PciHeader) };
+        let header: PciHeader = PciHeader { base: location };
 
-        let mut phys_base = (header.bars[5] & 0xFFFF_FFF0) as u64;
+        let mut phys_base = (header.read_bar5() & 0xFFFF_FFF0) as u64;
 
-        let is_64_bit = (header.bars[5] & 0b0100) != 0;
+        let is_64_bit = (header.read_bar5() & 0b0100) != 0;
 
         if is_64_bit {
-            let upper_bits = header.bars[4] as u64;
+            let upper_bits = header.read_bar4() as u64;
             phys_base |= upper_bits << 32;
         }
 
@@ -72,10 +73,22 @@ impl AhciHba {
             *MMIO_PAGE_TABLE_FLAGS,
         );
 
-        Self { location, base }
+        Self {
+            location,
+            header,
+            base,
+        }
     }
 
     pub fn init(&mut self) -> Vec<AhciSata> {
+        const CAPABILITY_BIT: u16 = 0x1 << 4;
+        if self.header.read_status() & CAPABILITY_BIT == 0 {
+            return Vec::new();
+        }
+
+        let ptr = self.header.read_capabilities_ptr();
+        let ptr = self.location + ptr as u64;
+
         // set GHC.AE
         let mut ghc = self.read_ghc();
         ghc &= !(0x1 << 31);
@@ -87,7 +100,9 @@ impl AhciHba {
         self.write_ghc(ghc);
 
         // doesn't support 32 bits only yet
-        assert!(self.read_cap() & (0x1 << 31) != 0);
+        if self.read_cap() & (0x1 << 31) == 0 {
+            return Vec::new();
+        }
 
         // get number of commands from CAP
         let cap = self.read_cap();

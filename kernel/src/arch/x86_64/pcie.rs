@@ -1,5 +1,7 @@
 use x86_64::VirtAddr;
 
+use crate::pcie_offset_impl;
+
 #[macro_export]
 macro_rules! pcie_port_readonly {
     ($name:ident, $output_type:ty, | $self:ident | $addr:block) => {
@@ -71,35 +73,61 @@ pub struct PciHeaderPartial {
     pub prog_if: u8,
     pub subclass: u8,
     pub class_code: u8,
-}
-
-#[repr(C, packed)]
-#[derive(Debug, Copy, Clone)]
-pub struct PciHeader {
-    pub vendor_id: u16,
-    pub device_id: u16,
-    pub command: u16,
-    pub status: u16,
-    pub revision_id: u8,
-    pub prog_if: u8,
-    pub subclass: u8,
-    pub class_code: u8,
     pub cache_line_size: u8,
     pub latency_timer: u8,
     pub header_type: u8,
-    pub bist: u8,
-    // Base Address Registers (BARs)
-    pub bars: [u32; 6],
-    pub cardbus_cis_ptr: u32,
-    pub subsystem_vendor_id: u16,
-    pub subsystem_id: u16,
-    pub expansion_rom_base_addr: u32,
-    pub capabilities_ptr: u8,
-    pub reserved: [u8; 7],
-    pub interrupt_line: u8,
-    pub interrupt_pin: u8,
-    pub min_grant: u8,
-    pub max_latency: u8,
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(C, packed)]
+pub struct CapabilityNodeHeader {
+    pub cap_id: u8,
+    pub next: u8,
+}
+
+impl CapabilityNodeHeader {
+    pub const MSI: u8 = 0x5;
+    pub const MSIX: u8 = 0x11;
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct PciHeader {
+    pub base: VirtAddr,
+}
+
+impl PciHeader {
+    pcie_offset_impl! {
+        <vendor_id,                0x00, "r",  u16>,
+        <device_id,                0x02, "r",  u16>,
+        <command,                  0x04, "rw", u16>,
+        <status,                   0x06, "rw", u16>,
+        <revision_id,              0x08, "r",  u8>,
+        <prog_if,                  0x09, "r",  u8>,
+        <subclass,                 0x0A, "r",  u8>,
+        <class_code,               0x0B, "r",  u8>,
+        <cache_line_size,          0x0C, "rw", u8>,
+        <latency_timer,            0x0D, "rw", u8>,
+        <header_type,              0x0E, "r",  u8>,
+        <bist,                     0x0F, "rw", u8>,
+
+        <bar0,                     0x10, "rw", u32>,
+        <bar1,                     0x14, "rw", u32>,
+        <bar2,                     0x18, "rw", u32>,
+        <bar3,                     0x1C, "rw", u32>,
+        <bar4,                     0x20, "rw", u32>,
+        <bar5,                     0x24, "rw", u32>,
+
+        <cardbus_cis_ptr,          0x28, "r",  u32>,
+        <subsystem_vendor_id,      0x2C, "r",  u16>,
+        <subsystem_id,             0x2E, "r",  u16>,
+        <expansion_rom_base_addr,  0x30, "rw", u32>,
+        <capabilities_ptr,         0x34, "r",  u8>,
+
+        <interrupt_line,           0x3C, "rw", u8>,
+        <interrupt_pin,            0x3D, "r",  u8>,
+        <min_grant,                0x3E, "r",  u8>,
+        <max_latency,              0x3F, "r",  u8>
+    }
 }
 
 #[repr(u8)]

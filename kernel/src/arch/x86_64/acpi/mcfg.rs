@@ -1,5 +1,5 @@
 use crate::log;
-use alloc::{collections::btree_map::BTreeMap, vec::Vec};
+use alloc::{collections::btree_map::BTreeMap, vec, vec::Vec};
 use bytemuck::{Pod, Zeroable};
 use x86_64::{
     PhysAddr, VirtAddr,
@@ -61,7 +61,7 @@ const DEVICE_FUNCTION_COUNT: u64 = 8;
 
 pub fn check_function(
     address: VirtAddr,
-    devices: &mut BTreeMap<u8, BTreeMap<u8, BTreeMap<u8, PciDevice>>>,
+    devices: &mut BTreeMap<u8, BTreeMap<u8, BTreeMap<u8, Vec<PciDevice>>>>,
 ) {
     let header: PciHeaderPartial =
         unsafe { (address.as_ptr() as *const PciHeaderPartial).read_volatile() };
@@ -82,17 +82,18 @@ pub fn check_function(
             .entry(header.subclass)
             .or_insert_with(|| {
                 let mut map = BTreeMap::new();
-                map.insert(header.prog_if, device.clone());
+                map.insert(header.prog_if, vec![device.clone()]);
                 map
             })
             .entry(header.prog_if)
-            .or_insert(device);
+            .and_modify(|v| v.push(device.clone()))
+            .or_insert(vec![device]);
     }
 }
 
 pub fn iterate_pcie_buses(
     entry: &McfgEntry,
-    devices: &mut BTreeMap<u8, BTreeMap<u8, BTreeMap<u8, PciDevice>>>,
+    devices: &mut BTreeMap<u8, BTreeMap<u8, BTreeMap<u8, Vec<PciDevice>>>>,
 ) {
     let base = get_hhdm_offset() + entry.base_addr;
 
@@ -111,8 +112,8 @@ pub fn iterate_pcie_buses(
 
 pub fn iterate_pcie_entries(
     entries: &[McfgEntry],
-) -> BTreeMap<u8, BTreeMap<u8, BTreeMap<u8, PciDevice>>> {
-    let mut res: BTreeMap<u8, BTreeMap<u8, BTreeMap<u8, PciDevice>>> = BTreeMap::new();
+) -> BTreeMap<u8, BTreeMap<u8, BTreeMap<u8, Vec<PciDevice>>>> {
+    let mut res: BTreeMap<u8, BTreeMap<u8, BTreeMap<u8, Vec<PciDevice>>>> = BTreeMap::new();
 
     let page_table = KERNEL_PAGE_TABLE
         .get()

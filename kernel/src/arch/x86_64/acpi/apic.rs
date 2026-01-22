@@ -371,6 +371,21 @@ pub fn init_apic(
 macro_rules! pcie_offset_impl {
     () => {};
 
+    (<$name:ident, $val:expr, "r", $tp:ty>, $($rest:tt)*) => {
+        $crate::pcie_port_readonly!($name, $tp, |self| { (self.base + $val).as_mut_ptr() });
+        $crate::pcie_offset_impl!($($rest)*);
+    };
+
+    (<$name:ident, $val:expr, "w", $tp:ty>, $($rest:tt)*) => {
+        $crate::pcie_port_writeonly!($name, $tp, |self| { (self.base + $val).as_mut_ptr() });
+        $crate::pcie_offset_impl!($($rest)*);
+    };
+
+    (<$name:ident, $val:expr, "rw", $tp:ty>, $($rest:tt)*) => {
+        $crate::pcie_port_readwrite!($name, $tp, |self| { (self.base + $val).as_mut_ptr() });
+        $crate::pcie_offset_impl!($($rest)*);
+    };
+
     (<$name:ident, $val:expr, "r">, $($rest:tt)*) => {
         $crate::pcie_port_readonly!($name, u32, |self| { (self.base + $val).as_mut_ptr() });
         $crate::pcie_offset_impl!($($rest)*);
@@ -386,6 +401,7 @@ macro_rules! pcie_offset_impl {
         $crate::pcie_offset_impl!($($rest)*);
     };
 
+
     (<$name:ident, $val:expr, "r">) => {
         $crate::pcie_offset_impl!(<$name, $val, "r">, );
     };
@@ -396,6 +412,18 @@ macro_rules! pcie_offset_impl {
 
     (<$name:ident, $val:expr, "rw">) => {
         $crate::pcie_offset_impl!(<$name, $val, "rw">, );
+    };
+
+    (<$name:ident, $val:expr, "r", $tp:ty>) => {
+        $crate::pcie_offset_impl!(<$name, $val, "r", $tp>, );
+    };
+
+    (<$name:ident, $val:expr, "w", $tp:ty>) => {
+        $crate::pcie_offset_impl!(<$name, $val, "w", $tp>, );
+    };
+
+    (<$name:ident, $val:expr, "rw", $tp:ty>) => {
+        $crate::pcie_offset_impl!(<$name, $val, "rw", $tp>, );
     };
 }
 
