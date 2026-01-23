@@ -4,8 +4,10 @@ use x86_64::{VirtAddr, structures::paging::Page};
 use crate::{
     arch::x86_64::{
         acpi::MMIO_PAGE_TABLE_FLAGS,
+        idt::{AHCI_INTERRUPT_HANDLER_IDX, CUR_AHCI_INTERRUPT_HANDLER_IDX},
         memory::{PAGE_SIZE, get_hhdm_offset, page_table::KERNEL_PAGE_TABLE},
-        pcie::PciHeader,
+        msi::{MessageAddressRegister, MessageDataRegister, MsiControl, PcieMsiCapNode},
+        pcie::{CapabilityNodeHeader, PciHeader},
     },
     drivers::ata::sata::AhciSata,
     pcie_offset_impl,
@@ -88,6 +90,38 @@ impl AhciHba {
 
         let ptr = self.header.read_capabilities_ptr();
         let ptr = self.location + ptr as u64;
+
+        let mut cap_node_header: CapabilityNodeHeader = unsafe { *(ptr.as_ptr()) };
+
+        let mut msi_cap_node = loop {
+            if cap_node_header.cap_id == CapabilityNodeHeader::MSI {
+                break PcieMsiCapNode { base: ptr };
+            }
+
+            if cap_node_header.next == 0 {
+                return Vec::new();
+            }
+
+            let ptr = self.location + cap_node_header.next as u64;
+
+            cap_node_header = unsafe { *(ptr.as_ptr()) };
+        };
+
+        let control_reg = MsiControl(msi_cap_node.read_message_control_register());
+
+        let idx = CUR_AHCI_INTERRUPT_HANDLER_IDX.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
+        let mut msi_data = MessageDataRegister::default();
+        msi_data.set_vector(idx as u32);
+        let msi_addr = MessageAddressRegister::default();
+
+        msi_cap_node.write_message_addr_register(msi_addr.0);
+
+        if control_reg.address_64() {
+            msi_cap_node.write_message_upper_addr_register(0);
+            msi_cap_node.write_message_data_register_64_bit(msi_data.0);
+        } else {
+            msi_cap_node.write_message_data_register(msi_data.0);
+        }
 
         // set GHC.AE
         let mut ghc = self.read_ghc();
