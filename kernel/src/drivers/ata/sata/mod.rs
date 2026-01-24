@@ -1,3 +1,5 @@
+use core::time::Duration;
+
 use bitfield::bitfield;
 use x86_64::{
     PhysAddr, VirtAddr,
@@ -13,6 +15,7 @@ use crate::{
             get_hhdm_offset,
             page_table::{KERNEL_PAGE_TABLE, KernelPageTable},
         },
+        timer::Instant,
     },
     hal::storage::HalBlockDevice,
     pcie_offset_impl,
@@ -58,8 +61,7 @@ bitfield! {
     pub aggressive_link_pm, set_aggressive_link_pm: 26; // ALPE: Aggressive Link Power Management Enable
     pub link_pm_state, set_link_pm_state: 27;   // ASP: Aggressive Slumber/Partial (0=Partial, 1=Slumber)
 
-    // Interface State (Read Only)
-    pub interface_comm_state, _: 31, 28;       // ICC: Interface Communication Control
+    pub interface_comm_control, set_interface_comm_control: 31, 28;       // ICC: Interface Communication Control
 }
 
 pub struct TimeOut {}
@@ -77,6 +79,59 @@ pub struct AhciSata {
     pub max_cmd_slots: u64,
 }
 
+bitfield! {
+    pub struct PortStatus(u32);
+    impl Debug;
+
+    pub interface_power_management, _: 11, 8;
+    pub current_interface_speed, _: 7, 4;
+    pub device_dection, _: 3, 0;
+}
+
+impl PortStatus {
+    pub const DET_NOT_PRESENT: u32 = 0x0;
+    pub const DET_PRESENT_NO_PHY: u32 = 0x1;
+    pub const DET_PRESENT_WITH_PHY: u32 = 0x3;
+    pub const DET_OFFLINE: u32 = 0x4;
+
+    pub const IPM_NOT_PRESENT: u32 = 0x0;
+    pub const IPM_ACTIVE: u32 = 0x1;
+    pub const IPM_PARTIAL: u32 = 0x2;
+    pub const IPM_SLUMBER: u32 = 0x6;
+    pub const IPM_DEVSLEEP: u32 = 0x8;
+
+    pub const SPD_NOT_PRESENT: u32 = 0x0;
+    pub const SPD_GEN1_1_5GBPS: u32 = 0x1;
+    pub const SPD_GEN2_3_0GBPS: u32 = 0x2;
+    pub const SPD_GEN3_6_0GBPS: u32 = 0x3;
+}
+
+bitfield! {
+    pub struct PortControl(u32);
+    impl Debug;
+    pub ipm_restrictions, set_ipm_restrictions: 11, 8;
+
+    pub speed_allowed, set_speed_allowed: 7, 4;
+
+    pub det_init, set_det_init: 3, 0;
+}
+
+impl PortControl {
+    pub const DET_NO_ACTION: u32 = 0x0;
+    pub const DET_COMRESET: u32 = 0x1;
+    pub const DET_DISABLE_PHY: u32 = 0x4;
+
+    pub const SPD_NO_LIMIT: u32 = 0x0;
+    pub const SPD_LIMIT_GEN1_1P5: u32 = 0x1;
+    pub const SPD_LIMIT_GEN2_3P0: u32 = 0x2;
+    pub const SPD_LIMIT_GEN3_6P0: u32 = 0x3;
+
+    pub const IPM_NO_RESTRICTIONS: u32 = 0x0;
+    pub const IPM_DISABLE_PARTIAL: u32 = 0x1;
+    pub const IPM_DISABLE_SLUMBER: u32 = 0x2;
+    pub const IPM_DISABLE_BOTH: u32 = 0x3;
+}
+
 impl AhciSata {
     const START: u32 = 0x1 << 0;
     const COMMAND_LIST_RUNNING: u32 = 0x1 << 15;
@@ -92,7 +147,27 @@ impl AhciSata {
         }
     }
 
-    pub fn new(base: VirtAddr, max_cmd_slots: u64) -> Self {
+    // Create a SATA instance that is only able to read the ports
+    pub fn port_reader(base: VirtAddr) -> Self {
+        Self {
+            base,
+            dma_20kb_buffer_vaddr: VirtAddr::new(0),
+            dma_20kb_buffer_paddr: PhysAddr::new(0),
+            max_cmd_slots: 0,
+        }
+    }
+
+    pub fn new(base: VirtAddr, max_cmd_slots: u64) -> Option<Self> {
+        let port_reader = Self::port_reader(base);
+        let status = PortStatus(port_reader.read_sata_status());
+
+        // if there is no device, or there is no phys this device is unusable
+        if status.device_dection() == PortStatus::DET_NOT_PRESENT
+            || status.device_dection() == PortStatus::DET_PRESENT_NO_PHY
+        {
+            return None;
+        }
+
         let frames = FRAME_ALLOCATOR
             .get()
             .expect("Failed to get allocator")
@@ -121,12 +196,12 @@ impl AhciSata {
             );
         }
 
-        Self {
+        Some(Self {
             base,
             dma_20kb_buffer_vaddr: get_hhdm_offset() + frames[0].start_address().as_u64(),
             dma_20kb_buffer_paddr: frames[0].start_address(),
             max_cmd_slots,
-        }
+        })
     }
 
     pub fn is_idle(&mut self) -> bool {
@@ -145,22 +220,26 @@ impl AhciSata {
         }
     }
 
-    pub fn reset(&mut self) -> Result<(), TimeOut> {
-        if self.is_idle() {
-            return Ok(());
-        }
-
+    fn reset_cmd(&mut self) {
         let mut cmd_status = self.read_command_and_status();
 
         cmd_status &= !(Self::START | Self::FIS_RECEIVE_ENABLE);
 
         self.write_command_and_status(cmd_status);
+    }
 
-        let time = get_unix_timestamp();
+    pub fn reset(&mut self) -> Result<(), TimeOut> {
+        if self.is_idle() {
+            return Ok(());
+        }
+
+        self.reset_cmd();
+
+        let time = Instant::now();
         loop {
             let cmd_status = self.read_command_and_status();
-            let cur = get_unix_timestamp();
-            if cur - time > 2 {
+            let cur = Instant::now();
+            if cur - time > Duration::from_secs(1) {
                 return Err(TimeOut {});
             }
 
@@ -173,6 +252,50 @@ impl AhciSata {
     }
 
     pub fn init(&mut self) -> Result<(), TimeOut> {
+        let status = PortStatus(self.read_sata_status());
+        // if it's offline wake it up first
+        if status.device_dection() == PortStatus::DET_OFFLINE
+            || status.interface_power_management() == PortStatus::IPM_NOT_PRESENT
+        {
+            self.reset_cmd();
+            let mut control_port = PortControl(self.read_sata_control());
+            control_port.set_det_init(PortControl::DET_COMRESET);
+            self.write_sata_control(control_port.0);
+
+            let start = Instant::now();
+
+            loop {
+                if status.device_dection() == PortStatus::DET_PRESENT_WITH_PHY {
+                    break;
+                }
+
+                let now = Instant::now();
+                if now - start >= Duration::from_secs(1) {
+                    return Err(TimeOut {});
+                }
+            }
+        }
+
+        // if it's in sleep wake it up first
+        if status.interface_power_management() != PortStatus::IPM_ACTIVE {
+            let mut cmd_status = PortCmdAndStatus(self.read_command_and_status());
+            const ACTIVE: u32 = 1;
+            cmd_status.set_interface_comm_control(ACTIVE);
+
+            let start = Instant::now();
+
+            loop {
+                if status.interface_power_management() == PortStatus::IPM_ACTIVE {
+                    break;
+                }
+
+                let now = Instant::now();
+                if now - start >= Duration::from_secs(1) {
+                    return Err(TimeOut {});
+                }
+            }
+        }
+
         self.reset()?;
 
         self.write_command_list_base_lower(self.dma_20kb_buffer_paddr.as_u64() as u32);
@@ -183,7 +306,10 @@ impl AhciSata {
         self.write_fis_base_lower(received_fis_area as u32);
         self.write_fis_base_higher((received_fis_area >> 32) as u32);
 
-        self.write_sata_error(0b00000_11111_11111_1_0000_1111_000000_11);
+        // resets sata error
+        self.write_sata_error(0xFFFFFFFF);
+        // this only writes to the non-reserved bits
+        // self.write_sata_error(0b00000_11111_11111_1_0000_1111_000000_11);
 
         Ok(())
     }

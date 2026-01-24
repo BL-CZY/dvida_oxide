@@ -167,3 +167,13 @@ impl Sub<Instant> for Instant {
         Duration::from_nanos_u128(nanos)
     }
 }
+
+pub fn blocking_sleep(time: Duration) {
+    let instant = Instant::now();
+
+    loop {
+        if Instant::now() - instant >= time {
+            return;
+        }
+    }
+}

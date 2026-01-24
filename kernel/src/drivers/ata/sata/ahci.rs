@@ -1,5 +1,8 @@
 use alloc::vec::Vec;
-use x86_64::{VirtAddr, structures::paging::Page};
+use x86_64::{
+    PhysAddr, VirtAddr,
+    structures::paging::{Page, PhysFrame, Size4KiB},
+};
 
 use crate::{
     arch::x86_64::{
@@ -10,7 +13,7 @@ use crate::{
         pcie::{CapabilityNodeHeader, PciHeader},
     },
     drivers::ata::sata::AhciSata,
-    pcie_offset_impl,
+    log, pcie_offset_impl,
 };
 
 #[derive(Debug)]
@@ -65,6 +68,20 @@ impl AhciHba {
 
         let base = get_hhdm_offset() + phys_base;
 
+        let page_table = KERNEL_PAGE_TABLE
+            .get()
+            .expect("Failed to get page table")
+            .spin_acquire_lock();
+
+        page_table.map_to::<Size4KiB>(
+            Page::containing_address(base),
+            PhysFrame::containing_address(PhysAddr::new(phys_base)),
+            *MMIO_PAGE_TABLE_FLAGS,
+            &mut None,
+        );
+
+        log!("created new ahci");
+
         Self {
             location,
             header,
@@ -113,6 +130,8 @@ impl AhciHba {
             msi_cap_node.write_message_data_register(msi_data.0);
         }
 
+        log!("Configured Interrupts of AHCI");
+
         // set GHC.AE
         let mut ghc = self.read_ghc();
         ghc &= !(0x1 << 31);
@@ -132,15 +151,24 @@ impl AhciHba {
         let cap = self.read_cap();
         let num_cmd_slots = (cap >> 8) & 0b11111;
 
+        log!("Num cmd slots: {}", num_cmd_slots);
+
         // get devices
         let mut devices: Vec<AhciSata> = Vec::new();
         let pi = self.read_pi();
 
         for i in 0..32 {
             if pi & 0x1 << i != 0 {
-                let mut sata = AhciSata::new(self.base + 0x100 + i * 0x80, num_cmd_slots as u64);
+                let mut sata = if let Some(s) =
+                    AhciSata::new(self.base + 0x100 + i * 0x80, num_cmd_slots as u64)
+                {
+                    s
+                } else {
+                    continue;
+                };
 
                 if sata.init().is_ok() {
+                    log!("Creating new sata");
                     devices.push(sata);
                 }
             }
