@@ -57,7 +57,7 @@ use crate::{
     args::parse_args,
     crypto::random::run_random,
     hal::{
-        storage::{PRIMARY, SECONDARY, run_storage_device},
+        storage::{identify_storage_devices, run_storage_devices},
         vfs::spawn_vfs_task,
     },
     terminal::WRITER,
@@ -88,11 +88,8 @@ async fn kernel_main(spawner: Spawner) {
 
     log!("Kernel main launched");
 
-    spawner.spawn(run_storage_device(PRIMARY));
+    spawner.spawn(run_storage_devices());
     // we yield now to let the tasks actually initialize
-    yield_now().await;
-
-    spawner.spawn(run_storage_device(SECONDARY));
     yield_now().await;
 
     log!("Storage drive tasks launched");
@@ -178,7 +175,9 @@ unsafe extern "C" fn _start() -> ! {
     let mcfg = parse_mcfg(mcfg);
     log!("mcfg table: {:?}", mcfg);
 
-    let device_tree = iterate_pcie_entries(&mcfg.entries);
+    let mut device_tree = iterate_pcie_entries(&mcfg.entries);
+
+    identify_storage_devices(&mut device_tree);
 
     unsafe {
         loop {

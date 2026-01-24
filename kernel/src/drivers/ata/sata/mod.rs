@@ -220,10 +220,6 @@ impl HalBlockDevice for AhciSata {
         todo!()
     }
 
-    fn init(&mut self) -> Result<(), alloc::boxed::Box<dyn core::error::Error + Send + Sync>> {
-        todo!()
-    }
-
     fn sector_count(&mut self) -> u64 {
         todo!()
     }

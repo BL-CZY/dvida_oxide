@@ -1,4 +1,4 @@
-#[derive(PartialEq, Eq, Clone, Copy, Default, Debug)]
+#[derive(PartialEq, Eq, Clone, Copy, Default, Debug, PartialOrd)]
 pub struct Guid {
     /// the entire guid in little endian
     pub whole: u128,
@@ -7,6 +7,12 @@ pub struct Guid {
     pub third: u16,
     // the last two chunks of it in big endian
     pub last: u64, // u16 & u48
+}
+
+impl Ord for Guid {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.whole.cmp(&other.whole)
+    }
 }
 
 impl Guid {

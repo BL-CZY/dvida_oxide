@@ -5,7 +5,7 @@ use crate::arch::x86_64::pcie::{
     MassStorageControllerSubClass, PciBaseClass, PciDevice, SataProgIf,
 };
 use crate::crypto::guid::Guid;
-use crate::drivers::ata::pata::{PATA_PRIMARY_BASE, PATA_SECONDARY_BASE, PataDevice};
+use crate::drivers::ata::pata::PataDevice;
 use crate::drivers::ata::sata::AhciSata;
 use crate::drivers::ata::sata::ahci::AhciHba;
 use crate::ejcineque::sync::mpsc::unbounded::{
@@ -14,16 +14,13 @@ use crate::ejcineque::sync::mpsc::unbounded::{
 use crate::ejcineque::sync::mutex::Mutex;
 use crate::hal::buffer::Buffer;
 use crate::hal::gpt::{GPTEntry, GPTErr, GPTHeader};
-use crate::{iprintln, log};
+use crate::{SPAWNER, log};
 use alloc::collections::btree_map::BTreeMap;
 use alloc::string::ToString;
-use alloc::vec;
 use alloc::vec::Vec;
 use alloc::{boxed::Box, string::String};
-use lazy_static::lazy_static;
 use once_cell_no_std::OnceCell;
 use thiserror::Error;
-use x86_64::VirtAddr;
 
 pub static PRIMARY_STORAGE_SENDER: OnceCell<UnboundedSender<HalStorageOperation>> = OnceCell::new();
 pub static SECONDARY_STORAGE_SENDER: OnceCell<UnboundedSender<HalStorageOperation>> =
@@ -63,9 +60,9 @@ pub enum IoErr {
 
 #[derive(Debug)]
 pub struct HalStorageDevice {
-    pub available: bool,
-    pub pata_port: u16,
-    pub device_inner: Box<dyn HalBlockDevice>,
+    pub tx: UnboundedSender<HalStorageOperation>,
+    pub rx: UnboundedReceiver<HalStorageOperation>,
+    pub device_inner: Mutex<Box<dyn HalBlockDevice>>,
 }
 
 #[derive(Debug)]
@@ -135,57 +132,39 @@ pub trait HalBlockDevice: Send + Sync + Debug {
                 + Sync,
         >,
     >;
-
-    fn init(&mut self) -> Result<(), alloc::boxed::Box<dyn core::error::Error + Send + Sync>>;
 }
 
-static STORAGE_DEVICES: OnceCell<Vec<Mutex<HalStorageDevice>>> = OnceCell::new();
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
+pub struct StorageDeviceIdx(pub usize);
 
-fn get_storage_devices() -> &'static Vec<Mutex<HalStorageDevice>> {
-    STORAGE_DEVICES.get().expect("Can't get storage array")
+static STORAGE_DEVICES_BY_IDX: OnceCell<BTreeMap<StorageDeviceIdx, HalStorageDevice>> =
+    OnceCell::new();
+static STORAGE_DEVICES_BY_GUID: OnceCell<Mutex<BTreeMap<Guid, StorageDeviceIdx>>> = OnceCell::new();
+
+fn get_storage_devices() -> &'static BTreeMap<StorageDeviceIdx, HalStorageDevice> {
+    STORAGE_DEVICES_BY_IDX
+        .get()
+        .expect("Can't get storage array")
 }
 
-/// After this is executed nothing should directly access those structs
-pub async fn run_storage_device(index: usize) {
-    let rx = if index == PRIMARY {
-        let (primary_storage_tx, rx) = unbounded_channel::<HalStorageOperation>();
-        let _ = PRIMARY_STORAGE_SENDER
-            .set(primary_storage_tx)
-            .expect("Failed to put the primary storage sender");
-
-        rx
-    } else {
-        let (secondary_storage_tx, rx) = unbounded_channel::<HalStorageOperation>();
-        let _ = SECONDARY_STORAGE_SENDER
-            .set(secondary_storage_tx)
-            .expect("Failed to put the secondary storage sender");
-
-        rx
-    };
-
-    log!("Sender initialization complete!");
-    get_storage_devices()[index].lock().await.run(rx).await;
+fn get_storage_devices_by_guid() -> &'static Mutex<BTreeMap<Guid, StorageDeviceIdx>> {
+    STORAGE_DEVICES_BY_GUID
+        .get()
+        .expect("Can't get storage array")
 }
 
 impl HalStorageDevice {
     pub fn sata_ahci(sata: AhciSata) -> Self {
+        let (tx, rx) = unbounded_channel::<HalStorageOperation>();
         HalStorageDevice {
-            device_inner: Box::new(sata),
-            available: true,
-            pata_port: 0,
+            tx,
+            rx,
+            device_inner: Mutex::new(Box::new(sata)),
         }
     }
 
-    pub async fn run(&mut self, rx: UnboundedReceiver<HalStorageOperation>) {
-        if !self.available {
-            iprintln!(
-                "Failed to run the storage device at {:x} because it is not available",
-                self.pata_port
-            );
-            return;
-        }
-
-        while let Some(op) = rx.recv().await {
+    pub async fn run(&self) {
+        while let Some(op) = self.rx.recv().await {
             match op {
                 HalStorageOperation::Read {
                     mut buffer,
@@ -193,6 +172,9 @@ impl HalStorageDevice {
                     sender,
                 } => {
                     match self
+                        .device_inner
+                        .lock()
+                        .await
                         .read_sectors_async(lba, (buffer.len() / SECTOR_SIZE) as u16, &mut buffer)
                         .await
                     {
@@ -210,6 +192,9 @@ impl HalStorageDevice {
                     sender,
                 } => {
                     match self
+                        .device_inner
+                        .lock()
+                        .await
                         .write_sectors_async(lba, (buffer.len() / SECTOR_SIZE) as u16, &buffer)
                         .await
                     {
@@ -279,54 +264,36 @@ impl HalStorageDevice {
             }
         }
     }
-
-    pub fn init(&mut self) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
-        Ok(self.device_inner.init()?)
-    }
-
-    pub fn sector_count(&mut self) -> u64 {
-        self.device_inner.sector_count()
-    }
-
-    pub fn sectors_per_track(&mut self) -> u16 {
-        self.device_inner.sectors_per_track()
-    }
-
-    pub async fn read_sectors_async(
-        &mut self,
-        index: i64,
-        count: u16,
-        output: &mut [u8],
-    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
-        Ok(self
-            .device_inner
-            .read_sectors_async(index, count, output)
-            .await?)
-    }
-
-    pub async fn write_sectors_async(
-        &mut self,
-        index: i64,
-        count: u16,
-        input: &[u8],
-    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
-        Ok(self
-            .device_inner
-            .write_sectors_async(index, count, input)
-            .await?)
-    }
 }
 
-pub async fn read_sectors(
+pub async fn read_sectors_by_guid(
+    guid: Guid,
+    buffer: Buffer,
+    lba: i64,
+) -> Result<Buffer, HalStorageOperationErr> {
+    read_sectors_by_idx(
+        get_storage_devices_by_guid()
+            .lock()
+            .await
+            .get(&guid)
+            .ok_or(HalStorageOperationErr::DriveDidntRespond)?
+            .0,
+        buffer,
+        lba,
+    )
+    .await
+}
+
+pub async fn read_sectors_by_idx(
     index: usize,
     buffer: Buffer,
     lba: i64,
 ) -> Result<Buffer, HalStorageOperationErr> {
-    let sender = if index == PRIMARY {
-        PRIMARY_STORAGE_SENDER.get().unwrap().clone()
-    } else {
-        SECONDARY_STORAGE_SENDER.get().unwrap().clone()
-    };
+    let sender = get_storage_devices()
+        .get(&StorageDeviceIdx(index))
+        .ok_or(HalStorageOperationErr::DriveDidntRespond)?
+        .tx
+        .clone();
 
     let (tx, rx) = unbounded_channel::<Result<Buffer, HalStorageOperationErr>>();
 
@@ -343,16 +310,34 @@ pub async fn read_sectors(
     }
 }
 
-pub async fn write_sectors(
+pub async fn write_sectors_by_guid(
+    guid: Guid,
+    buffer: Buffer,
+    lba: i64,
+) -> Result<(), HalStorageOperationErr> {
+    write_sectors_by_idx(
+        get_storage_devices_by_guid()
+            .lock()
+            .await
+            .get(&guid)
+            .ok_or(HalStorageOperationErr::DriveDidntRespond)?
+            .0,
+        buffer,
+        lba,
+    )
+    .await
+}
+
+pub async fn write_sectors_by_idx(
     index: usize,
     buffer: Buffer,
     lba: i64,
 ) -> Result<(), HalStorageOperationErr> {
-    let sender = if index == PRIMARY {
-        PRIMARY_STORAGE_SENDER.get().unwrap().clone()
-    } else {
-        SECONDARY_STORAGE_SENDER.get().unwrap().clone()
-    };
+    let sender = get_storage_devices()
+        .get(&StorageDeviceIdx(index))
+        .ok_or(HalStorageOperationErr::DriveDidntRespond)?
+        .tx
+        .clone();
 
     let (tx, rx) = unbounded_channel::<Result<(), HalStorageOperationErr>>();
 
@@ -475,31 +460,41 @@ pub enum HalStorageOperationErr {
 }
 
 pub fn identify_storage_devices(
-    device_tree: &mut BTreeMap<u8, BTreeMap<u8, BTreeMap<u8, PciDevice>>>,
+    device_tree: &mut BTreeMap<u8, BTreeMap<u8, BTreeMap<u8, Vec<PciDevice>>>>,
 ) {
-    let mut storage_devices: Vec<Mutex<HalStorageDevice>> = Vec::new();
+    let mut storage_devices_list: Vec<HalStorageDevice> = Vec::new();
 
     if let Some(m) = device_tree.get(&(PciBaseClass::MassStorage as u8)) {
-        for (_, device) in m.values().flatten() {
+        for device in m.values().flatten().map(|(_, b)| b).flatten() {
             if device.header_partial.subclass == MassStorageControllerSubClass::Sata as u8
                 && device.header_partial.prog_if == SataProgIf::Ahci as u8
             {
+                log!("Initializing AHCI..");
                 let mut ahci = AhciHba::new(device.address);
 
                 for device in ahci.init().drain(0..) {
-                    let mut device = HalStorageDevice::sata_ahci(device);
-                    match device.init() {
-                        Ok(_) => storage_devices.push(Mutex::new(device)),
-                        Err(e) => {
-                            log!("Failed to initialize Sata Ahci: {}", e);
-                        }
-                    }
+                    let device = HalStorageDevice::sata_ahci(device);
+                    storage_devices_list.push(device)
                 }
             }
         }
     }
 
-    let _ = STORAGE_DEVICES.set(storage_devices);
+    let mut storage_devices = BTreeMap::new();
+    let mut idx = 0;
+
+    for device in storage_devices_list {
+        storage_devices.insert(StorageDeviceIdx(idx), device);
+        idx += 1;
+    }
+
+    let _ = STORAGE_DEVICES_BY_IDX.set(storage_devices);
 
     log!("Initialized the storage drives");
+}
+
+pub async fn run_storage_devices() {
+    for device in STORAGE_DEVICES_BY_IDX.get().expect("Rust error") {
+        SPAWNER.get().expect("No spawner").spawn(device.1.run());
+    }
 }

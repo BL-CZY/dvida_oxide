@@ -1,4 +1,6 @@
+use crate::hal::buffer::Buffer;
 use crate::log;
+use alloc::boxed::Box;
 use alloc::string::{FromUtf16Error, String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -241,10 +243,43 @@ pub enum GPTErr {
 }
 
 impl HalStorageDevice {
-    async fn is_normal_present(&mut self) -> bool {
+    async fn write_sectors_async(
+        &self,
+        lba: i64,
+        len: u16,
+        buf: &[u8],
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
+        self.device_inner
+            .lock()
+            .await
+            .write_sectors_async(lba, len, buf)
+            .await
+    }
+
+    async fn read_sectors_async(
+        &self,
+        lba: i64,
+        len: u16,
+        buf: &mut [u8],
+    ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
+        self.device_inner
+            .lock()
+            .await
+            .read_sectors_async(lba, len, buf)
+            .await
+    }
+
+    async fn is_normal_present(&self) -> bool {
         log!("Checking primary GPT presence at LBA 1");
         let mut buf = [0u8; 512];
-        if self.read_sectors_async(1, 1, &mut buf).await.is_err() {
+        if self
+            .device_inner
+            .lock()
+            .await
+            .read_sectors_async(1, 1, &mut buf)
+            .await
+            .is_err()
+        {
             log!("Failed to read primary GPT sector");
             return false;
         }
@@ -259,10 +294,17 @@ impl HalStorageDevice {
         present
     }
 
-    async fn is_backup_present(&mut self) -> bool {
+    async fn is_backup_present(&self) -> bool {
         log!("Checking backup GPT presence at LBA -1");
         let mut buf = [0u8; 512];
-        if self.read_sectors_async(-1, 1, &mut buf).await.is_err() {
+        if self
+            .device_inner
+            .lock()
+            .await
+            .read_sectors_async(-1, 1, &mut buf)
+            .await
+            .is_err()
+        {
             log!("Failed to read backup GPT sector");
             return false;
         }
@@ -277,7 +319,7 @@ impl HalStorageDevice {
         present
     }
 
-    pub async fn is_gpt_present(&mut self) -> bool {
+    pub async fn is_gpt_present(&self) -> bool {
         log!("Checking if GPT is present (primary or backup)");
         let normal = self.is_normal_present().await;
         if normal {
@@ -295,7 +337,7 @@ impl HalStorageDevice {
         normal || backup
     }
 
-    fn create_pmbr_buf(&mut self) -> [u8; 512] {
+    async fn create_pmbr_buf(&self) -> [u8; 512] {
         log!("Creating PMBR buffer");
         const PMBR_OFFSET: usize = 446;
         let mut result = [0u8; 512];
@@ -305,8 +347,10 @@ impl HalStorageDevice {
         result[PMBR_OFFSET + 3] = 0x0;
         result[PMBR_OFFSET + 4] = 0xEE;
 
-        let (cylinder, head, sector) =
-            crypto::lba_to_chs(self.sectors_per_track(), self.sector_count());
+        let (cylinder, head, sector) = crypto::lba_to_chs(
+            self.device_inner.lock().await.sectors_per_track(),
+            self.device_inner.lock().await.sector_count(),
+        );
         log!(
             "PMBR CHS values cylinder={}, head={}, sector={}",
             cylinder,
@@ -329,13 +373,13 @@ impl HalStorageDevice {
         result[PMBR_OFFSET + 10] = 0x0;
         result[PMBR_OFFSET + 11] = 0x0;
 
-        if self.sector_count() > 0xFFFFFFFF {
+        if self.device_inner.lock().await.sector_count() > 0xFFFFFFFF {
             result[PMBR_OFFSET + 12] = 0xFF;
             result[PMBR_OFFSET + 13] = 0xFF;
             result[PMBR_OFFSET + 14] = 0xFF;
             result[PMBR_OFFSET + 15] = 0xFF;
         } else {
-            let temp = self.sector_count() as u32;
+            let temp = self.device_inner.lock().await.sector_count() as u32;
             result[PMBR_OFFSET + 12] = temp.to_le_bytes()[0];
             result[PMBR_OFFSET + 13] = temp.to_le_bytes()[1];
             result[PMBR_OFFSET + 14] = temp.to_le_bytes()[2];
@@ -350,10 +394,10 @@ impl HalStorageDevice {
         result
     }
 
-    fn create_unhashed_header(&mut self) -> GPTHeader {
+    async fn create_unhashed_header(&self) -> GPTHeader {
         let hdr = GPTHeader {
-            backup_loc: self.sector_count() - 1,
-            last_usable_block: self.sector_count() - 34,
+            backup_loc: self.device_inner.lock().await.sector_count() - 1,
+            last_usable_block: self.device_inner.lock().await.sector_count() - 34,
             ..Default::default()
         };
 
@@ -366,18 +410,23 @@ impl HalStorageDevice {
         hdr
     }
 
-    async fn write_pmbr(&mut self, pmbr: &[u8; 512]) -> Result<(), GPTErr> {
+    async fn write_pmbr(&self, pmbr: &[u8; 512]) -> Result<(), GPTErr> {
         log!("Writing PMBR to sector 0");
-        self.write_sectors_async(0, 1, pmbr).await.map_err(|e| {
-            log!("Failed to write PMBR: {}", e.to_string());
-            GPTErr::Io(e.to_string())
-        })?;
+        self.device_inner
+            .lock()
+            .await
+            .write_sectors_async(0, 1, pmbr)
+            .await
+            .map_err(|e| {
+                log!("Failed to write PMBR: {}", e.to_string());
+                GPTErr::Io(e.to_string())
+            })?;
 
         log!("PMBR write completed");
         Ok(())
     }
 
-    async fn write_table(&mut self, header: &[u8], array: &[u8]) -> Result<(), GPTErr> {
+    async fn write_table(&self, header: &[u8], array: &[u8]) -> Result<(), GPTErr> {
         log!("Writing GPT header to primary (LBA 1)");
         self.write_sectors_async(1, 1, header).await.map_err(|e| {
             log!("Failed to write GPT header to primary: {}", e.to_string());
@@ -408,15 +457,15 @@ impl HalStorageDevice {
         Ok(())
     }
 
-    pub async fn create_gpt(&mut self, force: bool) -> Result<(), GPTErr> {
+    pub async fn create_gpt(&self, force: bool) -> Result<(), GPTErr> {
         log!("Creating GPT: force={}", force);
         if !force && self.is_gpt_present().await {
             log!("GPT already exists and force is false; aborting create_gpt");
             return Err(GPTErr::GPTAlreadyExist);
         }
 
-        let pmbr = self.create_pmbr_buf();
-        let mut header = self.create_unhashed_header();
+        let pmbr = self.create_pmbr_buf().await;
+        let mut header = self.create_unhashed_header().await;
         let array = [0u8; 32 * 512];
         header.array_crc32 = crypto::crc32::full_crc(&array);
         header.header_crc32 = crypto::crc32::full_crc(&header.to_buf());
@@ -452,7 +501,7 @@ impl HalStorageDevice {
     }
 
     pub async fn get_table(
-        &mut self,
+        &self,
         lba: i64,
         is_backup: bool,
     ) -> Result<(GPTHeader, Vec<GPTEntry>), GPTErr> {
@@ -536,7 +585,7 @@ impl HalStorageDevice {
         Ok((result_header, result_array))
     }
 
-    pub async fn read_gpt(&mut self) -> Result<(GPTHeader, Vec<GPTEntry>), GPTErr> {
+    pub async fn read_gpt(&self) -> Result<(GPTHeader, Vec<GPTEntry>), GPTErr> {
         log!("Reading GPT (primary + backup)");
         if !self.is_gpt_present().await {
             log!("No GPT present when attempting to read");
@@ -573,7 +622,7 @@ impl HalStorageDevice {
     }
 
     pub async fn add_entry(
-        &mut self,
+        &self,
         name: [u16; 36],
         start_lba: u64,
         end_lba: u64,
@@ -687,7 +736,7 @@ impl HalStorageDevice {
         Ok(empty_index as u32)
     }
 
-    pub async fn delete_entry(&mut self, index: u32) -> Result<(), GPTErr> {
+    pub async fn delete_entry(&self, index: u32) -> Result<(), GPTErr> {
         log!("Deleting GPT entry at index={}", index);
         if !self.is_gpt_present().await {
             log!("No GPT present when attempting to delete entry");

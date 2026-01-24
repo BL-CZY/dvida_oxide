@@ -65,16 +65,6 @@ impl AhciHba {
 
         let base = get_hhdm_offset() + phys_base;
 
-        let page_table = KERNEL_PAGE_TABLE
-            .get()
-            .expect("Failed to get page table")
-            .spin_acquire_lock();
-
-        page_table.update_flags(
-            Page::from_start_address(base.align_down(PAGE_SIZE as u64)).expect("Rust error"),
-            *MMIO_PAGE_TABLE_FLAGS,
-        );
-
         Self {
             location,
             header,

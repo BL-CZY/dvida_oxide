@@ -3,7 +3,7 @@ use alloc::boxed::Box;
 
 use crate::{
     drivers::fs::ext2::SuperBlock,
-    hal::{gpt::GPTEntry, storage::read_sectors},
+    hal::{gpt::GPTEntry, storage::read_sectors_by_idx},
 };
 
 pub async fn identify_ext2(drive_id: usize, entry: &GPTEntry) -> Option<SuperBlock> {
@@ -14,7 +14,7 @@ pub async fn identify_ext2(drive_id: usize, entry: &GPTEntry) -> Option<SuperBlo
         return None;
     }
 
-    match read_sectors(drive_id, buf.into(), (entry.start_lba + 2) as i64).await {
+    match read_sectors_by_idx(drive_id, buf.into(), (entry.start_lba + 2) as i64).await {
         Ok(b) => buf = b.into(),
         Err(err) => {
             log!("Failed to identify ext2 because of read error: {}", err);
