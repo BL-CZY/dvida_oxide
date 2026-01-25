@@ -8,8 +8,16 @@ use crate::drivers::ata::sata::fis::FisRegH2D;
 pub struct IdentifyData {
     /// Word 0: General configuration (Bit 15: 0=ATA, 1=ATAPI)
     pub config: u16,
+    /// Word 1: Logical Cylinders
+    pub cylinders: u16,
+    pub _reserved_w2: u16,
+    /// Word 3: Logical Heads
+    pub heads: u16,
+    pub _reserved_w4_5: [u16; 2],
+    /// Word 6: Logical Sectors per Track
+    pub sectors_per_track: u16,
     /// Words 1-9: Obsolete or specific configuration
-    pub _reserved1: [u16; 9],
+    pub _reserved1: [u16; 3],
     /// Words 10-19: Serial number (20 ASCII characters, byte-swapped)
     pub serial: [u8; 20],
     /// Words 20-22: Obsolete

@@ -81,6 +81,8 @@ pub struct AhciSata {
     pub dma_20kb_buffer_vaddr: VirtAddr,
     pub dma_20kb_buffer_paddr: PhysAddr,
     pub max_cmd_slots: u64,
+    pub sectors_per_track: u16,
+    pub sector_count: u64,
 }
 
 bitfield! {
@@ -89,7 +91,7 @@ bitfield! {
 
     pub interface_power_management, _: 11, 8;
     pub current_interface_speed, _: 7, 4;
-    pub device_dection, _: 3, 0;
+    pub device_detection, _: 3, 0;
 }
 
 impl PortStatus {
@@ -158,19 +160,35 @@ impl AhciSata {
             dma_20kb_buffer_vaddr: VirtAddr::new(0),
             dma_20kb_buffer_paddr: PhysAddr::new(0),
             max_cmd_slots: 0,
+            sectors_per_track: 0,
+            sector_count: 0,
         }
     }
 
     pub fn new(base: VirtAddr, max_cmd_slots: u64) -> Option<Self> {
         let port_reader = Self::port_reader(base);
+
+        let sig = port_reader.read_signature();
+        const ATAPI_SIG: u32 = 0xEB140101;
+        const SATA_SIG: u32 = 0x00000101;
+        if sig == ATAPI_SIG {
+            return None;
+        }
+
+        if sig != SATA_SIG {
+            return None;
+        }
+
         let status = PortStatus(port_reader.read_sata_status());
 
         // if there is no device, or there is no phys this device is unusable
-        if status.device_dection() == PortStatus::DET_NOT_PRESENT
-            || status.device_dection() == PortStatus::DET_PRESENT_NO_PHY
+        if status.device_detection() == PortStatus::DET_NOT_PRESENT
+            || status.device_detection() == PortStatus::DET_PRESENT_NO_PHY
         {
             return None;
         }
+
+        log!("{:b}", status.0);
 
         let frames = FRAME_ALLOCATOR
             .get()
@@ -205,6 +223,8 @@ impl AhciSata {
             dma_20kb_buffer_vaddr: get_hhdm_offset() + frames[0].start_address().as_u64(),
             dma_20kb_buffer_paddr: frames[0].start_address(),
             max_cmd_slots,
+            sector_count: 0,
+            sectors_per_track: 0,
         })
     }
 
@@ -258,7 +278,7 @@ impl AhciSata {
     pub fn init(&mut self) -> Result<(), TimeOut> {
         let status = PortStatus(self.read_sata_status());
         // if it's offline wake it up first
-        if status.device_dection() == PortStatus::DET_OFFLINE
+        if status.device_detection() == PortStatus::DET_OFFLINE
             || status.interface_power_management() == PortStatus::IPM_NOT_PRESENT
         {
             self.reset_cmd();
@@ -269,7 +289,7 @@ impl AhciSata {
             let start = Instant::now();
 
             loop {
-                if PortStatus(self.read_sata_status()).device_dection()
+                if PortStatus(self.read_sata_status()).device_detection()
                     == PortStatus::DET_PRESENT_WITH_PHY
                 {
                     break;
@@ -454,6 +474,9 @@ impl AhciSata {
         let identify_data = &unsafe { *(result_buf.as_ptr() as *const IdentifyData) };
 
         log!("{:?}", identify_data);
+
+        self.sectors_per_track = identify_data.sectors_per_track;
+        self.sector_count = identify_data.lba48_sectors;
     }
 }
 
@@ -489,11 +512,11 @@ impl HalBlockDevice for AhciSata {
     }
 
     fn sector_count(&mut self) -> u64 {
-        todo!()
+        self.sector_count
     }
 
     fn sectors_per_track(&mut self) -> u16 {
-        todo!()
+        self.sectors_per_track
     }
 }
 
