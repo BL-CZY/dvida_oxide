@@ -17,6 +17,7 @@ use crate::hal::gpt::{GPTEntry, GPTErr, GPTHeader};
 use crate::{SPAWNER, log};
 use alloc::collections::btree_map::BTreeMap;
 use alloc::string::ToString;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::{boxed::Box, string::String};
 use once_cell_no_std::OnceCell;
@@ -62,7 +63,7 @@ pub enum IoErr {
 pub struct HalStorageDevice {
     pub tx: UnboundedSender<HalStorageOperation>,
     pub rx: UnboundedReceiver<HalStorageOperation>,
-    pub device_inner: Mutex<Box<dyn HalBlockDevice>>,
+    pub device_inner: Arc<Mutex<Box<dyn HalBlockDevice>>>,
 }
 
 #[derive(Debug)]
@@ -132,6 +133,14 @@ pub trait HalBlockDevice: Send + Sync + Debug {
                 + Sync,
         >,
     >;
+
+    fn run<'device, 'rx, 'future>(
+        &'device mut self,
+        rx: &'rx UnboundedReceiver<HalStorageOperation>,
+    ) -> Pin<Box<dyn Future<Output = ()> + 'future + Send + Sync>>
+    where
+        'rx: 'future,
+        'device: 'future;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq)]
@@ -159,7 +168,7 @@ impl HalStorageDevice {
         HalStorageDevice {
             tx,
             rx,
-            device_inner: Mutex::new(Box::new(sata)),
+            device_inner: Arc::new(Mutex::new(Box::new(sata))),
         }
     }
 
@@ -495,6 +504,10 @@ pub fn identify_storage_devices(
 
 pub async fn run_storage_devices() {
     for device in STORAGE_DEVICES_BY_IDX.get().expect("Rust error") {
-        SPAWNER.get().expect("No spawner").spawn(device.1.run());
+        let device_inner = device.1.device_inner.clone();
+        SPAWNER
+            .get()
+            .expect("No spawner")
+            .spawn(async move { device_inner.lock().await.run(&device.1.rx).await });
     }
 }

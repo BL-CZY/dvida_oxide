@@ -1,6 +1,6 @@
 use core::time::Duration;
 
-use alloc::vec;
+use alloc::{boxed::Box, vec};
 use bitfield::bitfield;
 use x86_64::{PhysAddr, VirtAddr, structures::paging::Page};
 
@@ -20,13 +20,15 @@ use crate::{
         },
         fis::{AtaCommand, FisRegH2DFlags},
     },
-    hal::storage::{HalBlockDevice, SECTOR_SIZE},
+    ejcineque::sync::mpsc::unbounded::UnboundedReceiver,
+    hal::storage::{HalBlockDevice, HalStorageOperation, SECTOR_SIZE},
     log, pcie_offset_impl,
 };
 
 pub mod ahci;
 pub mod command;
 pub mod fis;
+pub mod task;
 
 const RECEIVED_FIS_AREA_OFFSET: u64 = 0x400;
 const CMD_TABLES_OFFSET: u64 = 0x500;
@@ -517,6 +519,17 @@ impl HalBlockDevice for AhciSata {
 
     fn sectors_per_track(&mut self) -> u16 {
         self.sectors_per_track
+    }
+
+    fn run<'device, 'rx, 'future>(
+        &'device mut self,
+        rx: &'rx UnboundedReceiver<HalStorageOperation>,
+    ) -> core::pin::Pin<Box<dyn Future<Output = ()> + 'future + Send + Sync>>
+    where
+        'rx: 'future,
+        'device: 'future,
+    {
+        Box::pin(async move { self.run_task(rx).await })
     }
 }
 
