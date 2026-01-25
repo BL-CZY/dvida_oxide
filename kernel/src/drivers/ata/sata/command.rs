@@ -3,6 +3,49 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::drivers::ata::sata::fis::FisRegH2D;
 
+#[repr(C, align(2))]
+#[derive(Clone, Copy, Debug)]
+pub struct IdentifyData {
+    /// Word 0: General configuration (Bit 15: 0=ATA, 1=ATAPI)
+    pub config: u16,
+    /// Words 1-9: Obsolete or specific configuration
+    pub _reserved1: [u16; 9],
+    /// Words 10-19: Serial number (20 ASCII characters, byte-swapped)
+    pub serial: [u8; 20],
+    /// Words 20-22: Obsolete
+    pub _reserved2: [u16; 3],
+    /// Words 23-26: Firmware revision (8 ASCII characters, byte-swapped)
+    pub firmware_rev: [u8; 8],
+    /// Words 27-46: Model number (40 ASCII characters, byte-swapped)
+    pub model: [u8; 40],
+    /// Word 47: Read/Write multiple support
+    pub trusted_computing: u16,
+    /// Word 48: Capabilities
+    pub capabilities1: u16,
+    /// Word 49: Capabilities
+    pub capabilities2: u16,
+    /// Words 51-59: Obsolete
+    pub _reserved3: [u16; 9],
+    /// Words 60-61: Total number of user-addressable logical sectors (LBA28)
+    pub lba28_sectors: u32,
+    /// Words 62-79: Obsolete
+    pub _reserved4: [u16; 18],
+    /// Word 80: Major version number (Check bits for ACS-x support)
+    pub major_version: u16,
+    /// Word 81: Minor version number
+    pub minor_version: u16,
+    /// Word 82: Command set supported
+    pub command_set_supported1: u16,
+    /// Word 83: Command set supported (Bit 10: 1=LBA48 support)
+    pub command_set_supported2: u16,
+    /// Words 84-99: Reserved
+    pub _reserved5: [u16; 16],
+    /// Words 100-103: Total number of user-addressable logical sectors (LBA48)
+    pub lba48_sectors: u64,
+    /// Words 104-255: Reserved
+    pub _reserved6: [u16; 152],
+}
+
 bitfield! {
     #[repr(C)]
     pub struct CommandHeaderFlags(u16);

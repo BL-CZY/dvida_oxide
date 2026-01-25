@@ -14,7 +14,10 @@ use crate::{
         timer::Instant,
     },
     drivers::ata::sata::{
-        command::{CommandHeader, CommandHeaderFlags, CommandTable, PrdtEntry, PrdtEntryFlags},
+        command::{
+            CommandHeader, CommandHeaderFlags, CommandTable, IdentifyData, PrdtEntry,
+            PrdtEntryFlags,
+        },
         fis::{AtaCommand, FisRegH2DFlags},
     },
     hal::storage::{HalBlockDevice, SECTOR_SIZE},
@@ -326,6 +329,34 @@ impl AhciSata {
         self.write_sata_error(0xFFFFFFFF);
         // this only writes to the non-reserved bits
         // self.write_sata_error(0b00000_11111_11111_1_0000_1111_000000_11);
+        self.write_interrupt_status(0);
+
+        let start = Instant::now();
+        loop {
+            let tfd = self.read_task_file_data();
+            if (tfd & 0x88) == 0 {
+                break;
+            } // BSY and DRQ are bits 7 and 3
+            if Instant::now() - start > Duration::from_secs(1) {
+                log!("Timeout waiting for port to become non-busy");
+                return Err(TimeOut {});
+            }
+        }
+
+        let mut cmd = PortCmdAndStatus(self.read_command_and_status());
+        cmd.set_fis_recv_enable(true);
+        self.write_command_and_status(cmd.0);
+
+        while !PortCmdAndStatus(self.read_command_and_status()).fis_recv_running() {
+            core::hint::spin_loop();
+        }
+
+        cmd.set_start(true);
+        self.write_command_and_status(cmd.0);
+
+        while !PortCmdAndStatus(self.read_command_and_status()).cmd_list_running() {
+            core::hint::spin_loop();
+        }
 
         log!("Reset complete");
 
@@ -334,8 +365,8 @@ impl AhciSata {
         Ok(())
     }
 
-    fn _nth_command_table_addr(&mut self, n: u64) -> PhysAddr {
-        self.dma_20kb_buffer_paddr + CMD_TABLES_OFFSET + n * CMD_TABLE_SIZE
+    fn nth_command_table_offset(n: u64) -> u64 {
+        CMD_TABLES_OFFSET + n * CMD_TABLE_SIZE
     }
 
     pub fn identify(&mut self) {
@@ -347,8 +378,10 @@ impl AhciSata {
         let result_buf = vec![0u32; SECTOR_SIZE / 4].into_boxed_slice();
         let result_buf_ptr = (result_buf.as_ptr() as u64) - get_hhdm_offset().as_u64();
 
-        let cmd_table: &mut CommandTable =
-            bytemuck::from_bytes_mut(&mut buf[0..size_of::<CommandTable>()]);
+        let cmd_table: &mut CommandTable = bytemuck::from_bytes_mut(
+            &mut buf[Self::nth_command_table_offset(0) as usize
+                ..Self::nth_command_table_offset(0) as usize + size_of::<CommandTable>()],
+        );
 
         let mut fis_flags = FisRegH2DFlags(0);
         fis_flags.set_is_command(true);
@@ -386,7 +419,7 @@ impl AhciSata {
 
         cmd_header.physical_region_descriptor_table_length = 1;
         cmd_header.flags = cmd_header_flags.0;
-        cmd_header.physical_region_descriptor_bytes_count = size_of::<PrdtEntry>() as u32;
+        cmd_header.physical_region_descriptor_bytes_count = 0;
 
         cmd_header.cmd_table_base_addr_low = cmd_tables_phys_addr as u32;
         cmd_header.cmd_table_base_addr_high = (cmd_tables_phys_addr >> 32) as u32;
@@ -408,7 +441,19 @@ impl AhciSata {
             core::hint::spin_loop();
         }
 
-        log!("{:?}", result_buf);
+        let tfd = self.read_task_file_data();
+        if (tfd & 0x01) != 0 {
+            // Bit 0 is the Error bit
+            panic!("The disk reported an error (TFD: {:#x})", tfd);
+        }
+
+        if (tfd & 0x80) != 0 || (tfd & 0x08) != 0 {
+            panic!("The disk is still busy or requesting data despite CI being 0!");
+        }
+
+        let identify_data = &unsafe { *(result_buf.as_ptr() as *const IdentifyData) };
+
+        log!("{:?}", identify_data);
     }
 }
 
