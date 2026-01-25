@@ -1,5 +1,7 @@
 /// H2D is the controller, and the messages are called FIS
 use bitfield::bitfield;
+use bytemuck::{Pod, Zeroable};
+use smart_default::SmartDefault;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,13 +56,15 @@ bitfield! {
     pub is_command, set_is_command: 7;
 }
 
+#[derive(Pod, Zeroable, Clone, Copy, SmartDefault)]
 #[repr(C, packed)]
 pub struct FisRegH2D {
     /// Always 0x27 for this type
+    #[default = 0x27]
     pub fis_type: u8,
     /// flags
-    pub flags: FisRegH2DFlags,
-    /// The ATA Command (e.g., 0xEC for Identify, 0x25 for Read DMA Ext)
+    pub flags: u8,
+    /// The ATA Command
     pub command: u8,
     /// Feature register low byte
     pub feature_low: u8,

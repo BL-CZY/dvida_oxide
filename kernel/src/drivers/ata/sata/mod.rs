@@ -1,5 +1,6 @@
 use core::time::Duration;
 
+use alloc::vec;
 use bitfield::bitfield;
 use x86_64::{PhysAddr, VirtAddr, structures::paging::Page};
 
@@ -12,15 +13,21 @@ use crate::{
         },
         timer::Instant,
     },
-    hal::storage::HalBlockDevice,
-    pcie_offset_impl,
+    drivers::ata::sata::{
+        command::{CommandHeader, CommandHeaderFlags, CommandTable, PrdtEntry, PrdtEntryFlags},
+        fis::{AtaCommand, FisRegH2DFlags},
+    },
+    hal::storage::{HalBlockDevice, SECTOR_SIZE},
+    log, pcie_offset_impl,
 };
 
 pub mod ahci;
 pub mod command;
 pub mod fis;
 
-const RECEIVED_FIS_AREA_OFFSET: u64 = 0x500;
+const RECEIVED_FIS_AREA_OFFSET: u64 = 0x400;
+const CMD_TABLES_OFFSET: u64 = 0x500;
+const CMD_TABLE_SIZE: u64 = 0x200;
 
 bitfield! {
     pub struct PortCmdAndStatus(u32);
@@ -269,12 +276,12 @@ impl AhciSata {
                 if now - start >= Duration::from_secs(1) {
                     return Err(TimeOut {});
                 }
-
-                self.reset_cmd();
-                let mut control_port = PortControl(self.read_sata_control());
-                control_port.set_det_init(PortControl::DET_COMRESET);
-                self.write_sata_control(control_port.0);
             }
+
+            self.reset_cmd();
+            let mut control_port = PortControl(self.read_sata_control());
+            control_port.set_det_init(PortControl::DET_NO_ACTION);
+            self.write_sata_control(control_port.0);
         }
 
         // if it's in sleep wake it up first
@@ -297,12 +304,12 @@ impl AhciSata {
                 if now - start >= Duration::from_secs(1) {
                     return Err(TimeOut {});
                 }
-
-                self.reset_cmd();
-                let mut control_port = PortControl(self.read_sata_control());
-                control_port.set_det_init(PortControl::DET_COMRESET);
-                self.write_sata_control(control_port.0);
             }
+
+            self.reset_cmd();
+            let mut control_port = PortControl(self.read_sata_control());
+            control_port.set_det_init(PortControl::DET_NO_ACTION);
+            self.write_sata_control(control_port.0);
         }
 
         self.reset()?;
@@ -320,7 +327,88 @@ impl AhciSata {
         // this only writes to the non-reserved bits
         // self.write_sata_error(0b00000_11111_11111_1_0000_1111_000000_11);
 
+        log!("Reset complete");
+
+        self.identify();
+
         Ok(())
+    }
+
+    fn _nth_command_table_addr(&mut self, n: u64) -> PhysAddr {
+        self.dma_20kb_buffer_paddr + CMD_TABLES_OFFSET + n * CMD_TABLE_SIZE
+    }
+
+    pub fn identify(&mut self) {
+        let cmd_tables_phys_addr = (self.dma_20kb_buffer_paddr + CMD_TABLES_OFFSET).as_u64();
+        // use the first slot
+        let buf = self.get_buffer();
+
+        // this is to make sure the buffer is 32 bytes aligned
+        let result_buf = vec![0u32; SECTOR_SIZE / 4].into_boxed_slice();
+        let result_buf_ptr = (result_buf.as_ptr() as u64) - get_hhdm_offset().as_u64();
+
+        let cmd_table: &mut CommandTable =
+            bytemuck::from_bytes_mut(&mut buf[0..size_of::<CommandTable>()]);
+
+        let mut fis_flags = FisRegH2DFlags(0);
+        fis_flags.set_is_command(true);
+        fis_flags.set_port_multiplier(0);
+
+        cmd_table.cmd_fis = fis::FisRegH2D {
+            command: AtaCommand::Identify as u8,
+            flags: fis_flags.0,
+            ..Default::default()
+        };
+
+        let mut prdt_flags = PrdtEntryFlags(0);
+        prdt_flags.set_interrupt(false);
+        prdt_flags.set_byte_count(SECTOR_SIZE as u32 - 1);
+
+        cmd_table.prdt_table[0] = PrdtEntry {
+            data_base_low: result_buf_ptr as u32,
+            data_base_high: (result_buf_ptr >> 32) as u32,
+            flags: prdt_flags.0,
+            ..Default::default()
+        };
+
+        let cmd_header: &mut CommandHeader =
+            bytemuck::from_bytes_mut(&mut buf[0..size_of::<CommandHeader>()]);
+
+        let mut cmd_header_flags = CommandHeaderFlags(0);
+        cmd_header_flags.set_port_multiplier(0);
+        cmd_header_flags.set_clear_busy_when_r_ok(false);
+        cmd_header_flags.set_bist(0);
+        cmd_header_flags.set_reset(0);
+        cmd_header_flags.set_is_prefetchable(false);
+        cmd_header_flags.set_is_atapi(false);
+        cmd_header_flags.set_is_write(false);
+        cmd_header_flags.set_cmd_fis_len((size_of::<fis::FisRegH2D>() / size_of::<u32>()) as u16);
+
+        cmd_header.physical_region_descriptor_table_length = 1;
+        cmd_header.flags = cmd_header_flags.0;
+        cmd_header.physical_region_descriptor_bytes_count = size_of::<PrdtEntry>() as u32;
+
+        cmd_header.cmd_table_base_addr_low = cmd_tables_phys_addr as u32;
+        cmd_header.cmd_table_base_addr_high = (cmd_tables_phys_addr >> 32) as u32;
+
+        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+        let mut cmd_issue = self.read_command_issue();
+        cmd_issue &= !0x1;
+        cmd_issue |= 0x1;
+        self.write_command_issue(cmd_issue);
+
+        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+        loop {
+            if self.read_command_issue() & 0x1 == 0 {
+                break;
+            }
+
+            core::hint::spin_loop();
+        }
+
+        log!("{:?}", result_buf);
     }
 }
 

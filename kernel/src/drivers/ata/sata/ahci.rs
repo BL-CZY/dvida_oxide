@@ -7,8 +7,8 @@ use x86_64::{
 use crate::{
     arch::x86_64::{
         acpi::MMIO_PAGE_TABLE_FLAGS,
-        idt::{AHCI_INTERRUPT_HANDLER_IDX, CUR_AHCI_INTERRUPT_HANDLER_IDX},
-        memory::{PAGE_SIZE, get_hhdm_offset, page_table::KERNEL_PAGE_TABLE},
+        idt::CUR_AHCI_INTERRUPT_HANDLER_IDX,
+        memory::{get_hhdm_offset, page_table::KERNEL_PAGE_TABLE},
         msi::{MessageAddressRegister, MessageDataRegister, MsiControl, PcieMsiCapNode},
         pcie::{CapabilityNodeHeader, PciHeader},
     },
@@ -149,7 +149,7 @@ impl AhciHba {
 
         // get number of commands from CAP
         let cap = self.read_cap();
-        let num_cmd_slots = (cap >> 8) & 0b11111;
+        let num_cmd_slots = 1 + ((cap >> 8) & 0b11111);
 
         log!("Num cmd slots: {}", num_cmd_slots);
 
