@@ -1,25 +1,19 @@
 use core::time::Duration;
 
 use bitfield::bitfield;
-use x86_64::{
-    PhysAddr, VirtAddr,
-    structures::paging::{Page, PageTableFlags},
-};
+use x86_64::{PhysAddr, VirtAddr, structures::paging::Page};
 
 use crate::{
     arch::x86_64::{
         acpi::MMIO_PAGE_TABLE_FLAGS,
         memory::{
-            PAGE_SIZE,
-            frame_allocator::FRAME_ALLOCATOR,
-            get_hhdm_offset,
-            page_table::{KERNEL_PAGE_TABLE, KernelPageTable},
+            PAGE_SIZE, frame_allocator::FRAME_ALLOCATOR, get_hhdm_offset,
+            page_table::KERNEL_PAGE_TABLE,
         },
         timer::Instant,
     },
     hal::storage::HalBlockDevice,
     pcie_offset_impl,
-    time::get_unix_timestamp,
 };
 
 pub mod ahci;
@@ -265,7 +259,9 @@ impl AhciSata {
             let start = Instant::now();
 
             loop {
-                if status.device_dection() == PortStatus::DET_PRESENT_WITH_PHY {
+                if PortStatus(self.read_sata_status()).device_dection()
+                    == PortStatus::DET_PRESENT_WITH_PHY
+                {
                     break;
                 }
 
@@ -273,6 +269,11 @@ impl AhciSata {
                 if now - start >= Duration::from_secs(1) {
                     return Err(TimeOut {});
                 }
+
+                self.reset_cmd();
+                let mut control_port = PortControl(self.read_sata_control());
+                control_port.set_det_init(PortControl::DET_COMRESET);
+                self.write_sata_control(control_port.0);
             }
         }
 
@@ -281,11 +282,14 @@ impl AhciSata {
             let mut cmd_status = PortCmdAndStatus(self.read_command_and_status());
             const ACTIVE: u32 = 1;
             cmd_status.set_interface_comm_control(ACTIVE);
+            self.write_command_and_status(cmd_status.0);
 
             let start = Instant::now();
 
             loop {
-                if status.interface_power_management() == PortStatus::IPM_ACTIVE {
+                if PortStatus(self.read_sata_status()).interface_power_management()
+                    == PortStatus::IPM_ACTIVE
+                {
                     break;
                 }
 
@@ -293,6 +297,11 @@ impl AhciSata {
                 if now - start >= Duration::from_secs(1) {
                     return Err(TimeOut {});
                 }
+
+                self.reset_cmd();
+                let mut control_port = PortControl(self.read_sata_control());
+                control_port.set_det_init(PortControl::DET_COMRESET);
+                self.write_sata_control(control_port.0);
             }
         }
 
