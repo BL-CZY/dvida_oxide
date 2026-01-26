@@ -33,11 +33,16 @@ use crate::{
 pub struct AhciHba {
     pub location: VirtAddr,
     pub header: PciHeader,
+    pub ports: AhciHbaPorts,
+}
+
+#[derive(Debug)]
+pub struct AhciHbaPorts {
     /// ghc base
     pub base: VirtAddr,
 }
 
-impl AhciHba {
+impl AhciHbaPorts {
     pcie_offset_impl!(
         <cap,      0x00, "r">, // Host Capabilities
         <ghc,      0x04, "rw">, // Global Host Control
@@ -51,7 +56,9 @@ impl AhciHba {
         <cap2,     0x24, "r">, // Host Capabilities Extended
         <bohc,     0x28, "rw">  // BIOS/OS Handoff Control and Status
     );
+}
 
+impl AhciHba {
     pub fn new(location: VirtAddr) -> Self {
         // the BAR address *can* be 64 bits so we use the mask to check, if it's 64 bits bars[4]
         // will be used as the higher half
@@ -85,7 +92,7 @@ impl AhciHba {
         Self {
             location,
             header,
-            base,
+            ports: AhciHbaPorts { base },
         }
     }
 
@@ -133,34 +140,34 @@ impl AhciHba {
         log!("Configured Interrupts of AHCI");
 
         // set GHC.AE
-        let mut ghc = self.read_ghc();
+        let mut ghc = self.ports.read_ghc();
         ghc &= !(0x1 << 31);
         ghc |= 0x1 << 31;
         // set GHC.IE
         ghc &= !(0x1 << 1);
         ghc |= 0x1 << 1;
 
-        self.write_ghc(ghc);
+        self.ports.write_ghc(ghc);
 
         // doesn't support 32 bits only yet
-        if self.read_cap() & (0x1 << 31) == 0 {
+        if self.ports.read_cap() & (0x1 << 31) == 0 {
             return Vec::new();
         }
 
         // get number of commands from CAP
-        let cap = self.read_cap();
+        let cap = self.ports.read_cap();
         let num_cmd_slots = 1 + ((cap >> 8) & 0b11111);
 
         log!("Num cmd slots: {}", num_cmd_slots);
 
         // get devices
         let mut devices: Vec<AhciSata> = Vec::new();
-        let pi = self.read_pi();
+        let pi = self.ports.read_pi();
 
         for i in 0..32 {
             if pi & 0x1 << i != 0 {
                 let mut sata = if let Some(s) =
-                    AhciSata::new(self.base + 0x100 + i * 0x80, num_cmd_slots as u64)
+                    AhciSata::new(self.ports.base + 0x100 + i * 0x80, num_cmd_slots as u64)
                 {
                     s
                 } else {
