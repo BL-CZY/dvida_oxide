@@ -177,6 +177,7 @@ impl AhciHba {
                     self.ports.base + HBA_PORT_PORTS_OFFSET + i * HBA_PORT_SIZE,
                     num_cmd_slots as u64,
                     self.idx,
+                    i as usize,
                 ) {
                     s
                 } else {

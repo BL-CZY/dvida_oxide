@@ -85,7 +85,8 @@ pub struct AhciSata {
     pub max_cmd_slots: u64,
     pub sectors_per_track: u16,
     pub sector_count: u64,
-    pub idx: usize,
+    pub hba_idx: usize,
+    pub ports_idx: usize,
 }
 
 bitfield! {
@@ -161,7 +162,12 @@ impl AhciSata {
         AhciSataPorts { base }
     }
 
-    pub fn new(base: VirtAddr, max_cmd_slots: u64, hba_idx: usize) -> Option<Self> {
+    pub fn new(
+        base: VirtAddr,
+        max_cmd_slots: u64,
+        hba_idx: usize,
+        ports_idx: usize,
+    ) -> Option<Self> {
         let ports = Self::ports(base);
 
         let sig = ports.read_signature();
@@ -221,7 +227,8 @@ impl AhciSata {
             max_cmd_slots,
             sector_count: 0,
             sectors_per_track: 0,
-            idx: hba_idx,
+            hba_idx,
+            ports_idx,
         })
     }
 
