@@ -6,6 +6,7 @@ use crate::arch::x86_64::pic::PRIMARY_ISA_PIC_OFFSET;
 use super::gdt;
 use super::handlers::{irq, isr};
 use crate::log;
+use macros::idt_ahci;
 use once_cell_no_std::OnceCell;
 use x86_64::structures::idt::InterruptDescriptorTable;
 
@@ -51,6 +52,8 @@ pub fn init_idt(gsi_to_irq_mapping: [u32; 16]) {
             .set_handler_fn(isr::pagefault_handler)
             .set_stack_index(gdt::PAGE_FAULT_IST_INDEX);
     };
+
+    idt_ahci!(AHCI_INTERRUPT_HANDLER_IDX);
 
     let _ = IDT.set(idt);
 

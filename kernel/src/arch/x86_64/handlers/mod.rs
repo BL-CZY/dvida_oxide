@@ -199,6 +199,8 @@ macro_rules! handler_wrapper_errcode {
         2:
         pop rax
 
+        add rsp, 8
+
         iretq
     "#,
         handler = sym $handler,

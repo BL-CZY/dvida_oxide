@@ -35,3 +35,5 @@ impl AhciSata {
         }
     }
 }
+
+pub fn ahci_interrupt_handler_by_idx(idx: usize) {}
