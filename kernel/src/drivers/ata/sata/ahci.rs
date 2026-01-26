@@ -7,12 +7,12 @@ use x86_64::{
 use crate::{
     arch::x86_64::{
         acpi::MMIO_PAGE_TABLE_FLAGS,
-        idt::CUR_AHCI_INTERRUPT_HANDLER_IDX,
+        idt::AHCI_INTERRUPT_HANDLER_IDX,
         memory::{get_hhdm_offset, page_table::KERNEL_PAGE_TABLE},
         msi::{MessageAddressRegister, MessageDataRegister, MsiControl, PcieMsiCapNode},
         pcie::{CapabilityNodeHeader, PciHeader},
     },
-    drivers::ata::sata::AhciSata,
+    drivers::ata::sata::{AhciSata, task::AHCI_PORTS_MAP},
     log, pcie_offset_impl,
 };
 
@@ -34,6 +34,7 @@ pub struct AhciHba {
     pub location: VirtAddr,
     pub header: PciHeader,
     pub ports: AhciHbaPorts,
+    pub idx: usize,
 }
 
 #[derive(Debug)]
@@ -46,7 +47,7 @@ impl AhciHbaPorts {
     pcie_offset_impl!(
         <cap,      0x00, "r">, // Host Capabilities
         <ghc,      0x04, "rw">, // Global Host Control
-        <is,       0x08, "rw">, // Interrupt Status (Global)
+        <interrupt_status,       0x08, "rw">, // Interrupt Status (Global)
         <pi,       0x0C, "r">, // Ports Implemented (Bitmask)
         <vs,       0x10, "r">, // Version
         <ccc_ctl,  0x14, "rw">, // Command Completion Coalescing Control
@@ -58,8 +59,11 @@ impl AhciHbaPorts {
     );
 }
 
+pub const HBA_PORT_PORTS_OFFSET: u64 = 0x100;
+pub const HBA_PORT_SIZE: u64 = 0x80;
+
 impl AhciHba {
-    pub fn new(location: VirtAddr) -> Self {
+    pub fn new(location: VirtAddr, hba_idx: usize) -> Self {
         // the BAR address *can* be 64 bits so we use the mask to check, if it's 64 bits bars[4]
         // will be used as the higher half
         let header: PciHeader = PciHeader { base: location };
@@ -87,12 +91,15 @@ impl AhciHba {
             &mut None,
         );
 
+        let _ = AHCI_PORTS_MAP[hba_idx].set(location);
+
         log!("created new ahci");
 
         Self {
             location,
             header,
             ports: AhciHbaPorts { base },
+            idx: hba_idx,
         }
     }
 
@@ -123,7 +130,7 @@ impl AhciHba {
 
         let control_reg = MsiControl(msi_cap_node.read_message_control_register());
 
-        let idx = CUR_AHCI_INTERRUPT_HANDLER_IDX.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
+        let idx = AHCI_INTERRUPT_HANDLER_IDX + self.idx as u8;
         let mut msi_data = MessageDataRegister::default();
         msi_data.set_vector(idx as u32);
         let msi_addr = MessageAddressRegister::default();
@@ -166,9 +173,11 @@ impl AhciHba {
 
         for i in 0..32 {
             if pi & 0x1 << i != 0 {
-                let mut sata = if let Some(s) =
-                    AhciSata::new(self.ports.base + 0x100 + i * 0x80, num_cmd_slots as u64)
-                {
+                let mut sata = if let Some(s) = AhciSata::new(
+                    self.ports.base + HBA_PORT_PORTS_OFFSET + i * HBA_PORT_SIZE,
+                    num_cmd_slots as u64,
+                    self.idx,
+                ) {
                     s
                 } else {
                     continue;

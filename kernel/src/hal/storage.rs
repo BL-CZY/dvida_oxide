@@ -8,6 +8,7 @@ use crate::crypto::guid::Guid;
 use crate::drivers::ata::pata::PataDevice;
 use crate::drivers::ata::sata::AhciSata;
 use crate::drivers::ata::sata::ahci::AhciHba;
+use crate::drivers::ata::sata::task::CUR_AHCI_IDX;
 use crate::ejcineque::sync::mpsc::unbounded::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
@@ -479,7 +480,12 @@ pub fn identify_storage_devices(
                 && device.header_partial.prog_if == SataProgIf::Ahci as u8
             {
                 log!("Initializing AHCI..");
-                let mut ahci = AhciHba::new(device.address);
+                let idx = CUR_AHCI_IDX.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
+                if idx >= 8 {
+                    log!("Too many AHCI devices, skipping");
+                }
+
+                let mut ahci = AhciHba::new(device.address, idx as usize);
 
                 for device in ahci.init().drain(0..) {
                     let device = HalStorageDevice::sata_ahci(device);

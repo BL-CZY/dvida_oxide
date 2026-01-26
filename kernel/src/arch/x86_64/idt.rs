@@ -1,5 +1,3 @@
-use core::sync::atomic::AtomicU8;
-
 use crate::arch::x86_64::handlers::irq::IrqIndex;
 use crate::arch::x86_64::pic::PRIMARY_ISA_PIC_OFFSET;
 
@@ -15,7 +13,6 @@ use x86_64::structures::idt::InterruptDescriptorTable;
 // 0x30-0x38: ahci
 pub const SPURIOUS_INTERRUPT_HANDLER_IDX: u8 = 0xFF;
 pub const AHCI_INTERRUPT_HANDLER_IDX: u8 = 0x30;
-pub const CUR_AHCI_INTERRUPT_HANDLER_IDX: AtomicU8 = AtomicU8::new(0x30);
 
 static IDT: OnceCell<InterruptDescriptorTable> = OnceCell::new();
 
