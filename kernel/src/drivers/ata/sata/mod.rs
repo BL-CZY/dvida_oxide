@@ -142,6 +142,94 @@ impl PortControl {
     pub const IPM_DISABLE_BOTH: u32 = 0x3;
 }
 
+bitfield! {
+    pub struct PortInterruptEnable(u32);
+    impl Debug;
+    pub cold_presence_detect_enable, set_cold_presence_detect_enable: 31;
+    pub task_file_error_enable, set_task_file_error_enable: 30;
+    pub host_bus_fatal_error_enable, set_host_bus_fatal_error_enable: 29;
+    pub host_bus_data_error_enable, set_host_bus_data_error_enable: 28;
+    pub interface_fatal_error_enable, set_interface_fatal_error_enable: 27;
+    pub interface_non_fatal_error_enable, set_interface_non_fatal_error_enable: 26;
+    pub fifo_overflow_enable, set_fifo_overflow_enable: 22;
+    pub physical_layer_ready_change_enable, set_physical_layer_ready_change_enable: 20;
+    pub device_mechanical_presence_enable, set_device_mechanical_presence_enable: 7;
+    pub port_connect_status_change_enable, set_port_connect_status_change_enable: 6;
+    pub descriptor_processed_enable, set_descriptor_processed_enable: 5;
+    pub unknown_fis_interrupt_enable, set_unknown_fis_interrupt_enable: 4;
+    pub dma_setup_fis_interrupt_enable, set_dma_setup_fis_interrupt_enable: 3;
+    pub pio_setup_fis_interrupt_enable, set_pio_setup_fis_interrupt_enable: 2;
+    pub device_to_host_register_fis_interrupt_enable, set_device_to_host_register_fis_interrupt_enable: 1;
+}
+
+bitfield! {
+    pub struct PortInterruptStatus(u32);
+    impl Debug;
+    pub cold_presence_detect_enable, _: 31;
+    pub task_file_error_enable, _: 30;
+    pub host_bus_fatal_error_enable, _: 29;
+    pub host_bus_data_error_enable, _ : 28;
+    pub interface_fatal_error_enable, _ : 27;
+    pub interface_non_fatal_error_enable, _ : 26;
+    pub fifo_overflow_enable, _ : 22;
+    pub physical_layer_ready_change_enable, _ : 20;
+    pub device_mechanical_presence_enable, _ : 7;
+    pub port_connect_status_change_enable, _ : 6;
+    // generates an interrupt when it has finished
+    pub descriptor_processed_enable, _ : 5;
+    pub unknown_fis_interrupt_enable, _ : 4;
+    pub dma_setup_fis_interrupt_enable, _ : 3;
+    pub pio_setup_fis_interrupt_enable, _ : 2;
+    pub device_to_host_register_fis_interrupt_enable, _ : 1;
+}
+
+bitfield! {
+    pub struct SataError(u32);
+    impl Debug;
+    // Diagnostic fields
+    pub exchanged, _: 26;
+    pub unknown_fis_type, _: 25;
+    pub transport_state_transition_error, _: 24;
+    pub link_sequence_error, _: 23;
+    pub handshake_error, _: 22;
+    pub cyclic_redundancy_check_error, _: 21;
+    pub protocol_error, _: 20;
+    pub internal_error, _: 19;
+    pub bit_decode_error, _: 18;
+    pub communication_wake, _: 17;
+    pub physical_layer_internal_error, _: 16;
+
+    // Error fields
+    pub recovered_communications_error, _: 1;
+    pub recovered_data_integrity_error, _: 0;
+}
+
+bitfield! {
+    pub struct PortTaskFileData(u32);
+    impl Debug;
+    // Error register (bits 15:8)
+    pub error_code, _: 15, 8;
+
+    // Status register (bits 7:0)
+    pub busy, _: 7;
+    pub data_transfer_requested, _: 3;
+    pub error_occurred, _: 0;
+    pub status_byte, _: 7, 0;
+}
+
+bitfield! {
+    pub struct AtaError(u8);
+    impl Debug;
+    pub interface_cyclic_redundancy_check_error, _: 7;
+    pub uncorrectable_data_error, _: 6;
+    pub media_changed, _: 5;
+    pub identifier_not_found, _: 4;
+    pub media_change_requested, _: 3;
+    pub command_aborted, _: 2;
+    pub track_zero_not_found, _: 1;
+    pub address_mark_not_found, _: 0;
+}
+
 impl AhciSata {
     const START: u32 = 0x1 << 0;
     const COMMAND_LIST_RUNNING: u32 = 0x1 << 15;
@@ -279,7 +367,15 @@ impl AhciSata {
         Ok(())
     }
 
+    pub async fn failure_reset(&mut self) {
+        self.reset_cmd();
+
+        todo!()
+    }
+
     pub fn init(&mut self) -> Result<(), TimeOut> {
+        self.disable_interrupts();
+
         let status = PortStatus(self.ports.read_sata_status());
         // if it's offline wake it up first
         if status.device_detection() == PortStatus::DET_OFFLINE
@@ -388,8 +484,20 @@ impl AhciSata {
         log!("Reset complete");
 
         self.identify();
+        self.enable_interrupts();
 
         Ok(())
+    }
+
+    fn enable_interrupts(&mut self) {
+        let mut interrupts = PortInterruptEnable(0);
+        interrupts.set_task_file_error_enable(true);
+        interrupts.set_descriptor_processed_enable(true);
+        self.ports.write_interrupt_enable(interrupts.0);
+    }
+
+    fn disable_interrupts(&mut self) {
+        self.ports.write_interrupt_enable(0);
     }
 
     fn nth_command_table_offset(n: u64) -> u64 {

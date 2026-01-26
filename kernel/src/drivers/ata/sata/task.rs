@@ -86,15 +86,15 @@ impl AhciSata {
             match combined_future.await {
                 Either::Left(Some(op)) => {}
                 Either::Right(_) => {
-                    let interrupt_status = self.ports.read_interrupt_status();
+                    let cmd_issue = self.ports.read_command_issue();
                     for i in 0..32 {
-                        if interrupt_status & (0x1 << i) != 0 {
+                        if cmd_issue & (0x1 << i) == 0 && operations[i].is_some() {
                             if let Some(op) = operations[i].take() {
                                 self.finish_operation(op);
                             }
                         }
                     }
-                    self.ports.write_interrupt_status(interrupt_status);
+                    self.ports.write_command_issue(cmd_issue);
                 }
                 _ => {}
             }
