@@ -60,7 +60,23 @@ impl Future for AhciSataPortFuture {
 }
 
 impl AhciSata {
+    fn finish_operation(&mut self, op: HalStorageOperation) {
+        match op {
+            HalStorageOperation::Read { buffer, sender, .. } => {
+                sender.send(Ok(buffer));
+            }
+
+            HalStorageOperation::Write { sender, .. } => {
+                sender.send(Ok(()));
+            }
+
+            _ => {}
+        }
+    }
+
     pub async fn run_task(&mut self, rx: &UnboundedReceiver<HalStorageOperation>) {
+        let mut operations: [Option<HalStorageOperation>; 32] = Default::default();
+
         loop {
             let combined_future = ejcineque::futures::race::race(
                 rx.recv(),
@@ -69,7 +85,17 @@ impl AhciSata {
 
             match combined_future.await {
                 Either::Left(Some(op)) => {}
-                Either::Right(_) => {}
+                Either::Right(_) => {
+                    let interrupt_status = self.ports.read_interrupt_status();
+                    for i in 0..32 {
+                        if interrupt_status & (0x1 << i) != 0 {
+                            if let Some(op) = operations[i].take() {
+                                self.finish_operation(op);
+                            }
+                        }
+                    }
+                    self.ports.write_interrupt_status(interrupt_status);
+                }
                 _ => {}
             }
         }
@@ -90,7 +116,7 @@ pub fn ahci_interrupt_handler_by_idx(idx: usize) {
         return;
     };
 
-    let ports = AhciHbaPorts { base: *base };
+    let mut ports = AhciHbaPorts { base: *base };
 
     let interrupt_status = ports.read_interrupt_status();
 
@@ -99,4 +125,6 @@ pub fn ahci_interrupt_handler_by_idx(idx: usize) {
             port_interrupt_handler(idx, i);
         }
     }
+
+    ports.write_interrupt_status(interrupt_status);
 }
