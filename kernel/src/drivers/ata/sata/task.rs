@@ -5,13 +5,14 @@ use once_cell_no_std::OnceCell;
 use x86_64::{VirtAddr, instructions::interrupts::without_interrupts};
 
 use crate::{
-    drivers::ata::sata::{AhciSata, ahci::AhciHbaPorts},
+    drivers::ata::sata::{AhciSata, PortInterruptStatus, PortTaskFileData, ahci::AhciHbaPorts},
     ejcineque::{
         self,
         futures::race::Either,
         sync::{mpsc::unbounded::UnboundedReceiver, spin::SpinMutex},
     },
     hal::storage::HalStorageOperation,
+    log,
 };
 
 pub static CUR_AHCI_IDX: AtomicU8 = AtomicU8::new(0x0);
@@ -60,18 +61,67 @@ impl Future for AhciSataPortFuture {
 }
 
 impl AhciSata {
-    fn finish_operation(&mut self, op: HalStorageOperation) {
+    fn finish_operation(&mut self, op: HalStorageOperation, is_err: bool) {
         match op {
             HalStorageOperation::Read { buffer, sender, .. } => {
+                if is_err {
+                    sender.send(Err(crate::hal::storage::HalStorageOperationErr::DriveErr(
+                        "".into(),
+                    )));
+                }
+
                 sender.send(Ok(buffer));
             }
 
             HalStorageOperation::Write { sender, .. } => {
                 sender.send(Ok(()));
+
+                if is_err {
+                    sender.send(Err(crate::hal::storage::HalStorageOperationErr::DriveErr(
+                        "".into(),
+                    )));
+                }
             }
 
             _ => {}
         }
+    }
+
+    async fn handle_interrupt(&mut self, operations: &mut [Option<HalStorageOperation>; 32]) {
+        let mut error = false;
+        let interrupt_status = PortInterruptStatus(self.ports.read_interrupt_status());
+        if interrupt_status.interface_fatal_error() || interrupt_status.host_bus_fatal_error() {
+            // TODO: set everything to failure
+            self.failure_reset().await;
+        }
+
+        if interrupt_status.interface_non_fatal_error() {
+            todo!();
+        }
+
+        if interrupt_status.host_bus_data_error() {
+            todo!();
+        }
+
+        if interrupt_status.task_file_error() {
+            error = true;
+            log!(
+                "Error from AHCI SATA: {:b}",
+                PortTaskFileData(self.ports.read_task_file_data()).error_code()
+            )
+        }
+
+        let cmd_issue = self.ports.read_command_issue();
+        for i in 0..32 {
+            if cmd_issue & (0x1 << i) == 0 && operations[i].is_some() {
+                if let Some(op) = operations[i].take() {
+                    self.finish_operation(op, error);
+                }
+            }
+        }
+
+        self.ports.write_command_issue(cmd_issue);
+        self.ports.write_interrupt_status(interrupt_status.0);
     }
 
     pub async fn run_task(&mut self, rx: &UnboundedReceiver<HalStorageOperation>) {
@@ -86,15 +136,7 @@ impl AhciSata {
             match combined_future.await {
                 Either::Left(Some(op)) => {}
                 Either::Right(_) => {
-                    let cmd_issue = self.ports.read_command_issue();
-                    for i in 0..32 {
-                        if cmd_issue & (0x1 << i) == 0 && operations[i].is_some() {
-                            if let Some(op) = operations[i].take() {
-                                self.finish_operation(op);
-                            }
-                        }
-                    }
-                    self.ports.write_command_issue(cmd_issue);
+                    self.handle_interrupt(&mut operations).await;
                 }
                 _ => {}
             }

@@ -165,22 +165,22 @@ bitfield! {
 bitfield! {
     pub struct PortInterruptStatus(u32);
     impl Debug;
-    pub cold_presence_detect_enable, _: 31;
-    pub task_file_error_enable, _: 30;
-    pub host_bus_fatal_error_enable, _: 29;
-    pub host_bus_data_error_enable, _ : 28;
-    pub interface_fatal_error_enable, _ : 27;
-    pub interface_non_fatal_error_enable, _ : 26;
-    pub fifo_overflow_enable, _ : 22;
-    pub physical_layer_ready_change_enable, _ : 20;
-    pub device_mechanical_presence_enable, _ : 7;
-    pub port_connect_status_change_enable, _ : 6;
+    pub cold_presence_detect, _: 31;
+    pub task_file_error, _: 30;
+    pub host_bus_fatal_error, _: 29;
+    pub host_bus_data_error, _ : 28;
+    pub interface_fatal_error, _ : 27;
+    pub interface_non_fatal_error, _ : 26;
+    pub fifo_overflow, _ : 22;
+    pub physical_layer_ready_change, _ : 20;
+    pub device_mechanical_presence, _ : 7;
+    pub port_connect_status_change, _ : 6;
     // generates an interrupt when it has finished
-    pub descriptor_processed_enable, _ : 5;
-    pub unknown_fis_interrupt_enable, _ : 4;
-    pub dma_setup_fis_interrupt_enable, _ : 3;
-    pub pio_setup_fis_interrupt_enable, _ : 2;
-    pub device_to_host_register_fis_interrupt_enable, _ : 1;
+    pub descriptor_processed, _ : 5;
+    pub unknown_fis_interrupt, _ : 4;
+    pub dma_setup_fis_interrupt, _ : 3;
+    pub pio_setup_fis_interrupt, _ : 2;
+    pub device_to_host_register_fis_interrupt, _ : 1;
 }
 
 bitfield! {
@@ -492,6 +492,8 @@ impl AhciSata {
     fn enable_interrupts(&mut self) {
         let mut interrupts = PortInterruptEnable(0);
         interrupts.set_task_file_error_enable(true);
+        interrupts.set_interface_fatal_error_enable(true);
+        interrupts.set_host_bus_fatal_error_enable(true);
         interrupts.set_descriptor_processed_enable(true);
         self.ports.write_interrupt_enable(interrupts.0);
     }
