@@ -16,6 +16,7 @@ pub fn ahci_interrupt_handler_template(_stream: TokenStream) -> TokenStream {
             paste::paste! {
                 extern "C" fn #handler_inner_name(_stack_frame: InterruptNoErrcodeFrame) {
                     ahci_interrupt_handler_by_idx(#idx);
+                    get_local_apic().write_eoi(0);
                 }
 
                 #[unsafe(naked)]

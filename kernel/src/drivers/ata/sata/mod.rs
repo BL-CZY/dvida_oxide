@@ -574,6 +574,7 @@ impl AhciSata {
         log!("Reset complete");
 
         self.identify();
+
         self.enable_interrupts();
 
         Ok(())
@@ -585,6 +586,7 @@ impl AhciSata {
         interrupts.set_interface_fatal_error_enable(true);
         interrupts.set_host_bus_fatal_error_enable(true);
         interrupts.set_descriptor_processed_enable(true);
+        interrupts.set_device_to_host_register_fis_interrupt_enable(true);
         self.ports.write_interrupt_enable(interrupts.0);
     }
 

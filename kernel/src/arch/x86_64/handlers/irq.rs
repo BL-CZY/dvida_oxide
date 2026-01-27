@@ -145,21 +145,4 @@ pub extern "x86-interrupt" fn secondary_ide_handler(_stack_frame: InterruptStack
     handler_wrapper_noerrcode!(secondary_ide_handler_inner);
 }
 
-// macro_rules! ahci_interrupt_handler_template {
-//     ($idx:expr) => {
-//         paste::paste! {
-//
-//         extern "C" fn [<ahci_interrupt_handler_inner_$idx>](_stack_frame: InterruptNoErrcodeFrame) {
-//             ahci_interrupt_handler_by_idx($idx);
-//         }
-//
-//         #[unsafe(naked)]
-//         pub extern "x86-interrupt" fn [<ahci_interrupt_handler_$idx>](_stack_frame: InterruptStackFrame) {
-//             handler_wrapper_noerrcode!([<ahci_interrupt_handler_inner_$idx>])
-//         }
-//
-//         }
-//     };
-// }
-
 ahci_interrupt_handler_template!();

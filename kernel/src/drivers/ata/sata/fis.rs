@@ -57,6 +57,7 @@ bitfield! {
 }
 
 pub const DEVICE_LBA_MODE: u8 = 0x1 << 6;
+pub const FORCE_UNIT_FLUSH: u8 = 0x1 << 7;
 
 #[derive(Pod, Zeroable, Clone, Copy, SmartDefault)]
 #[repr(C, packed)]

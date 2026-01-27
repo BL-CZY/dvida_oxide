@@ -3,12 +3,13 @@ use crate::{
     drivers::ata::sata::{
         AhciSata,
         command::{CommandHeader, CommandHeaderFlags, CommandTable, PrdtEntry, PrdtEntryFlags},
-        fis::{self, AtaCommand, DEVICE_LBA_MODE, FisRegH2DFlags},
+        fis::{self, AtaCommand, DEVICE_LBA_MODE, FORCE_UNIT_FLUSH, FisRegH2DFlags},
     },
     hal::{
         buffer::Buffer,
         storage::{HalBlockDevice, SECTOR_SIZE},
     },
+    log,
 };
 
 impl AhciSata {
@@ -24,6 +25,8 @@ impl AhciSata {
         if !self.lba48_supported() {
             return;
         }
+
+        log!("start read");
 
         let count = (buffer.len() / SECTOR_SIZE) as u16;
 
@@ -63,7 +66,7 @@ impl AhciSata {
             lba5: (lba >> 40) as u8 & 0xFF,
             count_low: count as u8 & 0xFF,
             count_high: (count >> 8) as u8 & 0xFF,
-            device: DEVICE_LBA_MODE,
+            device: DEVICE_LBA_MODE | FORCE_UNIT_FLUSH,
             ..Default::default()
         };
 
@@ -103,6 +106,8 @@ impl AhciSata {
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
         self.ports.write_command_issue(0x1 << cmd_queue_idx);
+
+        log!("waiting for interrupt");
     }
 
     /// this will be mainly used for page cache, the buffer will be a page

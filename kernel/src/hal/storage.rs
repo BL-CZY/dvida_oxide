@@ -67,7 +67,6 @@ pub struct HalStorageDevice {
 }
 
 #[derive(Debug)]
-/// the buffers have to be 4096 bytes aligned
 /// TODO: page cache
 pub enum HalStorageOperation {
     Read {

@@ -7,7 +7,7 @@
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 
-use alloc::sync::Arc;
+use alloc::{boxed::Box, sync::Arc, vec};
 use once_cell_no_std::OnceCell;
 
 extern crate alloc;
@@ -57,8 +57,9 @@ use crate::{
     args::parse_args,
     crypto::random::run_random,
     hal::{
-        storage::{identify_storage_devices, run_storage_devices},
-        vfs::spawn_vfs_task,
+        buffer::Buffer,
+        storage::{identify_storage_devices, read_sectors_by_idx, run_storage_devices},
+        // vfs::spawn_vfs_task,
     },
     terminal::WRITER,
 };
@@ -98,13 +99,24 @@ async fn kernel_main(spawner: Spawner) {
     yield_now().await;
     log!("Random number task launched");
 
-    let args = parse_args();
+    // let args = parse_args();
 
-    spawner.spawn(spawn_vfs_task(args.root_drive, args.root_entry));
-    yield_now().await;
-    log!("VFS task launched");
+    // spawner.spawn(spawn_vfs_task(args.root_drive, args.root_entry));
+    // yield_now().await;
+    // log!("VFS task launched");
 
     spawner.spawn(deallocator_task());
+    yield_now().await;
+
+    let buffer = vec![0u32; 128].into_boxed_slice();
+    let buffer = buffer.as_ptr() as *mut u8;
+    let buffer = Buffer {
+        inner: buffer,
+        len: 512,
+    };
+
+    let buffer: Box<[u8]> = read_sectors_by_idx(0, buffer, 1).await.unwrap().into();
+    log!("{:?}", buffer);
 }
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
@@ -178,12 +190,6 @@ unsafe extern "C" fn _start() -> ! {
     let mut device_tree = iterate_pcie_entries(&mcfg.entries);
 
     identify_storage_devices(&mut device_tree);
-
-    unsafe {
-        loop {
-            asm!("hlt");
-        }
-    }
 
     enable_syscalls();
 

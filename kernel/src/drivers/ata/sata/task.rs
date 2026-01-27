@@ -171,6 +171,7 @@ impl AhciSata {
     }
 
     async fn start_operation(&mut self, op: HalStorageOperation, state: &mut AhciTaskState) {
+        log!("About to start operation");
         state.remaining_operations -= 1;
 
         for i in 0..=self.max_cmd_slots as usize {
@@ -216,6 +217,7 @@ impl AhciSata {
 
 fn port_interrupt_handler(hba_idx: usize, port_idx: usize) {
     let lock = &AHCI_WAKERS_MAP[hba_idx][port_idx];
+    log!("port handler: {:?}", port_idx);
     without_interrupts(|| {
         if let Some(w) = lock.lock().deref_mut().take() {
             w.wake();
@@ -224,7 +226,9 @@ fn port_interrupt_handler(hba_idx: usize, port_idx: usize) {
 }
 
 pub fn ahci_interrupt_handler_by_idx(idx: usize) {
+    log!("hello");
     let Some(base) = AHCI_PORTS_MAP[idx].get() else {
+        log!("hello1");
         return;
     };
 

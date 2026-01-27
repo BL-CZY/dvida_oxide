@@ -91,7 +91,7 @@ impl AhciHba {
             &mut None,
         );
 
-        let _ = AHCI_PORTS_MAP[hba_idx].set(location);
+        let _ = AHCI_PORTS_MAP[hba_idx].set(base);
 
         log!("created new ahci");
 
@@ -143,6 +143,10 @@ impl AhciHba {
         } else {
             msi_cap_node.write_message_data_register(msi_data.0);
         }
+
+        // enable msi
+        msi_cap_node
+            .write_message_control_register(msi_cap_node.read_message_control_register() | 0x1);
 
         log!("Configured Interrupts of AHCI");
 
