@@ -84,8 +84,7 @@ pub struct AhciSata {
     pub dma_20kb_buffer_vaddr: VirtAddr,
     pub dma_20kb_buffer_paddr: PhysAddr,
     pub max_cmd_slots: u64,
-    pub sectors_per_track: u16,
-    pub sector_count: u64,
+    pub identify_data: IdentifyData,
     pub hba_idx: usize,
     pub ports_idx: usize,
 }
@@ -314,8 +313,7 @@ impl AhciSata {
             dma_20kb_buffer_vaddr: get_hhdm_offset() + frames[0].start_address().as_u64(),
             dma_20kb_buffer_paddr: frames[0].start_address(),
             max_cmd_slots,
-            sector_count: 0,
-            sectors_per_track: 0,
+            identify_data: IdentifyData::default(),
             hba_idx,
             ports_idx,
         })
@@ -564,10 +562,7 @@ impl AhciSata {
 
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
-        let mut cmd_issue = self.ports.read_command_issue();
-        cmd_issue &= !0x1;
-        cmd_issue |= 0x1;
-        self.ports.write_command_issue(cmd_issue);
+        self.ports.write_command_issue(0x1);
 
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
@@ -593,8 +588,7 @@ impl AhciSata {
 
         log!("{:?}", identify_data);
 
-        self.sectors_per_track = identify_data.sectors_per_track;
-        self.sector_count = identify_data.lba48_sectors;
+        self.identify_data = *identify_data;
     }
 }
 
@@ -630,11 +624,13 @@ impl HalBlockDevice for AhciSata {
     }
 
     fn sector_count(&mut self) -> u64 {
-        self.sector_count
+        self.identify_data
+            .lba48_sectors
+            .max(self.identify_data.lba28_sectors.into())
     }
 
     fn sectors_per_track(&mut self) -> u16 {
-        self.sectors_per_track
+        self.identify_data.sectors_per_track
     }
 
     fn run<'device, 'rx, 'future>(

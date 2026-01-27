@@ -56,6 +56,8 @@ bitfield! {
     pub is_command, set_is_command: 7;
 }
 
+pub const DEVICE_LBA_MODE: u8 = 0x1 << 6;
+
 #[derive(Pod, Zeroable, Clone, Copy, SmartDefault)]
 #[repr(C, packed)]
 pub struct FisRegH2D {

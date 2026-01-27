@@ -1,10 +1,11 @@
 use bitfield::bitfield;
 use bytemuck::{Pod, Zeroable};
+use smart_default::SmartDefault;
 
 use crate::drivers::ata::sata::fis::FisRegH2D;
 
 #[repr(C, align(2))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, SmartDefault)]
 pub struct IdentifyData {
     /// Word 0: General configuration (Bit 15: 0=ATA, 1=ATAPI)
     pub config: u16,
@@ -25,6 +26,7 @@ pub struct IdentifyData {
     /// Words 23-26: Firmware revision (8 ASCII characters, byte-swapped)
     pub firmware_rev: [u8; 8],
     /// Words 27-46: Model number (40 ASCII characters, byte-swapped)
+    #[default([0; 40])]
     pub model: [u8; 40],
     /// Word 47: Read/Write multiple support
     pub trusted_computing: u16,
@@ -51,6 +53,7 @@ pub struct IdentifyData {
     /// Words 100-103: Total number of user-addressable logical sectors (LBA48)
     pub lba48_sectors: u64,
     /// Words 104-255: Reserved
+    #[default([0; 152])]
     pub _reserved6: [u16; 152],
 }
 
