@@ -192,4 +192,47 @@ impl AhciSata {
 
         self.ports.write_command_issue(0x1 << cmd_queue_idx);
     }
+
+    pub async fn issue_flush(&mut self, cmd_queue_idx: usize) {
+        // Point to the table (same logic as your write function)
+        let table_phys = self.dma_20kb_buffer_paddr.as_u64()
+            + Self::nth_command_table_offset(cmd_queue_idx as u64);
+
+        let buf = self.get_buffer();
+
+        // Get the specific Command Table for this slot
+        let table_offset = Self::nth_command_table_offset(cmd_queue_idx as u64) as usize;
+        let cmd_table: &mut CommandTable = bytemuck::from_bytes_mut(
+            &mut buf[table_offset..table_offset + size_of::<CommandTable>()],
+        );
+
+        let mut fis_flags = FisRegH2DFlags(0);
+        fis_flags.set_is_command(true);
+        fis_flags.set_port_multiplier(0);
+
+        cmd_table.cmd_fis = fis::FisRegH2D {
+            command: AtaCommand::FlushCache as u8,
+            flags: fis_flags.0,
+            device: DEVICE_LBA_MODE,
+            ..Default::default()
+        };
+
+        // Prepare the Header
+        let header_offset = cmd_queue_idx * size_of::<CommandHeader>();
+        let cmd_header: &mut CommandHeader = bytemuck::from_bytes_mut(
+            &mut buf[header_offset..header_offset + size_of::<CommandHeader>()],
+        );
+
+        cmd_header.physical_region_descriptor_table_length = 0; // No data transfer
+        cmd_header.flags = 5; // 5 DWORDS for H2D FIS
+        cmd_header.physical_region_descriptor_bytes_count = 0;
+
+        cmd_header.cmd_table_base_addr_low = table_phys as u32;
+        cmd_header.cmd_table_base_addr_high = (table_phys >> 32) as u32;
+
+        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+        // Kick the command issue register
+        self.ports.write_command_issue(1 << cmd_queue_idx);
+    }
 }
