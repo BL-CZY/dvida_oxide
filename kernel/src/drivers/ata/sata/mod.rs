@@ -28,6 +28,7 @@ use crate::{
 pub mod ahci;
 pub mod command;
 pub mod fis;
+pub mod io;
 pub mod task;
 
 const RECEIVED_FIS_AREA_OFFSET: u64 = 0x400;

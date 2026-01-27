@@ -25,6 +25,12 @@ lazy_static! {
     pub static ref AHCI_PORTS_MAP: [OnceCell<VirtAddr>; 8] = Default::default();
 }
 
+#[derive(Debug)]
+pub struct AhciTaskState {
+    pub operations: [Option<HalStorageOperation>; 32],
+    pub remaining_operations: u64,
+}
+
 pub struct AhciSataPortFuture {
     pub hba_idx: usize,
     pub port_idx: usize,
@@ -61,7 +67,12 @@ impl Future for AhciSataPortFuture {
 }
 
 impl AhciSata {
-    fn finish_operation(&mut self, op: HalStorageOperation, is_err: bool) {
+    fn finish_operation(
+        &mut self,
+        op: HalStorageOperation,
+        is_err: bool,
+        state: &mut AhciTaskState,
+    ) {
         match op {
             HalStorageOperation::Read { buffer, sender, .. } => {
                 if is_err {
@@ -85,9 +96,11 @@ impl AhciSata {
 
             _ => {}
         }
+
+        state.remaining_operations += 1;
     }
 
-    async fn handle_interrupt(&mut self, operations: &mut [Option<HalStorageOperation>; 32]) {
+    async fn handle_interrupt(&mut self, state: &mut AhciTaskState) {
         let mut error = false;
         let interrupt_status = PortInterruptStatus(self.ports.read_interrupt_status());
         if interrupt_status.interface_fatal_error() || interrupt_status.host_bus_fatal_error() {
@@ -113,9 +126,9 @@ impl AhciSata {
 
         let cmd_issue = self.ports.read_command_issue();
         for i in 0..32 {
-            if cmd_issue & (0x1 << i) == 0 && operations[i].is_some() {
-                if let Some(op) = operations[i].take() {
-                    self.finish_operation(op, error);
+            if cmd_issue & (0x1 << i) == 0 && state.operations[i].is_some() {
+                if let Some(op) = state.operations[i].take() {
+                    self.finish_operation(op, error, state);
                 }
             }
         }
@@ -124,21 +137,46 @@ impl AhciSata {
         self.ports.write_interrupt_status(interrupt_status.0);
     }
 
+    async fn launch_operation(&mut self, i: usize, op: &mut HalStorageOperation) {}
+
+    async fn start_operation(&mut self, mut op: HalStorageOperation, state: &mut AhciTaskState) {
+        state.remaining_operations -= 1;
+
+        for i in 0..=self.max_cmd_slots as usize {
+            if state.operations[i].is_none() {
+                self.launch_operation(i, &mut op).await;
+
+                state.operations[i] = Some(op);
+                break;
+            }
+        }
+    }
+
     pub async fn run_task(&mut self, rx: &UnboundedReceiver<HalStorageOperation>) {
-        let mut operations: [Option<HalStorageOperation>; 32] = Default::default();
+        let operations: [Option<HalStorageOperation>; 32] = Default::default();
+        let remaining_operations = self.max_cmd_slots + 1;
+
+        let mut state = AhciTaskState {
+            operations,
+            remaining_operations,
+        };
 
         loop {
-            let combined_future = ejcineque::futures::race::race(
-                rx.recv(),
-                AhciSataPortFuture::new(self.hba_idx, self.ports_idx),
-            );
+            let sata_future = AhciSataPortFuture::new(self.hba_idx, self.ports_idx);
 
-            match combined_future.await {
-                Either::Left(Some(op)) => {}
-                Either::Right(_) => {
-                    self.handle_interrupt(&mut operations).await;
+            if remaining_operations > 0 {
+                let combined_future = ejcineque::futures::race::race(rx.recv(), sata_future);
+
+                match combined_future.await {
+                    Either::Left(Some(op)) => {}
+                    Either::Right(_) => {
+                        self.handle_interrupt(&mut state).await;
+                    }
+                    _ => {}
                 }
-                _ => {}
+            } else {
+                sata_future.await;
+                self.handle_interrupt(&mut state).await;
             }
         }
     }
