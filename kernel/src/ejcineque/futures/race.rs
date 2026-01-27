@@ -1,5 +1,7 @@
 use core::pin::Pin;
 
+use crate::log;
+
 pub enum Either<T, D>
 where
     T: Send + Sync,
@@ -32,12 +34,18 @@ where
     ) -> core::task::Poll<Self::Output> {
         match self.left_future.as_mut().poll(cx) {
             core::task::Poll::Pending => {}
-            core::task::Poll::Ready(res) => return core::task::Poll::Ready(Either::Left(res)),
+            core::task::Poll::Ready(res) => {
+                log!("polled 1");
+                return core::task::Poll::Ready(Either::Left(res));
+            }
         }
 
         match self.right_future.as_mut().poll(cx) {
             core::task::Poll::Pending => {}
-            core::task::Poll::Ready(res) => return core::task::Poll::Ready(Either::Right(res)),
+            core::task::Poll::Ready(res) => {
+                log!("polled 2");
+                return core::task::Poll::Ready(Either::Right(res));
+            }
         }
 
         core::task::Poll::Pending

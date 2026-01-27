@@ -5,7 +5,10 @@ use once_cell_no_std::OnceCell;
 use x86_64::{VirtAddr, instructions::interrupts::without_interrupts};
 
 use crate::{
-    drivers::ata::sata::{AhciSata, PortInterruptStatus, PortTaskFileData, ahci::AhciHbaPorts},
+    drivers::ata::sata::{
+        AhciSata, AhciSataPorts, PortInterruptStatus, PortTaskFileData,
+        ahci::{AhciHbaPorts, HBA_PORT_PORTS_OFFSET, HBA_PORT_SIZE},
+    },
     ejcineque::{
         self,
         futures::race::Either,
@@ -57,6 +60,7 @@ impl Future for AhciSataPortFuture {
         if self.awaken {
             core::task::Poll::Ready(())
         } else {
+            log!("setting waker!");
             self.as_mut().awaken = true;
             without_interrupts(|| {
                 *AHCI_WAKERS_MAP[self.hba_idx][self.port_idx].lock() = Some(cx.waker().clone());
@@ -215,20 +219,29 @@ impl AhciSata {
     }
 }
 
-fn port_interrupt_handler(hba_idx: usize, port_idx: usize) {
+fn port_interrupt_handler(hba_idx: usize, port_idx: usize, hba_base: VirtAddr) {
     let lock = &AHCI_WAKERS_MAP[hba_idx][port_idx];
-    log!("port handler: {:?}", port_idx);
+
     without_interrupts(|| {
         if let Some(w) = lock.lock().deref_mut().take() {
+            log!("waking interrupt");
             w.wake();
         }
     });
+
+    let mut ports = AhciSataPorts {
+        base: hba_base + HBA_PORT_PORTS_OFFSET + HBA_PORT_SIZE * port_idx as u64,
+    };
+
+    ports.write_interrupt_status(ports.read_interrupt_status());
+    let px_serr = ports.read_sata_error();
+    if px_serr != 0 {
+        ports.write_sata_error(px_serr);
+    }
 }
 
 pub fn ahci_interrupt_handler_by_idx(idx: usize) {
-    log!("hello");
     let Some(base) = AHCI_PORTS_MAP[idx].get() else {
-        log!("hello1");
         return;
     };
 
@@ -238,7 +251,7 @@ pub fn ahci_interrupt_handler_by_idx(idx: usize) {
 
     for i in 0..32 {
         if interrupt_status & (0x1 << i) != 0 {
-            port_interrupt_handler(idx, i);
+            port_interrupt_handler(idx, i, ports.base);
         }
     }
 
