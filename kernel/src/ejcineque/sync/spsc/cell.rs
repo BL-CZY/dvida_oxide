@@ -3,6 +3,7 @@ use alloc::sync::Arc;
 use crate::ejcineque::sync::spin::SpinMutex;
 use core::task::Waker;
 
+#[derive(Debug)]
 pub struct SpscCell<T> {
     inner: Option<T>,
     waker: Option<Waker>,
@@ -18,6 +19,7 @@ impl<'a, T> SpscCellGetter<T> {
     }
 }
 
+#[derive(Debug)]
 pub struct SpscCellSetter<T> {
     cell: Arc<SpinMutex<SpscCell<T>>>,
 }

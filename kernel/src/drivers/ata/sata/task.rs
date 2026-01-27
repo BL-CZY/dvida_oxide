@@ -74,27 +74,35 @@ impl AhciSata {
         state: &mut AhciTaskState,
     ) {
         match op {
-            HalStorageOperation::Read { buffer, sender, .. } => {
+            HalStorageOperation::Read { buffer, setter, .. } => {
                 if is_err {
-                    sender.send(Err(crate::hal::storage::HalStorageOperationErr::DriveErr(
+                    setter.set(Err(crate::hal::storage::HalStorageOperationErr::DriveErr(
                         "".into(),
                     )));
-                }
-
-                sender.send(Ok(buffer));
-            }
-
-            HalStorageOperation::Write { sender, .. } => {
-                sender.send(Ok(()));
-
-                if is_err {
-                    sender.send(Err(crate::hal::storage::HalStorageOperationErr::DriveErr(
-                        "".into(),
-                    )));
+                } else {
+                    setter.set(Ok(buffer));
                 }
             }
 
-            _ => {}
+            HalStorageOperation::Write { setter, .. } => {
+                if is_err {
+                    setter.set(Err(crate::hal::storage::HalStorageOperationErr::DriveErr(
+                        "".into(),
+                    )));
+                } else {
+                    setter.set(Ok(()));
+                }
+            }
+
+            HalStorageOperation::Flush { setter } => {
+                if is_err {
+                    setter.set(Err(crate::hal::storage::HalStorageOperationErr::DriveErr(
+                        "".into(),
+                    )));
+                } else {
+                    setter.set(Ok(()));
+                }
+            }
         }
 
         state.remaining_operations += 1;
@@ -109,11 +117,13 @@ impl AhciSata {
         }
 
         if interrupt_status.interface_non_fatal_error() {
-            todo!();
+            error = true;
+            log!("interface non fatal error");
         }
 
         if interrupt_status.host_bus_data_error() {
-            todo!();
+            error = true;
+            log!("host bus data error");
         }
 
         if interrupt_status.task_file_error() {
@@ -152,7 +162,9 @@ impl AhciSata {
                 self.start_write_sectors(i, *lba, buffer.clone()).await;
             }
 
-            _ => {}
+            HalStorageOperation::Flush { .. } => {
+                self.issue_flush(i).await;
+            }
         }
 
         state.operations[i] = Some(op);

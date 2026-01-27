@@ -20,7 +20,7 @@ use crate::{
         },
         fis::{AtaCommand, FisRegH2DFlags},
     },
-    ejcineque::sync::mpsc::unbounded::UnboundedReceiver,
+    ejcineque::{futures::yield_now, sync::mpsc::unbounded::UnboundedReceiver},
     hal::storage::{HalBlockDevice, HalStorageOperation, SECTOR_SIZE},
     log, pcie_offset_impl,
 };
@@ -367,9 +367,100 @@ impl AhciSata {
     }
 
     pub async fn failure_reset(&mut self) {
-        self.reset_cmd();
+        'outer: loop {
+            self.disable_interrupts();
+            self.reset_cmd();
 
-        todo!()
+            let time = Instant::now();
+            'inner: loop {
+                let cmd_status = self.ports.read_command_and_status();
+                let cur = Instant::now();
+                if cur - time > Duration::from_secs(1) {
+                    continue 'outer;
+                }
+
+                if cmd_status & (Self::COMMAND_LIST_RUNNING | Self::FIS_RECEIVE_RUNNING) == 0 {
+                    break 'inner;
+                }
+                yield_now().await;
+            }
+
+            let mut control_port = PortControl(self.ports.read_sata_control());
+            control_port.set_det_init(PortControl::DET_COMRESET);
+            self.ports.write_sata_control(control_port.0);
+
+            let start = Instant::now();
+
+            loop {
+                if PortStatus(self.ports.read_sata_status()).device_detection()
+                    == PortStatus::DET_PRESENT_WITH_PHY
+                {
+                    break;
+                }
+
+                let now = Instant::now();
+                if now - start >= Duration::from_secs(1) {
+                    continue 'outer;
+                }
+
+                yield_now().await;
+            }
+
+            let mut control_port = PortControl(self.ports.read_sata_control());
+            control_port.set_det_init(PortControl::DET_NO_ACTION);
+            self.ports.write_sata_control(control_port.0);
+
+            self.ports
+                .write_command_list_base_lower(self.dma_20kb_buffer_paddr.as_u64() as u32);
+            self.ports
+                .write_command_list_base_higher((self.dma_20kb_buffer_paddr.as_u64() >> 32) as u32);
+
+            let received_fis_area = self.dma_20kb_buffer_paddr.as_u64() + RECEIVED_FIS_AREA_OFFSET;
+
+            self.ports.write_fis_base_lower(received_fis_area as u32);
+            self.ports
+                .write_fis_base_higher((received_fis_area >> 32) as u32);
+
+            // resets sata error
+            self.ports.write_sata_error(0xFFFFFFFF);
+            // this only writes to the non-reserved bits
+            // self.write_sata_error(0b00000_11111_11111_1_0000_1111_000000_11);
+            self.ports.write_interrupt_status(0);
+
+            let start = Instant::now();
+            loop {
+                let tfd = self.ports.read_task_file_data();
+                if (tfd & 0x88) == 0 {
+                    break;
+                } // BSY and DRQ are bits 7 and 3
+                if Instant::now() - start > Duration::from_secs(1) {
+                    log!("Timeout waiting for port to become non-busy");
+                    continue 'outer;
+                }
+                yield_now().await;
+            }
+
+            let mut cmd = PortCmdAndStatus(self.ports.read_command_and_status());
+            cmd.set_fis_recv_enable(true);
+            self.ports.write_command_and_status(cmd.0);
+
+            while !PortCmdAndStatus(self.ports.read_command_and_status()).fis_recv_running() {
+                core::hint::spin_loop();
+                yield_now().await;
+            }
+
+            cmd.set_start(true);
+            self.ports.write_command_and_status(cmd.0);
+
+            while !PortCmdAndStatus(self.ports.read_command_and_status()).cmd_list_running() {
+                core::hint::spin_loop();
+                yield_now().await;
+            }
+
+            self.enable_interrupts();
+
+            break 'outer;
+        }
     }
 
     pub fn init(&mut self) -> Result<(), TimeOut> {

@@ -13,11 +13,10 @@ use crate::ejcineque::sync::mpsc::unbounded::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
 use crate::ejcineque::sync::mutex::Mutex;
+use crate::ejcineque::sync::spsc::cell::{SpscCellSetter, spsc_cells};
 use crate::hal::buffer::Buffer;
-use crate::hal::gpt::{GPTEntry, GPTErr, GPTHeader};
 use crate::{SPAWNER, log};
 use alloc::collections::btree_map::BTreeMap;
-use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::{boxed::Box, string::String};
@@ -74,36 +73,17 @@ pub enum HalStorageOperation {
     Read {
         buffer: Buffer,
         lba: i64,
-        sender: UnboundedSender<Result<Buffer, HalStorageOperationErr>>,
+        setter: SpscCellSetter<Result<Buffer, HalStorageOperationErr>>,
     },
 
     Write {
         buffer: Buffer,
         lba: i64,
-        sender: UnboundedSender<Result<(), HalStorageOperationErr>>,
+        setter: SpscCellSetter<Result<(), HalStorageOperationErr>>,
     },
 
-    InitGpt {
-        force: bool,
-        sender: UnboundedSender<Result<(), GPTErr>>,
-    },
-
-    ReadGpt {
-        sender: UnboundedSender<Result<(GPTHeader, Vec<GPTEntry>), GPTErr>>,
-    },
-
-    AddEntry {
-        name: [u16; 36],
-        start_lba: u64,
-        end_lba: u64,
-        type_guid: Guid,
-        flags: u64,
-        sender: UnboundedSender<Result<(), GPTErr>>,
-    },
-
-    DeleteEntry {
-        idx: u32,
-        sender: UnboundedSender<Result<(), GPTErr>>,
+    Flush {
+        setter: SpscCellSetter<Result<(), HalStorageOperationErr>>,
     },
 }
 
@@ -174,108 +154,6 @@ impl HalStorageDevice {
             device_inner: Arc::new(Mutex::new(Box::new(sata))),
         }
     }
-
-    pub async fn run(&self) {
-        while let Some(op) = self.rx.recv().await {
-            match op {
-                HalStorageOperation::Read {
-                    mut buffer,
-                    lba,
-                    sender,
-                } => {
-                    match self
-                        .device_inner
-                        .lock()
-                        .await
-                        .read_sectors_async(lba, (buffer.len() / SECTOR_SIZE) as u16, &mut buffer)
-                        .await
-                    {
-                        Ok(_) => {
-                            sender.send(Ok(buffer));
-                        }
-                        Err(e) => {
-                            sender.send(Err(HalStorageOperationErr::DriveErr(e.to_string())));
-                        }
-                    }
-                }
-                HalStorageOperation::Write {
-                    buffer,
-                    lba,
-                    sender,
-                } => {
-                    match self
-                        .device_inner
-                        .lock()
-                        .await
-                        .write_sectors_async(lba, (buffer.len() / SECTOR_SIZE) as u16, &buffer)
-                        .await
-                    {
-                        Ok(_) => {
-                            sender.send(Ok(()));
-                        }
-
-                        Err(e) => {
-                            sender.send(Err(HalStorageOperationErr::DriveErr(e.to_string())));
-                        }
-                    }
-                }
-
-                HalStorageOperation::InitGpt { force, sender } => {
-                    match self.create_gpt(force).await {
-                        Ok(_) => {
-                            sender.send(Ok(()));
-                        }
-
-                        Err(e) => {
-                            sender.send(Err(e));
-                        }
-                    }
-                }
-
-                HalStorageOperation::ReadGpt { sender } => match self.read_gpt().await {
-                    Ok(res) => {
-                        sender.send(Ok(res));
-                    }
-
-                    Err(e) => {
-                        sender.send(Err(e));
-                    }
-                },
-
-                HalStorageOperation::AddEntry {
-                    name,
-                    start_lba,
-                    end_lba,
-                    type_guid,
-                    flags,
-                    sender,
-                } => match self
-                    .add_entry(name, start_lba, end_lba, type_guid, flags)
-                    .await
-                {
-                    Ok(_res) => {
-                        sender.send(Ok(()));
-                    }
-
-                    Err(e) => {
-                        sender.send(Err(e));
-                    }
-                },
-
-                HalStorageOperation::DeleteEntry { idx, sender } => {
-                    match self.delete_entry(idx).await {
-                        Ok(res) => {
-                            sender.send(Ok(res));
-                        }
-
-                        Err(e) => {
-                            sender.send(Err(e));
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 pub async fn read_sectors_by_guid(
@@ -307,19 +185,15 @@ pub async fn read_sectors_by_idx(
         .tx
         .clone();
 
-    let (tx, rx) = unbounded_channel::<Result<Buffer, HalStorageOperationErr>>();
+    let (getter, setter) = spsc_cells::<Result<Buffer, HalStorageOperationErr>>();
 
     sender.send(HalStorageOperation::Read {
         buffer,
         lba,
-        sender: tx,
+        setter,
     });
 
-    if let Some(res) = rx.recv().await {
-        res
-    } else {
-        Err(HalStorageOperationErr::DriveDidntRespond)
-    }
+    getter.get().await
 }
 
 pub async fn write_sectors_by_guid(
@@ -351,112 +225,15 @@ pub async fn write_sectors_by_idx(
         .tx
         .clone();
 
-    let (tx, rx) = unbounded_channel::<Result<(), HalStorageOperationErr>>();
+    let (getter, setter) = spsc_cells::<Result<(), HalStorageOperationErr>>();
 
     sender.send(HalStorageOperation::Write {
         buffer,
         lba,
-        sender: tx,
+        setter: setter,
     });
 
-    if let Some(res) = rx.recv().await {
-        res
-    } else {
-        Err(HalStorageOperationErr::DriveDidntRespond)
-    }
-}
-
-pub async fn init_gpt(index: usize, force: bool) -> Result<(), GPTErr> {
-    let sender = if index == PRIMARY {
-        PRIMARY_STORAGE_SENDER.get().unwrap().clone()
-    } else {
-        SECONDARY_STORAGE_SENDER.get().unwrap().clone()
-    };
-
-    let (tx, rx) = unbounded_channel::<Result<(), GPTErr>>();
-
-    sender.send(HalStorageOperation::InitGpt { force, sender: tx });
-
-    if let Some(res) = rx.recv().await {
-        res
-    } else {
-        Err(GPTErr::DriveDidntRespond)
-    }
-}
-
-pub async fn read_gpt(index: usize) -> Result<(GPTHeader, Vec<GPTEntry>), GPTErr> {
-    let sender = if index == PRIMARY {
-        PRIMARY_STORAGE_SENDER.get().unwrap().clone()
-    } else {
-        SECONDARY_STORAGE_SENDER.get().unwrap().clone()
-    };
-
-    let (tx, rx) = unbounded_channel::<Result<(GPTHeader, Vec<GPTEntry>), GPTErr>>();
-
-    sender.send(HalStorageOperation::ReadGpt { sender: tx });
-
-    if let Some(res) = rx.recv().await {
-        res
-    } else {
-        Err(GPTErr::DriveDidntRespond)
-    }
-}
-
-pub async fn add_entry(
-    index: usize,
-    name: &[u16; 36],
-    start_lba: u64,
-    end_lba: u64,
-    type_guid: Guid,
-    flags: u64,
-) -> Result<(), GPTErr> {
-    let sender = if index == PRIMARY {
-        PRIMARY_STORAGE_SENDER.get().unwrap().clone()
-    } else {
-        SECONDARY_STORAGE_SENDER.get().unwrap().clone()
-    };
-
-    let (tx, rx) = unbounded_channel::<Result<(), GPTErr>>();
-
-    // Copy the provided name into a heap allocation and leak it so the
-    // reference we send through the channel has a 'static lifetime.
-    let mut name_arr: [u16; 36] = [0u16; 36];
-    name_arr.copy_from_slice(name);
-    let boxed_name = Box::new(name_arr);
-    let leaked_name: &'static [u16; 36] = Box::leak(boxed_name);
-
-    sender.send(HalStorageOperation::AddEntry {
-        name: *leaked_name,
-        start_lba,
-        end_lba,
-        type_guid,
-        flags,
-        sender: tx,
-    });
-
-    if let Some(res) = rx.recv().await {
-        res
-    } else {
-        Err(GPTErr::DriveDidntRespond)
-    }
-}
-
-pub async fn delete_entry(index: usize, idx: u32) -> Result<(), GPTErr> {
-    let sender = if index == PRIMARY {
-        PRIMARY_STORAGE_SENDER.get().unwrap().clone()
-    } else {
-        SECONDARY_STORAGE_SENDER.get().unwrap().clone()
-    };
-
-    let (tx, rx) = unbounded_channel::<Result<(), GPTErr>>();
-
-    sender.send(HalStorageOperation::DeleteEntry { idx, sender: tx });
-
-    if let Some(res) = rx.recv().await {
-        res
-    } else {
-        Err(GPTErr::DriveDidntRespond)
-    }
+    getter.get().await
 }
 
 #[derive(Debug, Clone, Error)]
