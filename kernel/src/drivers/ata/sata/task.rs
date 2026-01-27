@@ -137,16 +137,34 @@ impl AhciSata {
         self.ports.write_interrupt_status(interrupt_status.0);
     }
 
-    async fn launch_operation(&mut self, i: usize, op: &mut HalStorageOperation) {}
+    async fn launch_operation(
+        &mut self,
+        i: usize,
+        op: HalStorageOperation,
+        state: &mut AhciTaskState,
+    ) {
+        match &op {
+            HalStorageOperation::Read { buffer, lba, .. } => {
+                self.start_read_sectors(i, *lba, buffer.clone()).await;
+            }
 
-    async fn start_operation(&mut self, mut op: HalStorageOperation, state: &mut AhciTaskState) {
+            HalStorageOperation::Write { buffer, lba, .. } => {
+                self.start_write_sectors(i, *lba, buffer.clone()).await;
+            }
+
+            _ => {}
+        }
+
+        state.operations[i] = Some(op);
+    }
+
+    async fn start_operation(&mut self, op: HalStorageOperation, state: &mut AhciTaskState) {
         state.remaining_operations -= 1;
 
         for i in 0..=self.max_cmd_slots as usize {
             if state.operations[i].is_none() {
-                self.launch_operation(i, &mut op).await;
+                self.launch_operation(i, op, state).await;
 
-                state.operations[i] = Some(op);
                 break;
             }
         }
@@ -168,7 +186,9 @@ impl AhciSata {
                 let combined_future = ejcineque::futures::race::race(rx.recv(), sata_future);
 
                 match combined_future.await {
-                    Either::Left(Some(op)) => {}
+                    Either::Left(Some(op)) => {
+                        self.start_operation(op, &mut state).await;
+                    }
                     Either::Right(_) => {
                         self.handle_interrupt(&mut state).await;
                     }
