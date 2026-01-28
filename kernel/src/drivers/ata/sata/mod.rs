@@ -14,6 +14,7 @@ use crate::{
         timer::Instant,
     },
     drivers::ata::sata::{
+        ahci::AhciHbaPorts,
         command::{
             CommandHeader, CommandHeaderFlags, CommandTable, IdentifyData, PrdtEntry,
             PrdtEntryFlags,
@@ -81,6 +82,7 @@ pub struct TimeOut {}
 /// 1280-20479 (0x5000) - 32 command tables of 0x200 bytes each
 pub struct AhciSata {
     pub ports: AhciSataPorts,
+    pub hba_ports: AhciHbaPorts,
     pub dma_20kb_buffer_vaddr: VirtAddr,
     pub dma_20kb_buffer_paddr: PhysAddr,
     pub max_cmd_slots: u64,
@@ -175,7 +177,6 @@ bitfield! {
     pub physical_layer_ready_change, _ : 20;
     pub device_mechanical_presence, _ : 7;
     pub port_connect_status_change, _ : 6;
-    // generates an interrupt when it has finished
     pub descriptor_processed, _ : 5;
     pub unknown_fis_interrupt, _ : 4;
     pub dma_setup_fis_interrupt, _ : 3;
@@ -202,6 +203,11 @@ bitfield! {
     // Error fields
     pub recovered_communications_error, _: 1;
     pub recovered_data_integrity_error, _: 0;
+}
+
+bitfield! {
+    pub struct PortSataError(u32);
+    impl Debug;
 }
 
 bitfield! {
@@ -252,6 +258,7 @@ impl AhciSata {
 
     pub fn new(
         base: VirtAddr,
+        hba_ports: AhciHbaPorts,
         max_cmd_slots: u64,
         hba_idx: usize,
         ports_idx: usize,
@@ -310,6 +317,7 @@ impl AhciSata {
 
         Some(Self {
             ports: AhciSataPorts { base },
+            hba_ports,
             dma_20kb_buffer_vaddr: get_hhdm_offset() + frames[0].start_address().as_u64(),
             dma_20kb_buffer_paddr: frames[0].start_address(),
             max_cmd_slots,

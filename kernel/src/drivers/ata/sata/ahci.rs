@@ -6,7 +6,7 @@ use x86_64::{
 
 use crate::{
     arch::x86_64::{
-        acpi::MMIO_PAGE_TABLE_FLAGS,
+        acpi::{MMIO_PAGE_TABLE_FLAGS, apic::get_local_apic},
         idt::AHCI_INTERRUPT_HANDLER_IDX,
         memory::{get_hhdm_offset, page_table::KERNEL_PAGE_TABLE},
         msi::{MessageAddressRegister, MessageDataRegister, MsiControl, PcieMsiCapNode},
@@ -37,7 +37,7 @@ pub struct AhciHba {
     pub idx: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct AhciHbaPorts {
     /// ghc base
     pub base: VirtAddr,
@@ -109,6 +109,9 @@ impl AhciHba {
             return Vec::new();
         }
 
+        self.header
+            .write_command(self.header.read_command() & !(0x1 << 10));
+
         let ptr = self.header.read_capabilities_ptr();
         let ptr = self.location + ptr as u64;
 
@@ -133,7 +136,8 @@ impl AhciHba {
         let idx = AHCI_INTERRUPT_HANDLER_IDX + self.idx as u8;
         let mut msi_data = MessageDataRegister::default();
         msi_data.set_vector(idx as u32);
-        let msi_addr = MessageAddressRegister::default();
+        let mut msi_addr = MessageAddressRegister::default();
+        msi_addr.set_destination_id(get_local_apic().read_id());
 
         msi_cap_node.write_message_addr_register(msi_addr.0);
 
@@ -152,10 +156,8 @@ impl AhciHba {
 
         // set GHC.AE
         let mut ghc = self.ports.read_ghc();
-        ghc &= !(0x1 << 31);
         ghc |= 0x1 << 31;
         // set GHC.IE
-        ghc &= !(0x1 << 1);
         ghc |= 0x1 << 1;
 
         self.ports.write_ghc(ghc);
@@ -179,6 +181,7 @@ impl AhciHba {
             if pi & 0x1 << i != 0 {
                 let mut sata = if let Some(s) = AhciSata::new(
                     self.ports.base + HBA_PORT_PORTS_OFFSET + i * HBA_PORT_SIZE,
+                    self.ports.clone(),
                     num_cmd_slots as u64,
                     self.idx,
                     i as usize,

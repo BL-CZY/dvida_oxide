@@ -1,0 +1,246 @@
+[2J[001;001H[=3h[2J[001;001H[2J[001;001H[8;042;160t[2J[001;001H[2J[001;001H[8;056;240t[2J[001;001HBdsDxe: loading Boot0002 "UEFI QEMU DVD-ROM QM00005 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x2,0xFFFF,0x0)
+BdsDxe: starting Boot0002 "UEFI QEMU DVD-ROM QM00005 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x2,0xFFFF,0x0)
+[2J[001;001H[001;001H[2J[001;001H[001;001Hsrc/arch/x86_64/memory/memmap.rs - line 55, memmap entry 0: type: Usable, base: 0xffff800000000000, length: 0x87000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 1: type: BootReclaim, base: 0xffff800000087000, length: 0x1000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 2: type: Usable, base: 0xffff800000088000, length: 0x18000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 3: type: Usable, base: 0xffff800000100000, length: 0x700000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 4: type: ACPINVS, base: 0xffff800000800000, length: 0x8000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 5: type: Usable, base: 0xffff800000808000, length: 0x3000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 6: type: ACPINVS, base: 0xffff80000080b000, length: 0x1000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 7: type: Usable, base: 0xffff80000080c000, length: 0x6000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 8: type: Reserved, base: 0xffff800000812000, length: 0x1000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 9: type: Usable, base: 0xffff800000813000, length: 0x1000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 10: type: ACPINVS, base: 0xffff800000814000, length: 0xec000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 11: type: BootReclaim, base: 0xffff800000900000, length: 0xe80000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 12: type: Usable, base: 0xffff800001780000, length: 0x781c4000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 13: type: BootReclaim, base: 0xffff800079944000, length: 0x100000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 14: type: BadMem, base: 0xffff800079a44000, length: 0x67000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 15: type: BootReclaim, base: 0xffff800079aab000, length: 0x624000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 16: type: Usable, base: 0xffff80007a0cf000, length: 0x25000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 17: type: BootReclaim, base: 0xffff80007a0f4000, length: 0x48000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 18: type: Usable, base: 0xffff80007a13c000, length: 0x1a00000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 19: type: BootReclaim, base: 0xffff80007bb3c000, length: 0x72000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 20: type: Usable, base: 0xffff80007bbae000, length: 0x25e8000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 21: type: BootReclaim, base: 0xffff80007e196000, length: 0x556000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 22: type: Reserved, base: 0xffff80007e6ec000, length: 0x114000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 23: type: BootReclaim, base: 0xffff80007e800000, length: 0xced000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 24: type: Reserved, base: 0xffff80007f4ed000, length: 0x100000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 25: type: Reserved, base: 0xffff80007f5ed000, length: 0x100000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 26: type: Reserved, base: 0xffff80007f6ed000, length: 0x80000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 27: type: ACPIReclaim, base: 0xffff80007f76d000, length: 0x12000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 28: type: ACPINVS, base: 0xffff80007f77f000, length: 0x80000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 29: type: BootReclaim, base: 0xffff80007f7ff000, length: 0x6dd000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 30: type: Reserved, base: 0xffff80007fedc000, length: 0x84000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 31: type: ACPINVS, base: 0xffff80007ff60000, length: 0xa0000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 32: type: Framebuffer, base: 0xffff800080000000, length: 0x3e8000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 33: type: Reserved, base: 0xffff8000e0000000, length: 0x10000000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 34: type: Usable, base: 0xffff800100000000, length: 0x80000000
+src/arch/x86_64/memory/memmap.rs - line 55, memmap entry 35: type: Reserved, base: 0xffff80fd00000000, length: 0x300000000
+src/arch/x86_64/memory/memmap.rs - line 73, Ignored the last entry as it's not usable
+src/arch/x86_64/memory/memmap.rs - line 89, total memory: 4G (round down), total usable: 3G (round down)
+src/arch/x86_64/memory/mod.rs - line 92, Bitmap at 0xffff800001780000, Kernel Heap at 0xffff800003780000, Double Fault Stack at 0xffff800003805000
+src/dyn_mem/allocator.rs - line 17, Kheap initialization finished
+src/arch/x86_64/gdt.rs - line 57, GlobalDescriptorTable { table: [Entry(0x0000000000000000), Entry(0x00af9b000000ffff), Entry(0x00cf93000000ffff), Entry(0x00affb000000ffff), Entry(0x00cff3000000ffff), Entry(0x8000890662200067), Entry(0x00000000ffffffff), Entry(0x0000000000000000)], len: 7 }
+src/arch/x86_64/gdt.rs - line 58, 0xffffffff80066220
+src/arch/x86_64/gdt.rs - line 73, GDT initialization finished
+src/arch/x86_64/acpi/mod.rs - line 90, Parsing rsdp at 0xffff80007f77e014...
+src/arch/x86_64/acpi/mod.rs - line 96, Rsdp { signature: [82, 83, 68, 32, 80, 84, 82, 32], checksum: 22, oemid: [66, 79, 67, 72, 83, 32], revision: 2, rsdt_addr: 2138558580, length: 36, xsdt_addr: 2138558696, extended_checksum: 46, reserved: [0, 0, 0] }
+src/main.rs - line 176, madt ptr: VirtAddr(0xffff80007f778000)
+src/arch/x86_64/acpi/apic.rs - line 328, Id of the bootstrap cpu: 0
+src/arch/x86_64/acpi/apic.rs - line 346, Initializing isa apic: IoApic { id: 0, base: VirtAddr(0xffff8000fec00000), global_system_interrupt_base: 0 }
+src/arch/x86_64/acpi/apic.rs - line 362, Processors: {0: Processor { ids: ProcessorIds { processor_id: 0, apic_id: 0 }, local_apic: LocalApic { base: VirtAddr(0xffff8000fee00000) }, nmi_source: LocalNmiSource { flags: 0, lint: 1 } }, 1: Processor { ids: ProcessorIds { processor_id: 1, apic_id: 1 }, local_apic: LocalApic { base: VirtAddr(0xffff8000fee00000) }, nmi_source: LocalNmiSource { flags: 0, lint: 1 } }, 2: Processor { ids: ProcessorIds { processor_id: 2, apic_id: 2 }, local_apic: LocalApic { base: VirtAddr(0xffff8000fee00000) }, nmi_source: LocalNmiSource { flags: 0, lint: 1 } }, 3: Processor { ids: ProcessorIds { processor_id: 3, apic_id: 3 }, local_apic: LocalApic { base: VirtAddr(0xffff8000fee00000) }, nmi_source: LocalNmiSource { flags: 0, lint: 1 } }}
+src/arch/x86_64/acpi/apic.rs - line 363, Io Apic(s): [IoApic { id: 0, base: VirtAddr(0xffff8000fec00000), global_system_interrupt_base: 0 }]
+src/arch/x86_64/acpi/apic.rs - line 364, isa irq gsi mapping : [2, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+src/arch/x86_64/acpi/apic.rs - line 365, NMI sources: []
+src/arch/x86_64/idt.rs - line 59, IDT initialization finished
+src/main.rs - line 182, Interrupts enabled!
+src/arch/x86_64/timer.rs - line 101, 622938 ticks have elapsed in 10 ms for APIC! Enabling the timer to vector: 34
+src/arch/x86_64/timer.rs - line 106, 9967000 ticks have elapsed in 10 ms for tsc!
+src/main.rs - line 188, mcfg table: McfgTable { header: AcpiSdtHeader { signature: [77, 67, 70, 71], length: 60, revision: 1, checksum: 92, oemid: [66, 79, 67, 72, 83, 32], oem_table_id: [66, 88, 80, 67, 32, 32, 32, 32], oem_revision: 1, creator_id: 1129338946, creator_revision: 1 }, entries: [McfgEntry { base_addr: 3758096384, pci_segment_group_number: 0, start_pci_bus_number: 0, end_pci_bus_number: 255, reserved: 0 }] }
+src/arch/x86_64/acpi/mcfg.rs - line 169, Found devices: {
+    1: {
+        6: {
+            1: [
+                PciDevice {
+                    address: VirtAddr(
+                        0xffff8000e00fa000,
+                    ),
+                    header_partial: PciHeaderPartial {
+                        vendor_id: 32902,
+                        device_id: 10530,
+                        command: 7,
+                        status: 16,
+                        revision_id: 2,
+                        prog_if: 1,
+                        subclass: 6,
+                        class_code: 1,
+                        cache_line_size: 0,
+                        latency_timer: 0,
+                        header_type: 128,
+                    },
+                },
+            ],
+        },
+    },
+    2: {
+        0: {
+            0: [
+                PciDevice {
+                    address: VirtAddr(
+                        0xffff8000e0010000,
+                    ),
+                    header_partial: PciHeaderPartial {
+                        vendor_id: 32902,
+                        device_id: 4307,
+                        command: 7,
+                        status: 16,
+                        revision_id: 0,
+                        prog_if: 0,
+                        subclass: 0,
+                        class_code: 2,
+                        cache_line_size: 0,
+                        latency_timer: 0,
+                        header_type: 0,
+                    },
+                },
+            ],
+        },
+    },
+    3: {
+        0: {
+            0: [
+                PciDevice {
+                    address: VirtAddr(
+                        0xffff8000e0008000,
+                    ),
+                    header_partial: PciHeaderPartial {
+                        vendor_id: 4660,
+                        device_id: 4369,
+                        command: 7,
+                        status: 0,
+                        revision_id: 2,
+                        prog_if: 0,
+                        subclass: 0,
+                        class_code: 3,
+                        cache_line_size: 0,
+                        latency_timer: 0,
+                        header_type: 0,
+                    },
+                },
+            ],
+        },
+    },
+    6: {
+        0: {
+            0: [
+                PciDevice {
+                    address: VirtAddr(
+                        0xffff8000e0000000,
+                    ),
+                    header_partial: PciHeaderPartial {
+                        vendor_id: 32902,
+                        device_id: 10688,
+                        command: 7,
+                        status: 0,
+                        revision_id: 0,
+                        prog_if: 0,
+                        subclass: 0,
+                        class_code: 6,
+                        cache_line_size: 0,
+                        latency_timer: 0,
+                        header_type: 0,
+                    },
+                },
+            ],
+        },
+        1: {
+            0: [
+                PciDevice {
+                    address: VirtAddr(
+                        0xffff8000e00f8000,
+                    ),
+                    header_partial: PciHeaderPartial {
+                        vendor_id: 32902,
+                        device_id: 10520,
+                        command: 7,
+                        status: 0,
+                        revision_id: 2,
+                        prog_if: 0,
+                        subclass: 1,
+                        class_code: 6,
+                        cache_line_size: 0,
+                        latency_timer: 0,
+                        header_type: 128,
+                    },
+                },
+                PciDevice {
+                    address: VirtAddr(
+                        0xffff8000e00f8000,
+                    ),
+                    header_partial: PciHeaderPartial {
+                        vendor_id: 32902,
+                        device_id: 10520,
+                        command: 7,
+                        status: 0,
+                        revision_id: 2,
+                        prog_if: 0,
+                        subclass: 1,
+                        class_code: 6,
+                        cache_line_size: 0,
+                        latency_timer: 0,
+                        header_type: 128,
+                    },
+                },
+            ],
+        },
+    },
+    12: {
+        5: {
+            0: [
+                PciDevice {
+                    address: VirtAddr(
+                        0xffff8000e00fb000,
+                    ),
+                    header_partial: PciHeaderPartial {
+                        vendor_id: 32902,
+                        device_id: 10544,
+                        command: 7,
+                        status: 0,
+                        revision_id: 2,
+                        prog_if: 0,
+                        subclass: 5,
+                        class_code: 12,
+                        cache_line_size: 0,
+                        latency_timer: 0,
+                        header_type: 128,
+                    },
+                },
+            ],
+        },
+    },
+}
+src/hal/storage.rs - line 260, Initializing AHCI..
+src/drivers/ata/sata/ahci.rs - line 96, created new ahci
+src/drivers/ata/sata/ahci.rs - line 155, Configured Interrupts of AHCI
+src/drivers/ata/sata/ahci.rs - line 174, Num cmd slots: 32
+src/drivers/ata/sata/mod.rs - line 288, 100010011
+src/drivers/ata/sata/mod.rs - line 582, Reset complete
+src/drivers/ata/sata/mod.rs - line 690, IdentifyData { config: 64, cylinders: 8322, _reserved_w2: 0, heads: 16, _reserved_w4_5: [32256, 512], sectors_per_track: 63, _reserved1: [0, 0, 0], serial: [77, 81, 48, 48, 48, 48, 32, 49, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32], _reserved2: [3, 512, 4], firmware_rev: [46, 50, 43, 53, 32, 32, 32, 32], model: [69, 81, 85, 77, 72, 32, 82, 65, 68, 68, 83, 73, 32, 75, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32], trusted_computing: 32784, capabilities1: 1, capabilities2: 2816, _reserved3: [0, 512, 512, 7, 8322, 16, 63, 65504, 127], lba28_sectors: 8388608, _reserved4: [7, 7, 3, 120, 120, 120, 120, 16384, 0, 0, 0, 0, 0, 31, 256, 0, 0, 0], major_version: 240, minor_version: 22, command_set_supported1: 16417, command_set_supported2: 29696, _reserved5: [16384, 16417, 13312, 16384, 8255, 0, 0, 0, 0, 24577, 0, 0, 0, 0, 0, 0], lba48_sectors: 8388608, _reserved6: [0, 0, 24576, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }
+src/drivers/ata/sata/task.rs - line 241, hello
+src/drivers/ata/sata/task.rs - line 222, hello
+src/drivers/ata/sata/task.rs - line 241, hello
+src/drivers/ata/sata/ahci.rs - line 195, Creating new sata
+src/hal/storage.rs - line 286, Initialized the storage drives
+src/main.rs - line 90, Kernel main launched
+src/main.rs - line 96, Storage drive tasks launched
+src/time/mod.rs - line 120, RTC format: BCD mode, 24 hour
+src/time/mod.rs - line 186, RTC read: 2026-01-28 11:15:35
+src/time/mod.rs - line 262, Converted 2026-01-28 11:15:35 to Unix timestamp: 1769598935
+src/crypto/random.rs - line 105, Random initialization complete
+src/main.rs - line 100, Random number task launched
+src/drivers/ata/sata/task.rs - line 177, About to start operation
+src/drivers/ata/sata/io.rs - line 29, start read
+src/drivers/ata/sata/io.rs - line 106, 0
+src/drivers/ata/sata/io.rs - line 122, After Poll - PxIS: 0b1
+src/drivers/ata/sata/io.rs - line 130, After Poll & overwrite - PxIS: 0b0
+src/drivers/ata/sata/io.rs - line 145, Buffer(512 bytes): [45 46 49 20 50 41 52 54 00 00 01 00 5C 00 00 00 D1 83 ...]

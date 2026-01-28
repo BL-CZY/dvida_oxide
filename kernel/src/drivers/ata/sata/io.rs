@@ -2,8 +2,10 @@ use crate::{
     arch::x86_64::memory::get_hhdm_offset,
     drivers::ata::sata::{
         AhciSata,
+        ahci::AhciHbaPorts,
         command::{CommandHeader, CommandHeaderFlags, CommandTable, PrdtEntry, PrdtEntryFlags},
         fis::{self, AtaCommand, DEVICE_LBA_MODE, FORCE_UNIT_FLUSH, FisRegH2DFlags},
+        task::AHCI_PORTS_MAP,
     },
     hal::{
         buffer::Buffer,
@@ -18,8 +20,6 @@ impl AhciSata {
         self.identify_data.command_set_supported2 & LBA_48_SUPPORTED_MASK != 0
     }
 
-    /// this will be mainly used for page cache, the buffer will be a page
-    /// doesn't check the 4gib boundary
     pub async fn start_read_sectors(&mut self, cmd_queue_idx: usize, lba: i64, buffer: Buffer) {
         // only supports lba48
         if !self.lba48_supported() {
@@ -66,7 +66,7 @@ impl AhciSata {
             lba5: (lba >> 40) as u8 & 0xFF,
             count_low: count as u8 & 0xFF,
             count_high: (count >> 8) as u8 & 0xFF,
-            device: DEVICE_LBA_MODE | FORCE_UNIT_FLUSH,
+            device: DEVICE_LBA_MODE,
             ..Default::default()
         };
 
@@ -103,11 +103,46 @@ impl AhciSata {
         cmd_header.cmd_table_base_addr_low = cmd_tables_phys_addr as u32;
         cmd_header.cmd_table_base_addr_high = (cmd_tables_phys_addr >> 32) as u32;
 
+        log!("{:?}", self.ports.read_interrupt_status());
+        self.ports.write_interrupt_status(0xFFFFFFFF);
+        self.ports.write_sata_error(0xFFFFFFFF);
+        self.hba_ports.write_interrupt_status(0xFFFFFFFF);
+
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
         self.ports.write_command_issue(0x1 << cmd_queue_idx);
 
-        log!("waiting for interrupt");
+        loop {
+            if self.ports.read_command_issue() & (0x1 << cmd_queue_idx) == 0 {
+                break;
+            }
+
+            core::hint::spin_loop();
+        }
+        log!(
+            "After Poll - PxIS: {:#b}",
+            self.ports.read_interrupt_status()
+        );
+
+        self.ports
+            .write_interrupt_status(self.ports.read_interrupt_status());
+
+        log!(
+            "After Poll & overwrite - PxIS: {:#b}",
+            self.ports.read_interrupt_status()
+        );
+
+        let tfd = self.ports.read_task_file_data();
+        if (tfd & 0x01) != 0 {
+            // Bit 0 is the Error bit
+            panic!("The disk reported an error (TFD: {:#x})", tfd);
+        }
+
+        if (tfd & 0x80) != 0 || (tfd & 0x08) != 0 {
+            panic!("The disk is still busy or requesting data despite CI being 0!");
+        }
+
+        log!("{}", buffer);
     }
 
     /// this will be mainly used for page cache, the buffer will be a page
@@ -156,7 +191,7 @@ impl AhciSata {
             lba5: (lba >> 40) as u8 & 0xFF,
             count_low: count as u8 & 0xFF,
             count_high: (count >> 8) as u8 & 0xFF,
-            device: DEVICE_LBA_MODE,
+            device: DEVICE_LBA_MODE | FORCE_UNIT_FLUSH,
             ..Default::default()
         };
 

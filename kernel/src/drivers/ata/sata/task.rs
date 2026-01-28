@@ -6,7 +6,7 @@ use x86_64::{VirtAddr, instructions::interrupts::without_interrupts};
 
 use crate::{
     drivers::ata::sata::{
-        AhciSata, AhciSataPorts, PortInterruptStatus, PortTaskFileData,
+        AhciSata, AhciSataPorts, PortInterruptStatus, PortSataError, PortTaskFileData,
         ahci::{AhciHbaPorts, HBA_PORT_PORTS_OFFSET, HBA_PORT_SIZE},
     },
     ejcineque::{
@@ -60,7 +60,6 @@ impl Future for AhciSataPortFuture {
         if self.awaken {
             core::task::Poll::Ready(())
         } else {
-            log!("setting waker!");
             self.as_mut().awaken = true;
             without_interrupts(|| {
                 *AHCI_WAKERS_MAP[self.hba_idx][self.port_idx].lock() = Some(cx.waker().clone());
@@ -233,11 +232,15 @@ fn port_interrupt_handler(hba_idx: usize, port_idx: usize, hba_base: VirtAddr) {
         base: hba_base + HBA_PORT_PORTS_OFFSET + HBA_PORT_SIZE * port_idx as u64,
     };
 
+    log!(
+        "interrupt status: {:b}\n error: {:b}\n tfd: {:b}",
+        ports.read_interrupt_status(),
+        ports.read_sata_error(),
+        ports.read_task_file_data()
+    );
+
     ports.write_interrupt_status(ports.read_interrupt_status());
-    let px_serr = ports.read_sata_error();
-    if px_serr != 0 {
-        ports.write_sata_error(px_serr);
-    }
+    ports.write_sata_error(0xFFFFFFFF);
 }
 
 pub fn ahci_interrupt_handler_by_idx(idx: usize) {
@@ -248,12 +251,19 @@ pub fn ahci_interrupt_handler_by_idx(idx: usize) {
     let mut ports = AhciHbaPorts { base: *base };
 
     let interrupt_status = ports.read_interrupt_status();
+    log!("global interrupt status: {:b}", interrupt_status);
+    ports.write_interrupt_status(interrupt_status);
 
     for i in 0..32 {
         if interrupt_status & (0x1 << i) != 0 {
             port_interrupt_handler(idx, i, ports.base);
         }
     }
+}
 
-    ports.write_interrupt_status(interrupt_status);
+#[derive(Debug)]
+pub struct AhciSataInterruptData {
+    pub interrupt_status: PortInterruptStatus,
+    pub task_file_data: PortTaskFileData,
+    pub sata_error: PortSataError,
 }

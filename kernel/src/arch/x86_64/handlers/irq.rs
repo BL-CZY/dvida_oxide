@@ -3,6 +3,7 @@ use core::arch::naked_asm;
 use crate::{
     drivers::ata::sata::task::ahci_interrupt_handler_by_idx,
     ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS, TIMER_WAKERS},
+    log,
 };
 use macros::ahci_interrupt_handler_template;
 use x86_64::{
@@ -43,6 +44,7 @@ pub enum IrqIndex {
 }
 
 extern "C" fn timer_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
+    log!("start");
     x86_64::instructions::interrupts::without_interrupts(|| {
         for w in TIMER_WAKERS.lock().drain(..) {
             w.wake();
@@ -95,6 +97,7 @@ extern "C" fn timer_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
     });
 
     get_local_apic().write_eoi(0);
+    log!("free");
 }
 
 #[unsafe(naked)]
