@@ -233,7 +233,7 @@ fn port_interrupt_handler(hba_idx: usize, port_idx: usize, hba_base: VirtAddr) {
     };
 
     log!(
-        "interrupt status: {:b}\n error: {:b}\n tfd: {:b}",
+        "interrupt status: 0b{:b}\n error: 0b{:b}\n tfd: 0b{:b}",
         ports.read_interrupt_status(),
         ports.read_sata_error(),
         ports.read_task_file_data()
@@ -252,13 +252,14 @@ pub fn ahci_interrupt_handler_by_idx(idx: usize) {
 
     let interrupt_status = ports.read_interrupt_status();
     log!("global interrupt status: {:b}", interrupt_status);
-    ports.write_interrupt_status(interrupt_status);
 
     for i in 0..32 {
         if interrupt_status & (0x1 << i) != 0 {
             port_interrupt_handler(idx, i, ports.base);
         }
     }
+
+    ports.write_interrupt_status(ports.read_interrupt_status());
 }
 
 #[derive(Debug)]

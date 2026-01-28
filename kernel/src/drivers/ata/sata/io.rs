@@ -2,10 +2,8 @@ use crate::{
     arch::x86_64::memory::get_hhdm_offset,
     drivers::ata::sata::{
         AhciSata,
-        ahci::AhciHbaPorts,
         command::{CommandHeader, CommandHeaderFlags, CommandTable, PrdtEntry, PrdtEntryFlags},
         fis::{self, AtaCommand, DEVICE_LBA_MODE, FORCE_UNIT_FLUSH, FisRegH2DFlags},
-        task::AHCI_PORTS_MAP,
     },
     hal::{
         buffer::Buffer,
@@ -103,7 +101,6 @@ impl AhciSata {
         cmd_header.cmd_table_base_addr_low = cmd_tables_phys_addr as u32;
         cmd_header.cmd_table_base_addr_high = (cmd_tables_phys_addr >> 32) as u32;
 
-        log!("{:?}", self.ports.read_interrupt_status());
         self.ports.write_interrupt_status(0xFFFFFFFF);
         self.ports.write_sata_error(0xFFFFFFFF);
         self.hba_ports.write_interrupt_status(0xFFFFFFFF);
@@ -112,37 +109,37 @@ impl AhciSata {
 
         self.ports.write_command_issue(0x1 << cmd_queue_idx);
 
-        loop {
-            if self.ports.read_command_issue() & (0x1 << cmd_queue_idx) == 0 {
-                break;
-            }
-
-            core::hint::spin_loop();
-        }
-        log!(
-            "After Poll - PxIS: {:#b}",
-            self.ports.read_interrupt_status()
-        );
-
-        self.ports
-            .write_interrupt_status(self.ports.read_interrupt_status());
-
-        log!(
-            "After Poll & overwrite - PxIS: {:#b}",
-            self.ports.read_interrupt_status()
-        );
-
-        let tfd = self.ports.read_task_file_data();
-        if (tfd & 0x01) != 0 {
-            // Bit 0 is the Error bit
-            panic!("The disk reported an error (TFD: {:#x})", tfd);
-        }
-
-        if (tfd & 0x80) != 0 || (tfd & 0x08) != 0 {
-            panic!("The disk is still busy or requesting data despite CI being 0!");
-        }
-
-        log!("{}", buffer);
+        // loop {
+        //     if self.ports.read_command_issue() & (0x1 << cmd_queue_idx) == 0 {
+        //         break;
+        //     }
+        //
+        //     core::hint::spin_loop();
+        // }
+        // log!(
+        //     "After Poll - PxIS: {:#b}",
+        //     self.ports.read_interrupt_status()
+        // );
+        //
+        // self.ports
+        //     .write_interrupt_status(self.ports.read_interrupt_status());
+        //
+        // log!(
+        //     "After Poll & overwrite - PxIS: {:#b}",
+        //     self.ports.read_interrupt_status()
+        // );
+        //
+        // let tfd = self.ports.read_task_file_data();
+        // if (tfd & 0x01) != 0 {
+        //     // Bit 0 is the Error bit
+        //     panic!("The disk reported an error (TFD: {:#x})", tfd);
+        // }
+        //
+        // if (tfd & 0x80) != 0 || (tfd & 0x08) != 0 {
+        //     panic!("The disk is still busy or requesting data despite CI being 0!");
+        // }
+        //
+        // log!("{}", buffer);
     }
 
     /// this will be mainly used for page cache, the buffer will be a page

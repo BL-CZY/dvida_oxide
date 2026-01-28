@@ -153,15 +153,17 @@ bitfield! {
     pub host_bus_data_error_enable, set_host_bus_data_error_enable: 28;
     pub interface_fatal_error_enable, set_interface_fatal_error_enable: 27;
     pub interface_non_fatal_error_enable, set_interface_non_fatal_error_enable: 26;
-    pub fifo_overflow_enable, set_fifo_overflow_enable: 22;
-    pub physical_layer_ready_change_enable, set_physical_layer_ready_change_enable: 20;
+    pub overflow_enable, set_overflow_enable: 24;
+    pub fifo_overflow_enable, set_fifo_overflow_enable: 23;
+    pub physical_layer_ready_change_enable, set_physical_layer_ready_change_enable: 22;
     pub device_mechanical_presence_enable, set_device_mechanical_presence_enable: 7;
     pub port_connect_status_change_enable, set_port_connect_status_change_enable: 6;
     pub descriptor_processed_enable, set_descriptor_processed_enable: 5;
     pub unknown_fis_interrupt_enable, set_unknown_fis_interrupt_enable: 4;
-    pub dma_setup_fis_interrupt_enable, set_dma_setup_fis_interrupt_enable: 3;
-    pub pio_setup_fis_interrupt_enable, set_pio_setup_fis_interrupt_enable: 2;
-    pub device_to_host_register_fis_interrupt_enable, set_device_to_host_register_fis_interrupt_enable: 1;
+    pub set_device_bits_interrupt_enable, set_set_device_bits_interrupt_enable: 3;
+    pub dma_setup_fis_interrupt_enable, set_dma_setup_fis_interrupt_enable: 2;
+    pub pio_setup_fis_interrupt_enable, set_pio_setup_fis_interrupt_enable: 1;
+    pub device_to_host_register_fis_interrupt_enable, set_device_to_host_register_fis_interrupt_enable: 0;
 }
 
 bitfield! {
@@ -173,15 +175,17 @@ bitfield! {
     pub host_bus_data_error, _ : 28;
     pub interface_fatal_error, _ : 27;
     pub interface_non_fatal_error, _ : 26;
-    pub fifo_overflow, _ : 22;
-    pub physical_layer_ready_change, _ : 20;
+    pub overflow, _ : 24;
+    pub fifo_overflow, _ : 23;
+    pub physical_layer_ready_change, _ : 22;
     pub device_mechanical_presence, _ : 7;
     pub port_connect_status_change, _ : 6;
     pub descriptor_processed, _ : 5;
     pub unknown_fis_interrupt, _ : 4;
-    pub dma_setup_fis_interrupt, _ : 3;
-    pub pio_setup_fis_interrupt, _ : 2;
-    pub device_to_host_register_fis_interrupt, _ : 1;
+    pub set_device_bits_interrupt, _ : 3;
+    pub dma_setup_fis_interrupt, _ : 2;
+    pub pio_setup_fis_interrupt, _ : 1;
+    pub device_to_host_register_fis_interrupt, _ : 0;
 }
 
 bitfield! {
@@ -596,6 +600,7 @@ impl AhciSata {
         interrupts.set_descriptor_processed_enable(true);
         interrupts.set_device_to_host_register_fis_interrupt_enable(true);
         self.ports.write_interrupt_enable(interrupts.0);
+        log!("{:b}", self.ports.read_interrupt_enable());
     }
 
     fn disable_interrupts(&mut self) {
@@ -690,6 +695,12 @@ impl AhciSata {
         log!("{:?}", identify_data);
 
         self.identify_data = *identify_data;
+
+        // self.ports
+        //     .write_interrupt_status(self.ports.read_interrupt_status());
+        // self.hba_ports
+        //     .write_interrupt_status(self.hba_ports.read_interrupt_status());
+        // self.ports.write_sata_error(0xFFFFFFFF);
     }
 }
 
