@@ -107,7 +107,8 @@ impl LocalApic {
 
         const TIMER_PERIODIC_MODE: u32 = 0x20000;
         self.write_lvt_timer((vector + PRIMARY_ISA_PIC_OFFSET as u32) | TIMER_PERIODIC_MODE);
-        self.write_timer_initial_count(ticks_elapsed);
+        // one every 1 micro seconds
+        self.write_timer_initial_count(ticks_elapsed / 10);
     }
 }
 
