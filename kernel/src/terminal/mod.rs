@@ -9,8 +9,6 @@ pub mod port_dbg;
 pub mod test;
 use font::BUILTIN_FONT;
 
-use crate::log;
-
 pub struct DebugWriter {
     pub frame_buffer_width: u64,
     pub frame_buffer_height: u64,
@@ -24,7 +22,7 @@ pub struct DebugWriter {
     pub cursor_row: u64,
     pub cursor_col: u64,
     pub is_cursor_on: bool,
-    pub cursor_blink_interval: u32,
+    pub cursor_blink_interval: u8,
     pub color_buffer: [[u64; 160]; 100],
     pub text_buffer: [[u8; 160]; 100],
 }
@@ -101,7 +99,7 @@ impl DebugWriter {
             if self.cursor_blink_interval == 0 {
                 self.update_debug_cursor(true);
                 self.is_cursor_on = false;
-                self.cursor_blink_interval = 100;
+                self.cursor_blink_interval = 30;
             } else {
                 self.cursor_blink_interval -= 1;
             }
@@ -109,7 +107,7 @@ impl DebugWriter {
             if self.cursor_blink_interval == 0 {
                 self.update_debug_cursor(false);
                 self.is_cursor_on = true;
-                self.cursor_blink_interval = 100;
+                self.cursor_blink_interval = 30;
             } else {
                 self.cursor_blink_interval -= 1;
             }

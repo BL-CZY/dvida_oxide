@@ -1,6 +1,6 @@
 use core::arch::global_asm;
 
-use crate::log;
+use crate::{arch::x86_64::acpi::apic::get_local_apic, log};
 use x86_64::{
     VirtAddr,
     registers::{
@@ -234,6 +234,8 @@ pub fn resume_thread(thread: Thread) -> ! {
             }
 
             *CURRENT_THREAD.spin_acquire_lock() = Some(thread);
+
+            get_local_apic().write_eoi(0);
 
             unsafe {
                 resume_paused_thread(

@@ -44,7 +44,6 @@ pub enum IrqIndex {
 }
 
 extern "C" fn timer_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
-    log!("start");
     x86_64::instructions::interrupts::without_interrupts(|| {
         for w in TIMER_WAKERS.lock().drain(..) {
             w.wake();
@@ -97,7 +96,6 @@ extern "C" fn timer_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
     });
 
     get_local_apic().write_eoi(0);
-    log!("free");
 }
 
 #[unsafe(naked)]
