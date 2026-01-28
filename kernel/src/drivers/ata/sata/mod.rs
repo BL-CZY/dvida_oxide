@@ -188,6 +188,12 @@ bitfield! {
     pub device_to_host_register_fis_interrupt, _ : 0;
 }
 
+impl Default for PortInterruptStatus {
+    fn default() -> Self {
+        Self(0)
+    }
+}
+
 bitfield! {
     pub struct SataError(u32);
     impl Debug;
@@ -209,6 +215,12 @@ bitfield! {
     pub recovered_data_integrity_error, _: 0;
 }
 
+impl Default for PortSataError {
+    fn default() -> Self {
+        Self(0)
+    }
+}
+
 bitfield! {
     pub struct PortSataError(u32);
     impl Debug;
@@ -225,6 +237,12 @@ bitfield! {
     pub data_transfer_requested, _: 3;
     pub error_occurred, _: 0;
     pub status_byte, _: 7, 0;
+}
+
+impl Default for PortTaskFileData {
+    fn default() -> Self {
+        Self(0)
+    }
 }
 
 bitfield! {

@@ -22,7 +22,7 @@ pub static CUR_AHCI_IDX: AtomicU8 = AtomicU8::new(0x0);
 
 lazy_static! {
     /// max support 8 ahci's
-    pub static ref AHCI_WAKERS_MAP: [[SpinMutex<Option<Waker>>; 32]; 8] = Default::default();
+    pub static ref AHCI_WAKERS_MAP: [[SpinMutex<(AhciSataInterruptData, Option<Waker>)>; 32]; 8] = Default::default();
 
     // ghc bases
     pub static ref AHCI_PORTS_MAP: [OnceCell<VirtAddr>; 8] = Default::default();
@@ -62,7 +62,7 @@ impl Future for AhciSataPortFuture {
         } else {
             self.as_mut().awaken = true;
             without_interrupts(|| {
-                *AHCI_WAKERS_MAP[self.hba_idx][self.port_idx].lock() = Some(cx.waker().clone());
+                AHCI_WAKERS_MAP[self.hba_idx][self.port_idx].lock().1 = Some(cx.waker().clone());
             });
             core::task::Poll::Pending
         }
@@ -219,18 +219,24 @@ impl AhciSata {
 }
 
 fn port_interrupt_handler(hba_idx: usize, port_idx: usize, hba_base: VirtAddr) {
-    let lock = &AHCI_WAKERS_MAP[hba_idx][port_idx];
-
-    without_interrupts(|| {
-        if let Some(w) = lock.lock().deref_mut().take() {
-            log!("waking interrupt");
-            w.wake();
-        }
-    });
-
     let mut ports = AhciSataPorts {
         base: hba_base + HBA_PORT_PORTS_OFFSET + HBA_PORT_SIZE * port_idx as u64,
     };
+
+    let info = AhciSataInterruptData {
+        interrupt_status: PortInterruptStatus(ports.read_interrupt_status()),
+        sata_error: PortSataError(ports.read_sata_error()),
+        task_file_data: PortTaskFileData(ports.read_task_file_data()),
+    };
+
+    without_interrupts(|| {
+        let mut guard = AHCI_WAKERS_MAP[hba_idx][port_idx].lock();
+        let (inf, waker) = guard.deref_mut();
+        if let Some(w) = waker.take() {
+            *inf = info;
+            w.wake();
+        }
+    });
 
     log!(
         "interrupt status: 0b{:b}\n error: 0b{:b}\n tfd: 0b{:b}",
@@ -262,7 +268,7 @@ pub fn ahci_interrupt_handler_by_idx(idx: usize) {
     ports.write_interrupt_status(ports.read_interrupt_status());
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AhciSataInterruptData {
     pub interrupt_status: PortInterruptStatus,
     pub task_file_data: PortTaskFileData,
