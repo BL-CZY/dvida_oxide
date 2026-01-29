@@ -42,7 +42,7 @@ fn partial_crc(i_crc: &mut u32, s_data: &Vec<u8>) {
     }
 }
 
-pub fn is_verified_crc32(arr: &Vec<u8>, crc32: u32) -> bool {
+pub fn is_verified_crc32(arr: &[u8], crc32: u32) -> bool {
     if crc32 == full_crc(arr) {
         return true;
     }

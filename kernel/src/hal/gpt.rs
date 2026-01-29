@@ -1,5 +1,8 @@
+use core::ops::Deref;
+
 use crate::hal::buffer::Buffer;
-use crate::log;
+use crate::hal::storage::{HalIdentifyData, HalStorageOperationErr};
+use crate::{hal, log};
 use alloc::boxed::Box;
 use alloc::string::{FromUtf16Error, String, ToString};
 use alloc::vec;
@@ -8,8 +11,6 @@ use thiserror::Error;
 
 use crate::crypto;
 use crate::crypto::guid::Guid;
-
-use super::storage::HalStorageDevice;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub struct GPTHeader {
@@ -242,44 +243,46 @@ pub enum GPTErr {
     DriveDidntRespond,
 }
 
-impl HalStorageDevice {
+pub struct GptReader {
+    sectors_per_track: u16,
+    sector_count: u64,
+    idx: usize,
+}
+
+impl GptReader {
+    pub async fn new(idx: usize) -> Result<Self, HalStorageOperationErr> {
+        let HalIdentifyData {
+            sectors_per_track,
+            sector_count,
+        } = hal::storage::get_identify_data(idx).await?;
+
+        Ok(Self {
+            idx,
+            sector_count,
+            sectors_per_track,
+        })
+    }
+
     async fn write_sectors_async(
         &self,
         lba: i64,
-        len: u16,
-        buf: &[u8],
+        buf: Buffer,
     ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
-        self.device_inner
-            .lock()
-            .await
-            .write_sectors_async(lba, len, buf)
-            .await
+        Ok(hal::storage::write_sectors_by_idx(self.idx, buf, lba).await?)
     }
 
     async fn read_sectors_async(
         &self,
         lba: i64,
-        len: u16,
-        buf: &mut [u8],
+        buf: Buffer,
     ) -> Result<(), Box<dyn core::error::Error + Send + Sync>> {
-        self.device_inner
-            .lock()
-            .await
-            .read_sectors_async(lba, len, buf)
-            .await
+        Ok(hal::storage::read_sectors_by_idx(self.idx, buf, lba).await?)
     }
 
     async fn is_normal_present(&self) -> bool {
         log!("Checking primary GPT presence at LBA 1");
-        let mut buf = [0u8; 512];
-        if self
-            .device_inner
-            .lock()
-            .await
-            .read_sectors_async(1, 1, &mut buf)
-            .await
-            .is_err()
-        {
+        let buf: Buffer = [0u8; 512].as_slice().into();
+        if self.read_sectors_async(1, buf.clone()).await.is_err() {
             log!("Failed to read primary GPT sector");
             return false;
         }
@@ -296,15 +299,8 @@ impl HalStorageDevice {
 
     async fn is_backup_present(&self) -> bool {
         log!("Checking backup GPT presence at LBA -1");
-        let mut buf = [0u8; 512];
-        if self
-            .device_inner
-            .lock()
-            .await
-            .read_sectors_async(-1, 1, &mut buf)
-            .await
-            .is_err()
-        {
+        let buf: Buffer = [0u8; 512].as_slice().into();
+        if self.read_sectors_async(-1, buf.clone()).await.is_err() {
             log!("Failed to read backup GPT sector");
             return false;
         }
@@ -347,10 +343,8 @@ impl HalStorageDevice {
         result[PMBR_OFFSET + 3] = 0x0;
         result[PMBR_OFFSET + 4] = 0xEE;
 
-        let (cylinder, head, sector) = crypto::lba_to_chs(
-            self.device_inner.lock().await.sectors_per_track(),
-            self.device_inner.lock().await.sector_count(),
-        );
+        let (cylinder, head, sector) =
+            crypto::lba_to_chs(self.sectors_per_track, self.sector_count);
         log!(
             "PMBR CHS values cylinder={}, head={}, sector={}",
             cylinder,
@@ -373,13 +367,13 @@ impl HalStorageDevice {
         result[PMBR_OFFSET + 10] = 0x0;
         result[PMBR_OFFSET + 11] = 0x0;
 
-        if self.device_inner.lock().await.sector_count() > 0xFFFFFFFF {
+        if self.sector_count > 0xFFFFFFFF {
             result[PMBR_OFFSET + 12] = 0xFF;
             result[PMBR_OFFSET + 13] = 0xFF;
             result[PMBR_OFFSET + 14] = 0xFF;
             result[PMBR_OFFSET + 15] = 0xFF;
         } else {
-            let temp = self.device_inner.lock().await.sector_count() as u32;
+            let temp = self.sector_count as u32;
             result[PMBR_OFFSET + 12] = temp.to_le_bytes()[0];
             result[PMBR_OFFSET + 13] = temp.to_le_bytes()[1];
             result[PMBR_OFFSET + 14] = temp.to_le_bytes()[2];
@@ -396,8 +390,8 @@ impl HalStorageDevice {
 
     async fn create_unhashed_header(&self) -> GPTHeader {
         let hdr = GPTHeader {
-            backup_loc: self.device_inner.lock().await.sector_count() - 1,
-            last_usable_block: self.device_inner.lock().await.sector_count() - 34,
+            backup_loc: self.sector_count - 1,
+            last_usable_block: self.sector_count - 34,
             ..Default::default()
         };
 
@@ -412,41 +406,47 @@ impl HalStorageDevice {
 
     async fn write_pmbr(&self, pmbr: &[u8; 512]) -> Result<(), GPTErr> {
         log!("Writing PMBR to sector 0");
-        self.device_inner
-            .lock()
-            .await
-            .write_sectors_async(0, 1, pmbr)
-            .await
-            .map_err(|e| {
-                log!("Failed to write PMBR: {}", e.to_string());
-                GPTErr::Io(e.to_string())
-            })?;
+        let pmbr: Buffer = pmbr.as_slice().into();
+
+        self.write_sectors_async(0, pmbr).await.map_err(|e| {
+            log!("Failed to write PMBR: {}", e.to_string());
+            GPTErr::Io(e.to_string())
+        })?;
 
         log!("PMBR write completed");
         Ok(())
     }
 
     async fn write_table(&self, header: &[u8], array: &[u8]) -> Result<(), GPTErr> {
+        let header: Buffer = header.into();
+        let array: Buffer = array.into();
+
         log!("Writing GPT header to primary (LBA 1)");
-        self.write_sectors_async(1, 1, header).await.map_err(|e| {
-            log!("Failed to write GPT header to primary: {}", e.to_string());
-            GPTErr::Io(e.to_string())
-        })?;
+        self.write_sectors_async(1, header.clone())
+            .await
+            .map_err(|e| {
+                log!("Failed to write GPT header to primary: {}", e.to_string());
+                GPTErr::Io(e.to_string())
+            })?;
 
         log!("Writing GPT array to primary (LBA 2..)");
-        self.write_sectors_async(2, 32, array).await.map_err(|e| {
-            log!("Failed to write GPT array to primary: {}", e.to_string());
-            GPTErr::Io(e.to_string())
-        })?;
+        self.write_sectors_async(2, array.clone())
+            .await
+            .map_err(|e| {
+                log!("Failed to write GPT array to primary: {}", e.to_string());
+                GPTErr::Io(e.to_string())
+            })?;
 
         log!("Writing GPT header to backup");
-        self.write_sectors_async(-1, 1, header).await.map_err(|e| {
-            log!("Failed to write GPT header to backup: {}", e.to_string());
-            GPTErr::Io(e.to_string())
-        })?;
+        self.write_sectors_async(-1, header.clone())
+            .await
+            .map_err(|e| {
+                log!("Failed to write GPT header to backup: {}", e.to_string());
+                GPTErr::Io(e.to_string())
+            })?;
 
         log!("Writing GPT array to backup");
-        self.write_sectors_async(-33, 32, array)
+        self.write_sectors_async(-33, array.clone())
             .await
             .map_err(|e| {
                 log!("Failed to write GPT array to backup: {}", e.to_string());
@@ -508,8 +508,8 @@ impl HalStorageDevice {
         log!("Reading GPT table at lba={} (is_backup={})", lba, is_backup);
 
         // Read header
-        let mut header_buf = [0u8; 512];
-        self.read_sectors_async(lba, 1, &mut header_buf)
+        let header_buf: Buffer = [0u8; 512].as_slice().into();
+        self.read_sectors_async(lba, header_buf.clone())
             .await
             .map_err(|e| {
                 log!(
@@ -525,7 +525,7 @@ impl HalStorageDevice {
             return Err(GPTErr::GPTCorrupted);
         }
 
-        let result_header = GPTHeader::try_from(header_buf.as_slice())?;
+        let result_header = GPTHeader::try_from(header_buf.deref())?;
 
         if !(result_header.entry_size / 128).is_power_of_two() {
             log!(
@@ -552,8 +552,10 @@ impl HalStorageDevice {
         );
 
         let arr_sectors = (result_header.entry_num * result_header.entry_size / 512) as u16;
-        let mut arr_buf = vec![0u8; arr_sectors as usize * 512];
-        self.read_sectors_async(arr_lba, arr_sectors, &mut arr_buf)
+        let arr_buf = vec![0u32; arr_sectors as usize * 512 / 4].into_boxed_slice();
+        let buffer: Buffer = arr_buf.into();
+
+        self.read_sectors_async(arr_lba, buffer.clone())
             .await
             .map_err(|e| {
                 log!(
@@ -564,7 +566,7 @@ impl HalStorageDevice {
                 GPTErr::Io(e.to_string())
             })?;
 
-        if !crypto::crc32::is_verified_crc32(&arr_buf, result_header.array_crc32) {
+        if !crypto::crc32::is_verified_crc32(buffer.deref(), result_header.array_crc32) {
             log!(
                 "GPT array CRC mismatch: expected={} (lba={})",
                 result_header.array_crc32,
@@ -573,7 +575,8 @@ impl HalStorageDevice {
             return Err(GPTErr::GPTCorrupted);
         }
 
-        let result_array: Vec<GPTEntry> = arr_buf
+        let result_array: Vec<GPTEntry> = buffer
+            .deref()
             .chunks(result_header.entry_size as usize)
             .map(|slice| GPTEntry::try_from_buf(slice).unwrap())
             .collect();

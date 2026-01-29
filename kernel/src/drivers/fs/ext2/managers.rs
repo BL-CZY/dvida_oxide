@@ -3,6 +3,7 @@ use alloc::boxed::Box;
 use crate::{
     drivers::fs::ext2::{BLOCK_GROUP_DESCRIPTOR_SIZE, GroupDescriptor, structs::Ext2BlockGroup},
     hal::{
+        buffer::Buffer,
         fs::HalFsIOErr,
         storage::{self, HalStorageOperationErr, SECTOR_SIZE},
     },
@@ -27,12 +28,14 @@ impl IoHandler {
 
     pub async fn read_sectors(
         &self,
-        buffer: Box<[u8]>,
+        buf: Box<[u8]>,
         lba: i64,
     ) -> Result<Box<[u8]>, HalStorageOperationErr> {
-        storage::read_sectors_by_idx(self.drive_id, buffer.into(), self.start_lba as i64 + lba)
-            .await
-            .map(|b| b.into())
+        let buffer: Buffer = buf.into();
+        storage::read_sectors_by_idx(self.drive_id, buffer.clone(), self.start_lba as i64 + lba)
+            .await?;
+
+        Ok(buffer.into())
     }
 
     pub async fn read_block(

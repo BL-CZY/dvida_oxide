@@ -7,7 +7,7 @@
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
 
-use alloc::{boxed::Box, sync::Arc, vec};
+use alloc::sync::Arc;
 use once_cell_no_std::OnceCell;
 
 extern crate alloc;
@@ -54,11 +54,9 @@ use crate::{
             syscall::{enable_syscalls, setup_stack_for_syscall_handler},
         },
     },
-    args::parse_args,
     crypto::random::run_random,
     hal::{
-        buffer::Buffer,
-        storage::{identify_storage_devices, read_sectors_by_idx, run_storage_devices},
+        storage::{identify_storage_devices, run_storage_devices},
         // vfs::spawn_vfs_task,
     },
     terminal::WRITER,
@@ -107,6 +105,10 @@ async fn kernel_main(spawner: Spawner) {
 
     spawner.spawn(deallocator_task());
     yield_now().await;
+    log!("Deallocator task launched");
+
+    let gpt_reader = hal::gpt::GptReader::new(0).await.unwrap();
+    log!("{:?}", gpt_reader.read_gpt().await);
 }
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.

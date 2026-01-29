@@ -13,7 +13,7 @@ use crate::ejcineque::sync::mpsc::unbounded::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
 use crate::ejcineque::sync::mutex::Mutex;
-use crate::ejcineque::sync::spsc::cell::{SpscCellSetter, spsc_cells};
+use crate::ejcineque::sync::spsc::cell::{SpscCell, SpscCellSetter, spsc_cells};
 use crate::hal::buffer::Buffer;
 use crate::{SPAWNER, log};
 use alloc::collections::btree_map::BTreeMap;
@@ -22,10 +22,6 @@ use alloc::vec::Vec;
 use alloc::{boxed::Box, string::String};
 use once_cell_no_std::OnceCell;
 use thiserror::Error;
-
-pub static PRIMARY_STORAGE_SENDER: OnceCell<UnboundedSender<HalStorageOperation>> = OnceCell::new();
-pub static SECONDARY_STORAGE_SENDER: OnceCell<UnboundedSender<HalStorageOperation>> =
-    OnceCell::new();
 
 #[derive(Debug)]
 pub enum DeviceType {
@@ -67,12 +63,18 @@ pub struct HalStorageDevice {
 }
 
 #[derive(Debug)]
+pub struct HalIdentifyData {
+    pub sector_count: u64,
+    pub sectors_per_track: u16,
+}
+
+#[derive(Debug)]
 /// TODO: page cache
 pub enum HalStorageOperation {
     Read {
         buffer: Buffer,
         lba: i64,
-        setter: SpscCellSetter<Result<Buffer, HalStorageOperationErr>>,
+        setter: SpscCellSetter<Result<(), HalStorageOperationErr>>,
     },
 
     Write {
@@ -83,6 +85,10 @@ pub enum HalStorageOperation {
 
     Flush {
         setter: SpscCellSetter<Result<(), HalStorageOperationErr>>,
+    },
+
+    Identify {
+        setter: SpscCellSetter<HalIdentifyData>,
     },
 }
 
@@ -155,11 +161,25 @@ impl HalStorageDevice {
     }
 }
 
+pub async fn get_identify_data(idx: usize) -> Result<HalIdentifyData, HalStorageOperationErr> {
+    let sender = get_storage_devices()
+        .get(&StorageDeviceIdx(idx))
+        .ok_or(HalStorageOperationErr::DriveDidntRespond)?
+        .tx
+        .clone();
+
+    let (getter, setter) = spsc_cells::<HalIdentifyData>();
+
+    sender.send(HalStorageOperation::Identify { setter });
+
+    Ok(getter.get().await)
+}
+
 pub async fn read_sectors_by_guid(
     guid: Guid,
     buffer: Buffer,
     lba: i64,
-) -> Result<Buffer, HalStorageOperationErr> {
+) -> Result<(), HalStorageOperationErr> {
     read_sectors_by_idx(
         get_storage_devices_by_guid()
             .lock()
@@ -177,14 +197,14 @@ pub async fn read_sectors_by_idx(
     index: usize,
     buffer: Buffer,
     lba: i64,
-) -> Result<Buffer, HalStorageOperationErr> {
+) -> Result<(), HalStorageOperationErr> {
     let sender = get_storage_devices()
         .get(&StorageDeviceIdx(index))
         .ok_or(HalStorageOperationErr::DriveDidntRespond)?
         .tx
         .clone();
 
-    let (getter, setter) = spsc_cells::<Result<Buffer, HalStorageOperationErr>>();
+    let (getter, setter) = spsc_cells::<Result<(), HalStorageOperationErr>>();
 
     sender.send(HalStorageOperation::Read {
         buffer,

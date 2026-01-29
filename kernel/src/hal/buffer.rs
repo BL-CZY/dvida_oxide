@@ -67,6 +67,22 @@ impl Into<Box<[u8]>> for Buffer {
     }
 }
 
+macro_rules! from_slice {
+    ($type:ty) => {
+        impl From<&[$type]> for Buffer {
+            fn from(value: &[$type]) -> Self {
+                let len = value.len() * (size_of::<$type>() / size_of::<u8>());
+                let ptr = value.as_ptr();
+
+                Self {
+                    inner: ptr as *mut u8,
+                    len,
+                }
+            }
+        }
+    };
+}
+
 macro_rules! from_box {
     ($type:ty) => {
         impl From<Box<[$type]>> for Buffer {
@@ -87,3 +103,8 @@ from_box!(u8);
 from_box!(u16);
 from_box!(u32);
 from_box!(u64);
+
+from_slice!(u8);
+from_slice!(u16);
+from_slice!(u32);
+from_slice!(u64);

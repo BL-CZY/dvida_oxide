@@ -1,4 +1,4 @@
-use crate::log;
+use crate::{hal::buffer::Buffer, log};
 use alloc::boxed::Box;
 
 use crate::{
@@ -7,21 +7,23 @@ use crate::{
 };
 
 pub async fn identify_ext2(drive_id: usize, entry: &GPTEntry) -> Option<SuperBlock> {
-    let mut buf: Box<[u8]> = Box::new([0u8; 1024]);
+    let buf: Box<[u8]> = Box::new([0u8; 1024]);
+    let buffer: Buffer = buf.into();
 
     if entry.start_lba - entry.end_lba < 3 {
         log!("Failed to identify ext2 because the GPT entry is too small");
         return None;
     }
 
-    match read_sectors_by_idx(drive_id, buf.into(), (entry.start_lba + 2) as i64).await {
-        Ok(b) => buf = b.into(),
+    match read_sectors_by_idx(drive_id, buffer.clone(), (entry.start_lba + 2) as i64).await {
+        Ok(_) => {}
         Err(err) => {
             log!("Failed to identify ext2 because of read error: {}", err);
             return None;
         }
     }
 
+    let buf: Box<[u8]> = buffer.into();
     let super_block: SuperBlock = *bytemuck::from_bytes(&buf[0..size_of::<SuperBlock>()]);
 
     log!("Read Superblock: {:?}", super_block);

@@ -6,7 +6,7 @@ use x86_64::{VirtAddr, instructions::interrupts::without_interrupts};
 
 use crate::{
     drivers::ata::sata::{
-        AhciSata, AhciSataPorts, PortInterruptStatus, PortSataError, PortTaskFileData,
+        AhciSata, AhciSataPorts, PortInterruptStatus, PortSataError, PortTaskFileData, SataError,
         ahci::{AhciHbaPorts, HBA_PORT_PORTS_OFFSET, HBA_PORT_SIZE},
     },
     ejcineque::{
@@ -14,7 +14,7 @@ use crate::{
         futures::race::Either,
         sync::{mpsc::unbounded::UnboundedReceiver, spin::SpinMutex},
     },
-    hal::storage::HalStorageOperation,
+    hal::storage::{HalIdentifyData, HalStorageOperation},
     log,
 };
 
@@ -77,13 +77,13 @@ impl AhciSata {
         state: &mut AhciTaskState,
     ) {
         match op {
-            HalStorageOperation::Read { buffer, setter, .. } => {
+            HalStorageOperation::Read { setter, .. } => {
                 if is_err {
                     setter.set(Err(crate::hal::storage::HalStorageOperationErr::DriveErr(
                         "".into(),
                     )));
                 } else {
-                    setter.set(Ok(buffer));
+                    setter.set(Ok(()));
                 }
             }
 
@@ -106,6 +106,8 @@ impl AhciSata {
                     setter.set(Ok(()));
                 }
             }
+
+            _ => {}
         }
 
         state.remaining_operations += 1;
@@ -131,7 +133,10 @@ impl AhciSata {
 
         if interrupt_status.task_file_error() {
             error = true;
-            log!("Error from AHCI SATA: {:b}", data.task_file_data.0)
+            log!(
+                "Error from AHCI SATA: {:?}",
+                SataError(data.task_file_data.error_code())
+            )
         }
 
         let cmd_issue = self.ports.read_command_issue();
@@ -164,12 +169,22 @@ impl AhciSata {
             HalStorageOperation::Flush { .. } => {
                 self.issue_flush(i).await;
             }
+
+            _ => {}
         }
 
         state.operations[i] = Some(op);
     }
 
     async fn start_operation(&mut self, op: HalStorageOperation, state: &mut AhciTaskState) {
+        if let HalStorageOperation::Identify { setter } = op {
+            setter.set(HalIdentifyData {
+                sectors_per_track: self.identify_data.sectors_per_track,
+                sector_count: self.identify_data.lba48_sectors,
+            });
+            return;
+        }
+
         state.remaining_operations -= 1;
 
         for i in 0..=self.max_cmd_slots as usize {
