@@ -145,6 +145,7 @@ impl PortControl {
 }
 
 bitfield! {
+    #[derive(Clone, Copy, Default)]
     pub struct PortInterruptEnable(u32);
     impl Debug;
     pub cold_presence_detect_enable, set_cold_presence_detect_enable: 31;
@@ -167,6 +168,7 @@ bitfield! {
 }
 
 bitfield! {
+    #[derive(Clone, Copy, Default)]
     pub struct PortInterruptStatus(u32);
     impl Debug;
     pub cold_presence_detect, _: 31;
@@ -188,13 +190,8 @@ bitfield! {
     pub device_to_host_register_fis_interrupt, _ : 0;
 }
 
-impl Default for PortInterruptStatus {
-    fn default() -> Self {
-        Self(0)
-    }
-}
-
 bitfield! {
+    #[derive(Clone, Copy, Default)]
     pub struct SataError(u32);
     impl Debug;
     // Diagnostic fields
@@ -215,18 +212,14 @@ bitfield! {
     pub recovered_data_integrity_error, _: 0;
 }
 
-impl Default for PortSataError {
-    fn default() -> Self {
-        Self(0)
-    }
-}
-
 bitfield! {
+    #[derive(Clone, Copy, Default)]
     pub struct PortSataError(u32);
     impl Debug;
 }
 
 bitfield! {
+    #[derive(Clone, Copy, Default)]
     pub struct PortTaskFileData(u32);
     impl Debug;
     // Error register (bits 15:8)
@@ -237,12 +230,6 @@ bitfield! {
     pub data_transfer_requested, _: 3;
     pub error_occurred, _: 0;
     pub status_byte, _: 7, 0;
-}
-
-impl Default for PortTaskFileData {
-    fn default() -> Self {
-        Self(0)
-    }
 }
 
 bitfield! {

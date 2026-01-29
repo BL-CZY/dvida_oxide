@@ -51,14 +51,14 @@ impl AhciSataPortFuture {
 }
 
 impl Future for AhciSataPortFuture {
-    type Output = ();
+    type Output = AhciSataInterruptData;
 
     fn poll(
         mut self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
         if self.awaken {
-            core::task::Poll::Ready(())
+            core::task::Poll::Ready(AHCI_WAKERS_MAP[self.hba_idx][self.port_idx].lock().0)
         } else {
             self.as_mut().awaken = true;
             without_interrupts(|| {
@@ -111,9 +111,9 @@ impl AhciSata {
         state.remaining_operations += 1;
     }
 
-    async fn handle_interrupt(&mut self, state: &mut AhciTaskState) {
+    async fn handle_interrupt(&mut self, state: &mut AhciTaskState, data: AhciSataInterruptData) {
         let mut error = false;
-        let interrupt_status = PortInterruptStatus(self.ports.read_interrupt_status());
+        let interrupt_status = data.interrupt_status;
         if interrupt_status.interface_fatal_error() || interrupt_status.host_bus_fatal_error() {
             // TODO: set everything to failure
             self.failure_reset().await;
@@ -131,10 +131,7 @@ impl AhciSata {
 
         if interrupt_status.task_file_error() {
             error = true;
-            log!(
-                "Error from AHCI SATA: {:b}",
-                PortTaskFileData(self.ports.read_task_file_data()).error_code()
-            )
+            log!("Error from AHCI SATA: {:b}", data.task_file_data.0)
         }
 
         let cmd_issue = self.ports.read_command_issue();
@@ -147,7 +144,6 @@ impl AhciSata {
         }
 
         self.ports.write_command_issue(cmd_issue);
-        self.ports.write_interrupt_status(interrupt_status.0);
     }
 
     async fn launch_operation(
@@ -174,7 +170,6 @@ impl AhciSata {
     }
 
     async fn start_operation(&mut self, op: HalStorageOperation, state: &mut AhciTaskState) {
-        log!("About to start operation");
         state.remaining_operations -= 1;
 
         for i in 0..=self.max_cmd_slots as usize {
@@ -205,14 +200,14 @@ impl AhciSata {
                     Either::Left(Some(op)) => {
                         self.start_operation(op, &mut state).await;
                     }
-                    Either::Right(_) => {
-                        self.handle_interrupt(&mut state).await;
+                    Either::Right(data) => {
+                        self.handle_interrupt(&mut state, data).await;
                     }
                     _ => {}
                 }
             } else {
-                sata_future.await;
-                self.handle_interrupt(&mut state).await;
+                let data = sata_future.await;
+                self.handle_interrupt(&mut state, data).await;
             }
         }
     }
@@ -268,7 +263,7 @@ pub fn ahci_interrupt_handler_by_idx(idx: usize) {
     ports.write_interrupt_status(ports.read_interrupt_status());
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct AhciSataInterruptData {
     pub interrupt_status: PortInterruptStatus,
     pub task_file_data: PortTaskFileData,
