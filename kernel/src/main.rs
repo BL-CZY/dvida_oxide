@@ -107,16 +107,6 @@ async fn kernel_main(spawner: Spawner) {
 
     spawner.spawn(deallocator_task());
     yield_now().await;
-
-    let buffer = vec![0u32; 128].into_boxed_slice();
-    let buffer = buffer.as_ptr() as *mut u8;
-    let buffer = Buffer {
-        inner: buffer,
-        len: 512,
-    };
-
-    let buffer: Box<[u8]> = read_sectors_by_idx(0, buffer, 1).await.unwrap().into();
-    log!("{:?}", buffer);
 }
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.

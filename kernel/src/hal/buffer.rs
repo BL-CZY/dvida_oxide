@@ -58,18 +58,6 @@ impl DerefMut for Buffer {
     }
 }
 
-impl From<Box<[u8]>> for Buffer {
-    fn from(value: Box<[u8]>) -> Self {
-        let len = value.len();
-        let ptr = Box::into_raw(value);
-
-        Self {
-            inner: ptr as *mut u8,
-            len,
-        }
-    }
-}
-
 impl Into<Box<[u8]>> for Buffer {
     fn into(self) -> Box<[u8]> {
         unsafe {
@@ -78,3 +66,24 @@ impl Into<Box<[u8]>> for Buffer {
         }
     }
 }
+
+macro_rules! from_box {
+    ($type:ty) => {
+        impl From<Box<[$type]>> for Buffer {
+            fn from(value: Box<[$type]>) -> Self {
+                let len = value.len() * (size_of::<$type>() / size_of::<u8>());
+                let ptr = Box::into_raw(value);
+
+                Self {
+                    inner: ptr as *mut u8,
+                    len,
+                }
+            }
+        }
+    };
+}
+
+from_box!(u8);
+from_box!(u16);
+from_box!(u32);
+from_box!(u64);
