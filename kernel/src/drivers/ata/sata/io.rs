@@ -42,6 +42,7 @@ impl AhciSata {
 
         // this is to make sure the buffer is 32 bytes aligned
         let result_buf_ptr = (buffer.inner as u64) - get_hhdm_offset().as_u64();
+        assert_eq!(result_buf_ptr % 4, 0);
 
         let cmd_table: &mut CommandTable = bytemuck::from_bytes_mut(
             &mut buf[Self::nth_command_table_offset(cmd_queue_idx as u64) as usize
@@ -69,7 +70,7 @@ impl AhciSata {
         };
 
         let mut prdt_flags = PrdtEntryFlags(0);
-        prdt_flags.set_interrupt(true);
+        prdt_flags.set_interrupt(false);
         prdt_flags.set_byte_count((count as u32 * SECTOR_SIZE as u32) - 1);
 
         cmd_table.prdt_table[0] = PrdtEntry {
@@ -166,6 +167,7 @@ impl AhciSata {
 
         // this is to make sure the buffer is 32 bytes aligned
         let result_buf_ptr = (buffer.inner as u64) - get_hhdm_offset().as_u64();
+        assert_eq!(result_buf_ptr % 4, 0);
 
         let cmd_table: &mut CommandTable = bytemuck::from_bytes_mut(
             &mut buf[Self::nth_command_table_offset(cmd_queue_idx as u64) as usize
@@ -193,7 +195,7 @@ impl AhciSata {
         };
 
         let mut prdt_flags = PrdtEntryFlags(0);
-        prdt_flags.set_interrupt(true);
+        prdt_flags.set_interrupt(false);
         prdt_flags.set_byte_count((count as u32 * SECTOR_SIZE as u32) - 1);
 
         cmd_table.prdt_table[0] = PrdtEntry {

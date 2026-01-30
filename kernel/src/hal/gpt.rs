@@ -281,7 +281,7 @@ impl GptReader {
 
     async fn is_normal_present(&self) -> bool {
         log!("Checking primary GPT presence at LBA 1");
-        let buf: Buffer = [0u8; 512].as_slice().into();
+        let buf: Buffer = [0u32; 128].as_slice().into();
         if self.read_sectors_async(1, buf.clone()).await.is_err() {
             log!("Failed to read primary GPT sector");
             return false;
@@ -299,7 +299,7 @@ impl GptReader {
 
     async fn is_backup_present(&self) -> bool {
         log!("Checking backup GPT presence at LBA -1");
-        let buf: Buffer = [0u8; 512].as_slice().into();
+        let buf: Buffer = [0u32; 128].as_slice().into();
         if self.read_sectors_async(-1, buf.clone()).await.is_err() {
             log!("Failed to read backup GPT sector");
             return false;

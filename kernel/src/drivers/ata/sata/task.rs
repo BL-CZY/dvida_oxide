@@ -6,7 +6,8 @@ use x86_64::{VirtAddr, instructions::interrupts::without_interrupts};
 
 use crate::{
     drivers::ata::sata::{
-        AhciSata, AhciSataPorts, PortInterruptStatus, PortSataError, PortTaskFileData, SataError,
+        AhciSata, AhciSataPorts, AtaError, PortInterruptStatus, PortSataError, PortTaskFileData,
+        SataError,
         ahci::{AhciHbaPorts, HBA_PORT_PORTS_OFFSET, HBA_PORT_SIZE},
     },
     ejcineque::{
@@ -77,7 +78,14 @@ impl AhciSata {
         state: &mut AhciTaskState,
     ) {
         match op {
-            HalStorageOperation::Read { setter, .. } => {
+            HalStorageOperation::Read {
+                buffer,
+                setter,
+                lba,
+            } => {
+                if lba == 1 {
+                    log!("{}", buffer);
+                }
                 if is_err {
                     setter.set(Err(crate::hal::storage::HalStorageOperationErr::DriveErr(
                         "".into(),
@@ -114,35 +122,38 @@ impl AhciSata {
     }
 
     async fn handle_interrupt(&mut self, state: &mut AhciTaskState, data: AhciSataInterruptData) {
-        let mut error = false;
-        let interrupt_status = data.interrupt_status;
-        if interrupt_status.interface_fatal_error() || interrupt_status.host_bus_fatal_error() {
-            // TODO: set everything to failure
-            self.failure_reset().await;
-        }
-
-        if interrupt_status.interface_non_fatal_error() {
-            error = true;
-            log!("interface non fatal error");
-        }
-
-        if interrupt_status.host_bus_data_error() {
-            error = true;
-            log!("host bus data error");
-        }
-
-        if interrupt_status.task_file_error() {
-            error = true;
-            log!(
-                "Error from AHCI SATA: {:?}",
-                SataError(data.task_file_data.error_code())
-            )
-        }
-
         let cmd_issue = self.ports.read_command_issue();
         for i in 0..32 {
             if cmd_issue & (0x1 << i) == 0 && state.operations[i].is_some() {
                 if let Some(op) = state.operations[i].take() {
+                    let mut error = false;
+                    let interrupt_status = data.interrupt_status;
+                    if interrupt_status.interface_fatal_error()
+                        || interrupt_status.host_bus_fatal_error()
+                    {
+                        // TODO: set everything to failure
+                        self.failure_reset().await;
+                    }
+
+                    if interrupt_status.interface_non_fatal_error() {
+                        error = true;
+                        log!("interface non fatal error");
+                    }
+
+                    if interrupt_status.host_bus_data_error() {
+                        error = true;
+                        log!("host bus data error");
+                    }
+
+                    if interrupt_status.task_file_error() {
+                        error = true;
+                        // log!(
+                        //     "Error from AHCI SATA: {:#?}",
+                        //     AtaError(data.task_file_data.error_code() as u8))
+                    }
+
+                    //TODO: fix infinit loop on failure
+
                     self.finish_operation(op, error, state);
                 }
             }
@@ -248,13 +259,6 @@ fn port_interrupt_handler(hba_idx: usize, port_idx: usize, hba_base: VirtAddr) {
         }
     });
 
-    log!(
-        "interrupt status: 0b{:b}\n error: 0b{:b}\n tfd: 0b{:b}",
-        ports.read_interrupt_status(),
-        ports.read_sata_error(),
-        ports.read_task_file_data()
-    );
-
     ports.write_interrupt_status(ports.read_interrupt_status());
     ports.write_sata_error(0xFFFFFFFF);
 }
@@ -267,7 +271,6 @@ pub fn ahci_interrupt_handler_by_idx(idx: usize) {
     let mut ports = AhciHbaPorts { base: *base };
 
     let interrupt_status = ports.read_interrupt_status();
-    log!("global interrupt status: {:b}", interrupt_status);
 
     for i in 0..32 {
         if interrupt_status & (0x1 << i) != 0 {

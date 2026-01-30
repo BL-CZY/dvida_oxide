@@ -70,6 +70,7 @@ pub struct HalIdentifyData {
 
 #[derive(Debug)]
 /// TODO: page cache
+/// The buffers vaddr needs to be the offset table's identity map
 pub enum HalStorageOperation {
     Read {
         buffer: Buffer,

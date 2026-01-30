@@ -107,6 +107,15 @@ async fn kernel_main(spawner: Spawner) {
     yield_now().await;
     log!("Deallocator task launched");
 
+    // use alloc::vec;
+    // use hal::buffer::Buffer;
+    // let buffer: Buffer = vec![0u32; 128].into_boxed_slice().into();
+    // hal::storage::read_sectors_by_idx(0, buffer.clone(), 1)
+    //     .await
+    //     .unwrap();
+
+    // log!("{}", buffer);
+
     let gpt_reader = hal::gpt::GptReader::new(0).await.unwrap();
     log!("{:?}", gpt_reader.read_gpt().await);
 }
