@@ -116,7 +116,7 @@ async fn kernel_main(spawner: Spawner) {
 
     // log!("{}", buffer);
 
-    let gpt_reader = hal::gpt::GptReader::new(0).await.unwrap();
+    let gpt_reader = hal::gpt::GptReader::new(0);
     log!("{:?}", gpt_reader.read_gpt().await);
 }
 /// Sets the base revision to the latest revision supported by the crate.

@@ -2,7 +2,6 @@ use core::ops::Deref;
 
 use crate::ejcineque::pools::{DISK_IO_BUFFER_POOL_SECTOR_SIZE, DiskIOBufferPoolHandle};
 use crate::hal::buffer::Buffer;
-use crate::hal::storage::HalStorageOperationErr;
 use crate::{hal, log};
 use alloc::boxed::Box;
 use alloc::string::{FromUtf16Error, String, ToString};
@@ -14,7 +13,7 @@ use thiserror::Error;
 use crate::crypto;
 use crate::crypto::guid::Guid;
 
-#[derive(Pod, Zeroable, Copy, Clone)]
+#[derive(Pod, Zeroable, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 #[repr(C, packed)]
 pub struct GPTHeader {
     sig: [u8; 8],
@@ -39,14 +38,16 @@ impl GPTHeader {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, Copy, Pod, Zeroable, Default)]
+#[repr(C, packed)]
 pub struct GPTEntry {
-    pub type_guid: Guid,
-    pub unique_guid: Guid,
+    type_guid: u128,
+    unique_guid: u128,
     pub start_lba: u64,
     pub end_lba: u64,
     pub flags: u64,
-    pub name: [u16; 36],
+    name1: [u16; 32],
+    name2: [u16; 4],
 }
 
 impl GPTEntry {
@@ -54,8 +55,21 @@ impl GPTEntry {
         self.start_lba == 0
     }
 
+    pub fn type_guid(&self) -> Guid {
+        Guid::from_u128(self.type_guid)
+    }
+
+    pub fn unique_guid(&self) -> Guid {
+        Guid::from_u128(self.unique_guid)
+    }
+
     pub fn get_name(&self) -> String {
-        String::from_utf16_lossy(&self.name)
+        self.name1
+            .into_iter()
+            .chain(self.name2.into_iter())
+            .filter(|&c| c != 0)
+            .map(|c| char::from_u32(c as u32).unwrap_or(' '))
+            .collect()
     }
 }
 
@@ -102,8 +116,8 @@ impl GptReader {
         DISK_IO_BUFFER_POOL_SECTOR_SIZE.get_buffer()
     }
 
-    pub fn new(idx: usize) -> Result<Self, HalStorageOperationErr> {
-        Ok(Self { idx })
+    pub fn new(idx: usize) -> Self {
+        Self { idx }
     }
 
     async fn read_sectors_async(
@@ -188,7 +202,7 @@ impl GptReader {
 
         // Read header
         let handle = Self::get_buffer();
-        let header_buf: Buffer = handle.get_buffer();
+        let mut header_buf: Buffer = handle.get_buffer();
         self.read_sectors_async(lba, header_buf.clone())
             .await
             .map_err(|e| {
@@ -200,18 +214,17 @@ impl GptReader {
                 GPTErr::Io(e.to_string())
             })?;
 
-        if !self.is_valid_header(&header_buf) {
+        if !self.is_valid_header(&mut header_buf) {
             log!("Invalid GPT header detected at lba={}", lba);
             return Err(GPTErr::GPTCorrupted);
         }
 
-        let result_header = GPTHeader::try_from(header_buf.deref())?;
+        let result_header: GPTHeader =
+            *bytemuck::from_bytes(&header_buf[0..size_of::<GPTHeader>()]);
 
         if !(result_header.entry_size / 128).is_power_of_two() {
-            log!(
-                "GPT entry size appears invalid: {}",
-                result_header.entry_size
-            );
+            let entry_size = result_header.entry_size;
+            log!("GPT entry size appears invalid: {}", entry_size);
             return Err(GPTErr::BadArrayEntrySize);
         }
 
@@ -247,23 +260,21 @@ impl GptReader {
             })?;
 
         if !crypto::crc32::is_verified_crc32(buffer.deref(), result_header.array_crc32) {
-            log!(
-                "GPT array CRC mismatch: expected={} (lba={})",
-                result_header.array_crc32,
-                arr_lba
-            );
+            let crc = result_header.array_crc32;
+            log!("GPT array CRC mismatch: expected={} (lba={})", crc, arr_lba);
             return Err(GPTErr::GPTCorrupted);
         }
 
         let result_array: Vec<GPTEntry> = buffer
             .deref()
             .chunks(result_header.entry_size as usize)
-            .map(|slice| GPTEntry::try_from_buf(slice).unwrap())
+            .map(|slice| *bytemuck::from_bytes(&slice[0..size_of::<GPTEntry>()]))
             .collect();
 
+        let entry_num = result_header.entry_num;
         log!(
             "Successfully read GPT header and array (entries={})",
-            result_header.entry_num
+            entry_num
         );
         Ok((result_header, result_array))
     }
