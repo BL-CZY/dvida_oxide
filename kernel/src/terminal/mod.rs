@@ -55,14 +55,10 @@ static FRAMEBUFFER_REQUEST: FramebufferRequest = FramebufferRequest::new();
 
 impl DebugWriter {
     pub fn init_debug_terminal(&mut self) {
-        if let Some(framebuffer_response) = FRAMEBUFFER_REQUEST.get_response() {
-            if let Some(framebuffer) = framebuffer_response.framebuffers().next() {
-                self.configure_debug_terminal(
-                    &framebuffer,
-                    framebuffer.width(),
-                    framebuffer.height(),
-                );
-            }
+        if let Some(framebuffer_response) = FRAMEBUFFER_REQUEST.get_response()
+            && let Some(framebuffer) = framebuffer_response.framebuffers().next()
+        {
+            self.configure_debug_terminal(&framebuffer, framebuffer.width(), framebuffer.height());
         }
     }
 
@@ -103,14 +99,12 @@ impl DebugWriter {
             } else {
                 self.cursor_blink_interval -= 1;
             }
+        } else if self.cursor_blink_interval == 0 {
+            self.update_debug_cursor(false);
+            self.is_cursor_on = true;
+            self.cursor_blink_interval = 255;
         } else {
-            if self.cursor_blink_interval == 0 {
-                self.update_debug_cursor(false);
-                self.is_cursor_on = true;
-                self.cursor_blink_interval = 255;
-            } else {
-                self.cursor_blink_interval -= 1;
-            }
+            self.cursor_blink_interval -= 1;
         }
     }
 
@@ -140,7 +134,7 @@ impl DebugWriter {
     }
 
     fn update_debug_cursor(&mut self, remove: bool) {
-        self.remove_debug_cursor(self.cursor_row.into(), self.cursor_col.into());
+        self.remove_debug_cursor(self.cursor_row, self.cursor_col);
 
         // draw the character hidden by the cursor
         self.debug_render_char(
@@ -150,7 +144,7 @@ impl DebugWriter {
         );
 
         if !remove {
-            self.draw_debug_cursor(self.current_row.into(), self.current_col.into());
+            self.draw_debug_cursor(self.current_row, self.current_col);
         }
 
         self.cursor_row = self.current_row;
