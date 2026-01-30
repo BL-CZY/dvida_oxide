@@ -1,84 +1,137 @@
-use crate::ejcineque::sync::spin::SpinMutex;
-use core::{
-    cell::UnsafeCell,
-    ops::{Deref, DerefMut},
-    sync::atomic::{AtomicBool, AtomicU64},
-};
+use core::{alloc::Layout, sync::atomic::AtomicU64};
 
 use lazy_static::lazy_static;
+use x86_64::structures::paging::FrameAllocator;
+
+use crate::{
+    arch::x86_64::memory::{frame_allocator::FRAME_ALLOCATOR, get_hhdm_offset},
+    hal::buffer::Buffer,
+};
+
+const PAGE_SIZE: usize = 4096;
 
 lazy_static! {
-    /// never used in IRQs and ISRs
-    pub static ref DISK_IO_BUFFER_POOL: DiskIOBufferPool = DiskIOBufferPool {
-        inner: SpinMutex::new(InnerDiskIOBufferPool::new())
-    };
+    pub static ref DISK_IO_BUFFER_POOL_PAGE_SIZE: DiskIOBufferPool<PAGE_SIZE> =
+        DiskIOBufferPool::new();
 }
 
-unsafe impl Send for DiskIOBufferPool {}
-unsafe impl Sync for DiskIOBufferPool {}
-
-pub struct DiskIOBufferPool {
-    inner: SpinMutex<InnerDiskIOBufferPool>,
+pub struct DiskIOBufferPool<const N: usize> {
+    buffers: [u64; 64],
+    mask: AtomicU64,
 }
 
-pub struct InnerDiskIOBufferPool {
-    sector_pool: UnsafeCell<[[u8; 512]; 64]>,
-    block_pool: UnsafeCell<[[u8; 1024]; 64]>,
-    sector_pool_mask: u64,
-    block_pool_mask: u64,
-    is_locked: AtomicBool,
-}
+impl<const N: usize> DiskIOBufferPool<N> {
+    const SIZE: usize = N;
 
-impl InnerDiskIOBufferPool {
     pub fn new() -> Self {
-        InnerDiskIOBufferPool {
-            sector_pool: [[0u8; 512]; 64].into(),
-            block_pool: [[0u8; 1024]; 64].into(),
-            sector_pool_mask: 0,
-            block_pool_mask: 0,
-            is_locked: AtomicBool::new(false),
-        }
-    }
+        assert!(PAGE_SIZE % N == 0);
+        assert!(N <= PAGE_SIZE);
+        assert!(N.is_power_of_two());
 
-    pub fn get_block_buf(&mut self) -> DiskIOBuffer<'_> {
-        todo!()
-    }
+        let mut frame_allocator = FRAME_ALLOCATOR
+            .get()
+            .expect("Failed to get frame allocator")
+            .spin_acquire_lock();
 
-    pub fn get_sector_buf(&mut self) -> DiskIOBuffer<'_> {
-        for i in 0..64 {
-            if self.sector_pool_mask & (1 << i) == 0 {
-                self.sector_pool_mask = self.sector_pool_mask | (1 << i);
+        let bytes_count = Self::SIZE * 64;
+        let frame_count = (bytes_count + PAGE_SIZE - 1) / PAGE_SIZE;
+
+        let mut buffers = [0u64; 64];
+
+        let mut idx = 0;
+        for _ in 0..frame_count {
+            let frame = frame_allocator
+                .allocate_frame(&mut None)
+                .expect("No frame left");
+
+            let addr = get_hhdm_offset().as_u64() + frame.start_address().as_u64();
+
+            for i in 0..PAGE_SIZE / Self::SIZE {
+                if idx >= 64 {
+                    break;
+                }
+
+                buffers[idx] = addr + (i * Self::SIZE) as u64;
+
+                idx += 1;
             }
         }
-        todo!()
+
+        Self {
+            buffers,
+            mask: AtomicU64::new(0),
+        }
+    }
+
+    pub fn get_buffer(&'static self) -> DiskIOBufferPoolHandle<N> {
+        let mut result: Option<u8> = None;
+        let _ = self.mask.fetch_update(
+            core::sync::atomic::Ordering::AcqRel,
+            core::sync::atomic::Ordering::Acquire,
+            |val| {
+                let i = val.trailing_ones() as u8;
+                if i < 64 {
+                    result = Some(i);
+                    Some(val | 0x1 << i)
+                } else {
+                    Some(val)
+                }
+            },
+        );
+
+        let inner = match result {
+            Some(idx) => self.buffers[idx as usize],
+            None => {
+                unsafe {
+                    // if the buffer pool is full allocate a new one
+                    // used unsafe since the assert in new already checked
+                    let layout = Layout::from_size_align_unchecked(N, N);
+                    let ptr = alloc::alloc::alloc(layout) as u64;
+                    ptr
+                }
+            }
+        };
+
+        DiskIOBufferPoolHandle {
+            pool: self,
+            idx: result,
+            inner,
+        }
     }
 }
 
-pub struct DiskIOBuffer<'a> {
-    pub inner: Buffer<'a>,
+pub struct DiskIOBufferPoolHandle<const N: usize> {
+    pool: &'static DiskIOBufferPool<N>,
+    idx: Option<u8>,
+    inner: u64,
 }
 
-unsafe impl<'a> Send for Buffer<'a> {}
-unsafe impl<'a> Sync for Buffer<'a> {}
-
-pub struct Buffer<'a>(pub UnsafeCell<&'a mut [u8]>);
-
-impl<'a> Deref for Buffer<'a> {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { *self.0.get() }
+impl<const N: usize> DiskIOBufferPoolHandle<N> {
+    pub fn get_buffer(&self) -> Buffer {
+        Buffer {
+            inner: self.inner as *mut u8,
+            len: N,
+        }
     }
 }
 
-impl<'a> DerefMut for Buffer<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { *self.0.get() }
+impl<const N: usize> Drop for DiskIOBufferPoolHandle<N> {
+    fn drop(&mut self) {
+        if let Some(idx) = self.idx {
+            let _ = self.pool.mask.fetch_update(
+                core::sync::atomic::Ordering::AcqRel,
+                core::sync::atomic::Ordering::Acquire,
+                |val| Some(val & !(0x1 << idx)),
+            );
+        } else {
+            // used unsafe because in buffer pools' new it's already checked
+            unsafe {
+                alloc::alloc::dealloc(
+                    self.inner as *mut u8,
+                    alloc::alloc::Layout::from_size_align_unchecked(N, N),
+                );
+            }
+        }
     }
 }
 
-impl<'a> Clone for Buffer<'a> {
-    fn clone(&self) -> Self {
-        Self(unsafe { (*self.0.get()).into() })
-    }
-}
