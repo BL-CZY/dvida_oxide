@@ -36,7 +36,7 @@ static I_TABLE: Mutex<[u32; 256]> = Mutex::new([
     0xb3667a2e, 0xc4614ab8, 0x5d681b02, 0x2a6f2b94, 0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d,
 ]);
 
-fn partial_crc(i_crc: &mut u32, s_data: &Vec<u8>) {
+pub fn partial_crc(i_crc: &mut u32, s_data: &Vec<u8>) {
     for data in s_data.iter() {
         *i_crc = (*i_crc >> 8) ^ I_TABLE.lock()[((*i_crc & 0xFF) ^ (*data) as u32) as usize];
     }
@@ -70,9 +70,9 @@ mod tests {
     fn crc32() {
         ignore!();
         test_name!("CRC32 test");
-        let data = vec![0x31, 0x32, 0x33, 0x34]; // "12345"
-        let crc = full_crc(&data);
-        iprintln!("{:#X}", crc);
+        let _data = vec![0x31, 0x32, 0x33, 0x34]; // "12345"
+        let _crc = full_crc(&_data);
+        iprintln!("{:#X}", _crc);
         end_test!();
     }
 }

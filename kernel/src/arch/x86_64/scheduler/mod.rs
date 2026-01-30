@@ -7,7 +7,7 @@ use core::sync::atomic::AtomicUsize;
 
 use crate::ejcineque::sync::mutex::Mutex;
 use alloc::{
-    collections::{btree_map::BTreeMap, btree_set::BTreeSet, vec_deque::VecDeque},
+    collections::{btree_map::BTreeMap, vec_deque::VecDeque},
     vec::Vec,
 };
 use lazy_static::lazy_static;

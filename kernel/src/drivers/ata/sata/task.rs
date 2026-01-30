@@ -6,8 +6,7 @@ use x86_64::{VirtAddr, instructions::interrupts::without_interrupts};
 
 use crate::{
     drivers::ata::sata::{
-        AhciSata, AhciSataPorts, AtaError, PortInterruptStatus, PortSataError, PortTaskFileData,
-        SataError,
+        AhciSata, AhciSataPorts, PortInterruptStatus, PortSataError, PortTaskFileData,
         ahci::{AhciHbaPorts, HBA_PORT_PORTS_OFFSET, HBA_PORT_SIZE},
     },
     ejcineque::{

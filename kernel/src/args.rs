@@ -1,5 +1,4 @@
 use crate::log;
-use alloc::string::String;
 use limine::{request::ExecutableCmdlineRequest, response::ExecutableCmdlineResponse};
 
 pub static EXECUTABLE_CMDLINE_REQUEST: ExecutableCmdlineRequest = ExecutableCmdlineRequest::new();

@@ -1,5 +1,5 @@
 use alloc::boxed::Box;
-use dvida_serialize::{DvDeserialize, DvSerialize};
+use dvida_serialize::DvDeserialize;
 
 use crate::{
     drivers::fs::ext2::{
@@ -56,7 +56,7 @@ impl Ext2Fs {
         buf[block_rel_idx / 8] = buf[block_rel_idx / 8] & !(1 << (block_rel_idx % 8));
         self.write_sectors(buf.clone(), bitmap_lba).await?;
 
-        self.block_allocator.add_freed_block(block_lba);
+        self.block_allocator.add_freed_block(block_lba).await;
 
         Ok(buf)
     }

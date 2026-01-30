@@ -3,7 +3,6 @@ use core::arch::naked_asm;
 use crate::{
     drivers::ata::sata::task::ahci_interrupt_handler_by_idx,
     ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS, TIMER_WAKERS},
-    log,
 };
 use macros::ahci_interrupt_handler_template;
 use x86_64::{

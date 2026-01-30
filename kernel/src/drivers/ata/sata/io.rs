@@ -5,10 +5,7 @@ use crate::{
         command::{CommandHeader, CommandHeaderFlags, CommandTable, PrdtEntry, PrdtEntryFlags},
         fis::{self, AtaCommand, DEVICE_LBA_MODE, FORCE_UNIT_FLUSH, FisRegH2DFlags},
     },
-    hal::{
-        buffer::Buffer,
-        storage::{HalBlockDevice, SECTOR_SIZE},
-    },
+    hal::{buffer::Buffer, storage::SECTOR_SIZE},
     log,
 };
 
@@ -29,7 +26,7 @@ impl AhciSata {
         let count = (buffer.len() / SECTOR_SIZE) as u16;
 
         let lba: u64 = if lba < 0 {
-            self.sector_count() - lba as u64
+            self.identify_data.lba48_sectors - lba as u64
         } else {
             lba as u64
         };
@@ -154,7 +151,7 @@ impl AhciSata {
         let count = (buffer.len() / SECTOR_SIZE) as u16;
 
         let lba: u64 = if lba < 0 {
-            self.sector_count() - lba as u64
+            self.identify_data.lba48_sectors - lba as u64
         } else {
             lba as u64
         };

@@ -1,4 +1,3 @@
-use crate::log;
 use alloc::boxed::Box;
 use dvida_serialize::{DvDeserialize, DvSerialize};
 

@@ -13,7 +13,7 @@ use crate::ejcineque::sync::mpsc::unbounded::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
 use crate::ejcineque::sync::mutex::Mutex;
-use crate::ejcineque::sync::spsc::cell::{SpscCell, SpscCellSetter, spsc_cells};
+use crate::ejcineque::sync::spsc::cell::{SpscCellSetter, spsc_cells};
 use crate::hal::buffer::Buffer;
 use crate::{SPAWNER, log};
 use alloc::collections::btree_map::BTreeMap;
@@ -94,35 +94,6 @@ pub enum HalStorageOperation {
 }
 
 pub trait HalBlockDevice: Send + Sync + Debug {
-    fn sector_count(&mut self) -> u64;
-    fn sectors_per_track(&mut self) -> u16;
-
-    fn read_sectors_async(
-        &mut self,
-        index: i64,
-        count: u16,
-        output: &mut [u8],
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<(), Box<dyn core::error::Error + Send + Sync>>>
-                + Send
-                + Sync,
-        >,
-    >;
-
-    fn write_sectors_async(
-        &mut self,
-        index: i64,
-        count: u16,
-        input: &[u8],
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<(), Box<dyn core::error::Error + Send + Sync>>>
-                + Send
-                + Sync,
-        >,
-    >;
-
     fn run<'device, 'rx, 'future>(
         &'device mut self,
         rx: &'rx UnboundedReceiver<HalStorageOperation>,

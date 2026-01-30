@@ -4,7 +4,7 @@ use dvida_serialize::{DvDeserialize, DvSerialize};
 
 use crate::{
     drivers::fs::ext2::{
-        BLOCK_SIZE, DirEntry, DirEntryPartial, Inode, InodePlus, block_iterator,
+        BLOCK_SIZE, DirEntry, DirEntryPartial, Inode, InodePlus,
         read::Progress,
         structs::{BlockIterElement, Ext2Fs},
     },

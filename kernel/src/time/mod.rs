@@ -18,7 +18,7 @@ const RTC_STATUS_B: u8 = 0x0B;
 /// RTC Status Register B flags
 const RTC_24_HOUR: u8 = 0x02;
 const RTC_BINARY: u8 = 0x04;
-const RTC_SET_BIT: u8 = 0x80;
+const _RTC_SET_BIT: u8 = 0x80;
 
 /// RTC Status Register A flags
 const RTC_UIP: u8 = 0x80;
@@ -67,7 +67,7 @@ impl Rtc {
     }
 
     /// Write to a CMOS register
-    fn write_register(&mut self, reg: u8, value: u8) {
+    pub fn write_register(&mut self, reg: u8, value: u8) {
         unsafe {
             self.address_port.write(NMI_DISABLE | reg);
             self.data_port.write(value);

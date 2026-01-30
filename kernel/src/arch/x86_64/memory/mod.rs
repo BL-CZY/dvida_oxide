@@ -5,7 +5,7 @@ pub mod memmap;
 pub mod page_table;
 pub mod pmm;
 
-use crate::arch::x86_64::gdt::{self, AlignedTSS, PAGE_FAULT_IST_INDEX, STACK_PAGE_SIZE, TSS};
+use crate::arch::x86_64::gdt::{self, AlignedTSS, STACK_PAGE_SIZE, TSS};
 use crate::arch::x86_64::handlers::{RSP0_STACK_GUARD_PAGE, RSP0_STACK_LENGTH};
 use crate::arch::x86_64::memory::bitmap::BitMap;
 use crate::arch::x86_64::memory::heap::KHeap;

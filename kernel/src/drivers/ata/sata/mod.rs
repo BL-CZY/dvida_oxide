@@ -710,46 +710,6 @@ impl AhciSata {
 }
 
 impl HalBlockDevice for AhciSata {
-    fn write_sectors_async(
-        &mut self,
-        index: i64,
-        count: u16,
-        input: &[u8],
-    ) -> core::pin::Pin<
-        alloc::boxed::Box<
-            dyn Future<Output = Result<(), alloc::boxed::Box<dyn core::error::Error + Send + Sync>>>
-                + Send
-                + Sync,
-        >,
-    > {
-        todo!()
-    }
-
-    fn read_sectors_async(
-        &mut self,
-        index: i64,
-        count: u16,
-        output: &mut [u8],
-    ) -> core::pin::Pin<
-        alloc::boxed::Box<
-            dyn Future<Output = Result<(), alloc::boxed::Box<dyn core::error::Error + Send + Sync>>>
-                + Send
-                + Sync,
-        >,
-    > {
-        todo!()
-    }
-
-    fn sector_count(&mut self) -> u64 {
-        self.identify_data
-            .lba48_sectors
-            .max(self.identify_data.lba28_sectors.into())
-    }
-
-    fn sectors_per_track(&mut self) -> u16 {
-        self.identify_data.sectors_per_track
-    }
-
     fn run<'device, 'rx, 'future>(
         &'device mut self,
         rx: &'rx UnboundedReceiver<HalStorageOperation>,
