@@ -77,14 +77,7 @@ impl AhciSata {
         state: &mut AhciTaskState,
     ) {
         match op {
-            HalStorageOperation::Read {
-                buffer,
-                setter,
-                lba,
-            } => {
-                if lba == 1 {
-                    log!("{}", buffer);
-                }
+            HalStorageOperation::Read { setter, .. } => {
                 if is_err {
                     setter.set(Err(crate::hal::storage::HalStorageOperationErr::DriveErr(
                         "".into(),
@@ -123,38 +116,40 @@ impl AhciSata {
     async fn handle_interrupt(&mut self, state: &mut AhciTaskState, data: AhciSataInterruptData) {
         let cmd_issue = self.ports.read_command_issue();
         for i in 0..32 {
-            if cmd_issue & (0x1 << i) == 0 && state.operations[i].is_some()
-                && let Some(op) = state.operations[i].take() {
-                    let mut error = false;
-                    let interrupt_status = data.interrupt_status;
-                    if interrupt_status.interface_fatal_error()
-                        || interrupt_status.host_bus_fatal_error()
-                    {
-                        // TODO: set everything to failure
-                        self.failure_reset().await;
-                    }
-
-                    if interrupt_status.interface_non_fatal_error() {
-                        error = true;
-                        log!("interface non fatal error");
-                    }
-
-                    if interrupt_status.host_bus_data_error() {
-                        error = true;
-                        log!("host bus data error");
-                    }
-
-                    if interrupt_status.task_file_error() {
-                        error = true;
-                        // log!(
-                        //     "Error from AHCI SATA: {:#?}",
-                        //     AtaError(data.task_file_data.error_code() as u8))
-                    }
-
-                    //TODO: fix infinit loop on failure
-
-                    self.finish_operation(op, error, state);
+            if cmd_issue & (0x1 << i) == 0
+                && state.operations[i].is_some()
+                && let Some(op) = state.operations[i].take()
+            {
+                let mut error = false;
+                let interrupt_status = data.interrupt_status;
+                if interrupt_status.interface_fatal_error()
+                    || interrupt_status.host_bus_fatal_error()
+                {
+                    // TODO: set everything to failure
+                    self.failure_reset().await;
                 }
+
+                if interrupt_status.interface_non_fatal_error() {
+                    error = true;
+                    log!("interface non fatal error");
+                }
+
+                if interrupt_status.host_bus_data_error() {
+                    error = true;
+                    log!("host bus data error");
+                }
+
+                if interrupt_status.task_file_error() {
+                    error = true;
+                    // log!(
+                    //     "Error from AHCI SATA: {:#?}",
+                    //     AtaError(data.task_file_data.error_code() as u8))
+                }
+
+                //TODO: fix infinit loop on failure
+
+                self.finish_operation(op, error, state);
+            }
         }
 
         self.ports.write_command_issue(cmd_issue);

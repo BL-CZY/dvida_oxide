@@ -55,10 +55,7 @@ use crate::{
         },
     },
     crypto::random::run_random,
-    hal::{
-        storage::{identify_storage_devices, run_storage_devices},
-        // vfs::spawn_vfs_task,
-    },
+    hal::storage::{identify_storage_devices, run_storage_devices},
     terminal::WRITER,
 };
 

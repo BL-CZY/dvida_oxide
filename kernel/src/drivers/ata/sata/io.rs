@@ -21,8 +21,6 @@ impl AhciSata {
             return;
         }
 
-        log!("start read");
-
         let count = (buffer.len() / SECTOR_SIZE) as u16;
 
         let lba: u64 = if lba < 0 {
@@ -30,6 +28,8 @@ impl AhciSata {
         } else {
             lba as u64
         };
+
+        log!("start read at lba: {lba} and sector count: {count}");
 
         let cmd_tables_phys_addr = (self.dma_20kb_buffer_paddr
             + Self::nth_command_table_offset(cmd_queue_idx as u64))
