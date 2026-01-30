@@ -1,12 +1,16 @@
+use core::fmt;
+
+use alloc::{format, string::String};
+
 #[derive(PartialEq, Eq, Clone, Copy, Default, Debug, PartialOrd)]
 pub struct Guid {
     /// the entire guid in little endian
     pub whole: u128,
-    pub first: u32,
-    pub second: u16,
-    pub third: u16,
+    pub data1: u32,
+    pub data2: u16,
+    pub data3: u16,
     // the last two chunks of it in big endian
-    pub last: u64, // u16 & u48
+    pub data4: [u8; 8], // u16 & u48
 }
 
 impl Ord for Guid {
@@ -15,49 +19,38 @@ impl Ord for Guid {
     }
 }
 
+impl fmt::Display for Guid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
 impl Guid {
-    pub fn from_buf(buf: &[u8; 16]) -> Self {
-        Guid {
-            whole: u128::from_le_bytes(*buf).try_into().unwrap(),
-            first: u32::from_le_bytes(buf[0..4].try_into().unwrap()),
-            second: u16::from_le_bytes(buf[4..6].try_into().unwrap()),
-            third: u16::from_le_bytes(buf[6..8].try_into().unwrap()),
-            last: u64::from_be_bytes(buf[8..16].try_into().unwrap()),
+    pub fn from_u128(val: u128) -> Self {
+        Self {
+            whole: val,
+            data1: (val >> 96) as u32,
+            data2: (val >> 80) as u16,
+            data3: (val >> 64) as u16,
+            data4: (val as u64).to_be_bytes(),
         }
     }
 
-    pub fn to_buf(&self) -> [u8; 16] {
-        let first = self.first.to_le_bytes();
-        let second = self.second.to_le_bytes();
-        let third = self.third.to_le_bytes();
-        let last = self.last.to_be_bytes();
-        let mut res: [u8; 16] = [0; 16];
-
-        for (index, byte) in first.iter().enumerate() {
-            res[index] = *byte;
-        }
-
-        res[4] = second[0];
-        res[5] = second[1];
-        res[6] = third[0];
-        res[7] = third[1];
-
-        for (index, byte) in last.iter().enumerate() {
-            res[8 + index] = *byte;
-        }
-
-        res
-    }
-
-    pub fn new() -> Self {
-        Guid {
-            // TODO dummy
-            whole: 0,
-            first: 0,
-            second: 0,
-            third: 0,
-            last: 0,
-        }
+    pub fn to_string(&self) -> String {
+        format!(
+            "{:08x}-{:04x}-{:04x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+            self.data1,
+            self.data2,
+            self.data3,
+            self.data4[0],
+            self.data4[1],
+            self.data4[2],
+            self.data4[3],
+            self.data4[4],
+            self.data4[5],
+            self.data4[6],
+            self.data4[7]
+        )
     }
 }
 

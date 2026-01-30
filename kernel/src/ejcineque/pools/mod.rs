@@ -8,10 +8,13 @@ use crate::{
     hal::buffer::Buffer,
 };
 
-const PAGE_SIZE: usize = 4096;
+pub const PAGE_SIZE: usize = 4096;
+pub const SECTOR_SIZE: usize = 512;
 
 lazy_static! {
     pub static ref DISK_IO_BUFFER_POOL_PAGE_SIZE: DiskIOBufferPool<PAGE_SIZE> =
+        DiskIOBufferPool::new();
+    pub static ref DISK_IO_BUFFER_POOL_SECTOR_SIZE: DiskIOBufferPool<SECTOR_SIZE> =
         DiskIOBufferPool::new();
 }
 
@@ -134,4 +137,3 @@ impl<const N: usize> Drop for DiskIOBufferPoolHandle<N> {
         }
     }
 }
-
