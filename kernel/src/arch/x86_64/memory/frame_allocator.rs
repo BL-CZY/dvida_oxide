@@ -22,7 +22,7 @@ impl BitmapAllocator {
             let idx = frame.start_address().as_u64() / PAGE_SIZE as u64;
             let idx = idx as usize;
 
-            self.bitmap[idx / 8] = self.bitmap[idx / 8] & !(0x1 << (idx % 8));
+            self.bitmap[idx / 8] &= !(0x1 << (idx % 8));
         }
     }
 
@@ -64,7 +64,7 @@ impl BitmapAllocator {
                         let res: PhysFrame<Size4KiB> = PhysFrame::from_start_address_unchecked(
                             PhysAddr::new(*i as u64 * 4096),
                         );
-                        result.push(res.clone());
+                        result.push(res);
 
                         if let Some(v) = context {
                             v.push(res);
@@ -105,7 +105,7 @@ unsafe impl FrameAllocator<Size4KiB, Option<&mut Vec<PhysFrame<Size4KiB>>>> for 
                         PhysFrame::from_start_address_unchecked(PhysAddr::new(i as u64 * 4096));
 
                     if let Some(v) = context {
-                        v.push(res.clone());
+                        v.push(res);
                     }
 
                     return Some(res);

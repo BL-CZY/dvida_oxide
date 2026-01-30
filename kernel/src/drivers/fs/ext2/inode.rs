@@ -24,13 +24,13 @@ impl Ext2Fs {
     }
 
     pub fn global_idx_to_inode_plus(&self, inode: Inode, idx: u32) -> InodePlus {
-        let res = InodePlus {
+        
+        InodePlus {
             inode,
             relative_idx: (idx - 1) % self.super_block.s_inodes_per_group,
             group_number: (idx - 1) / self.super_block.s_inodes_per_group,
             absolute_idx: idx,
-        };
-        res
+        }
     }
 
     pub fn relative_idx_to_inode_plus(
@@ -42,7 +42,7 @@ impl Ext2Fs {
         InodePlus {
             inode,
             relative_idx: idx,
-            group_number: group_number,
+            group_number,
             absolute_idx: group_number * self.super_block.s_inodes_per_group + idx + 1,
         }
     }
@@ -62,8 +62,8 @@ impl Ext2Fs {
         let block_group = self.get_group(group_number as i64).await?;
         let lba = block_group.get_inode_table_lba();
 
-        let sector_offset = (idx as i64 * INODE_SIZE as i64) / SECTOR_SIZE as i64;
-        let byte_offset = (idx as i64 * INODE_SIZE as i64) % SECTOR_SIZE as i64;
+        let sector_offset = (idx as i64 * INODE_SIZE) / SECTOR_SIZE as i64;
+        let byte_offset = (idx as i64 * INODE_SIZE) % SECTOR_SIZE as i64;
 
         let mut buf: Box<[u8]> = Box::new([0u8; SECTOR_SIZE]);
         buf = self.read_sectors(buf, lba + sector_offset).await?;
@@ -96,8 +96,8 @@ impl Ext2Fs {
         let block_group = self.get_group(inode.group_number as i64).await?;
         let lba = block_group.get_inode_table_lba();
 
-        let sector_offset = (inode.relative_idx as i64 * INODE_SIZE as i64) / SECTOR_SIZE as i64;
-        let byte_offset = (inode.relative_idx as i64 * INODE_SIZE as i64) % SECTOR_SIZE as i64;
+        let sector_offset = (inode.relative_idx as i64 * INODE_SIZE) / SECTOR_SIZE as i64;
+        let byte_offset = (inode.relative_idx as i64 * INODE_SIZE) % SECTOR_SIZE as i64;
 
         let mut buf: Box<[u8]> = Box::new([0u8; SECTOR_SIZE]);
         buf = self.read_sectors(buf, lba + sector_offset).await?;

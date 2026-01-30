@@ -181,7 +181,7 @@ impl AhciHba {
             if pi & 0x1 << i != 0 {
                 let mut sata = if let Some(s) = AhciSata::new(
                     self.ports.base + HBA_PORT_PORTS_OFFSET + i * HBA_PORT_SIZE,
-                    self.ports.clone(),
+                    self.ports,
                     num_cmd_slots as u64,
                     self.idx,
                     i as usize,

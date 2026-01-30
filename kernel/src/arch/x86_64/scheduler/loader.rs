@@ -90,12 +90,12 @@ pub async fn copy_data(
         }
 
         let buffer = if remaining_size >= PAGE_SIZE as u64 - offset {
-            let buffer = Buffer {
+            
+
+            Buffer {
                 inner: (addr.as_u64() + offset) as *mut u8,
                 len: PAGE_SIZE as usize - offset as usize,
-            };
-
-            buffer
+            }
         } else {
             let mut buffer = Buffer {
                 inner: (addr.as_u64() + offset) as *mut u8,
@@ -104,12 +104,12 @@ pub async fn copy_data(
 
             buffer.fill(0);
 
-            let buffer = Buffer {
+            
+
+            Buffer {
                 inner: (addr.as_u64() + remaining_size + offset) as *mut u8,
                 len: remaining_size as usize + offset as usize,
-            };
-
-            buffer
+            }
         };
 
         let bytes_read = vfs_read(fd, buffer.clone()).await?;
@@ -153,7 +153,7 @@ pub async fn handle_tls(
         0,
         fd,
         tls_entry,
-        (aligned_length + PAGE_SIZE as u64 - 1) / PAGE_SIZE as u64,
+        aligned_length.div_ceil(PAGE_SIZE as u64),
     )
     .await?;
 
@@ -324,13 +324,13 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
             let end = (entry.vaddr + entry.size_in_memory + PAGE_SIZE as u64 - 1)
                 & !(PAGE_SIZE as u64 - 1);
 
-            let num_pages = (end - start + PAGE_SIZE as u64 - 1) / PAGE_SIZE as u64;
+            let num_pages = (end - start).div_ceil(PAGE_SIZE as u64);
             let offset = entry.size_in_memory % PAGE_SIZE as u64;
 
             let phys_frames = copy_data(offset, fd, entry, num_pages).await?;
 
             map_entries.push(MapEntry {
-                entry: entry,
+                entry,
                 frames: phys_frames,
             });
         } else if entry.segment_type == SegmentType::TLS as u32 {
@@ -352,14 +352,14 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
         let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
 
         if map_entry.entry.flags & Flags::Writable as u32 != 0 {
-            flags = flags | PageTableFlags::WRITABLE;
+            flags |= PageTableFlags::WRITABLE;
         }
 
         if map_entry.entry.flags & Flags::Executable as u32 == 0 {
-            flags = flags | PageTableFlags::NO_EXECUTE;
+            flags |= PageTableFlags::NO_EXECUTE;
         }
 
-        for (idx, phys_frame) in map_entry.frames.iter().into_iter().enumerate() {
+        for (idx, phys_frame) in map_entry.frames.iter().enumerate() {
             allocated_frames.push(*phys_frame);
 
             unsafe {
@@ -373,7 +373,7 @@ pub async fn load_elf(fd: i64, elf: ElfFile) -> Result<ThreadState, LoadErr> {
                         frame_allocator.deref_mut(),
                         &mut Some(&mut allocated_frames),
                     )
-                    .map_err(|e| LoadErr::MappingErr(e))?;
+                    .map_err(LoadErr::MappingErr)?;
             }
         }
     }

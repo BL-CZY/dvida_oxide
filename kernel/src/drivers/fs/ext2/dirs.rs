@@ -112,14 +112,14 @@ impl Ext2Fs {
             return Err(HalFsIOErr::FileExists);
         }
 
-        Ok(self
+        self
             .create_inode(
                 &mut dir_inode,
                 &path.file_name().ok_or(HalFsIOErr::BadPath)?,
                 true,
                 perms,
             )
-            .await?)
+            .await
     }
 
     pub async fn rmdir(&mut self, path: Path) -> Result<(), HalFsIOErr> {
@@ -150,7 +150,7 @@ impl Ext2Fs {
         offset: &mut i64,
         progress: &mut Progress,
     ) -> Result<(bool, bool), HalFsIOErr> {
-        let lba = self.get_block_lba(inode, progress.block_idx as u32).await?;
+        let lba = self.get_block_lba(inode, progress.block_idx).await?;
         let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
 
         buf = self.read_sectors(buf, lba as i64).await?;
@@ -163,7 +163,7 @@ impl Ext2Fs {
                 let result_entry = DirEnt64 {
                     inode_idx: entry.inode as u64,
                     offset: *offset + bytes_read as i64,
-                    file_type: entry.file_type as u8,
+                    file_type: entry.file_type,
                     name: entry.name,
                 };
 
@@ -176,7 +176,7 @@ impl Ext2Fs {
 
                 progress.bytes_written += result_entry.serialize(
                     dvida_serialize::Endianness::Little,
-                    &mut target[progress.bytes_written as usize..],
+                    &mut target[progress.bytes_written..],
                 )?;
             }
 
@@ -212,7 +212,7 @@ impl Ext2Fs {
 
         loop {
             let (reached_end, finished) = self
-                .read_entries_till_next_block(&mut inode.inode, &mut buf, offset, &mut progress)
+                .read_entries_till_next_block(&inode.inode, &mut buf, offset, &mut progress)
                 .await?;
 
             if reached_end {

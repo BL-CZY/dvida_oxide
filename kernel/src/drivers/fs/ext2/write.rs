@@ -94,7 +94,7 @@ impl Ext2Fs {
         while progress.bytes_written < buf.len() {
             let res = iterator.next_set().await?;
             blocks_allocated_count += res.allocated_blocks.len();
-            self.write_till_next_block(inode, &buf, ctx, res.block_idx, &mut progress)
+            self.write_till_next_block(inode, buf, ctx, res.block_idx, &mut progress)
                 .await?;
         }
 
@@ -105,7 +105,7 @@ impl Ext2Fs {
         );
         inode.i_mtime = time;
         inode.i_block = iterator.into_blocks_array();
-        inode.i_blocks += blocks_allocated_count as u32 * self.super_block.block_size() as u32;
+        inode.i_blocks += blocks_allocated_count as u32 * self.super_block.block_size();
 
         self.write_inode(victim_inode).await?;
         let buf = self.get_buffer();

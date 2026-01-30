@@ -18,24 +18,21 @@ pub fn parse_args() -> ArgsRes {
     let mut root_entry = None;
 
     for arg in args.split(' ') {
-        match arg.split_once('=') {
-            Some((var, val)) => match var {
-                "root_drive" => {
-                    root_drive = Some(
-                        val.parse::<usize>()
-                            .expect("Failed to parse root_drive index"),
-                    );
-                }
-                "root_entry" => {
-                    root_entry = Some(
-                        val.parse::<usize>()
-                            .expect("Failed to parse root_entry index"),
-                    );
-                }
-                _ => {}
-            },
-            None => {}
-        }
+        if let Some((var, val)) = arg.split_once('=') { match var {
+            "root_drive" => {
+                root_drive = Some(
+                    val.parse::<usize>()
+                        .expect("Failed to parse root_drive index"),
+                );
+            }
+            "root_entry" => {
+                root_entry = Some(
+                    val.parse::<usize>()
+                        .expect("Failed to parse root_entry index"),
+                );
+            }
+            _ => {}
+        } }
     }
 
     if root_drive.is_none() || root_entry.is_none() {

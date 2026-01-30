@@ -66,7 +66,7 @@ impl GPTEntry {
     pub fn get_name(&self) -> String {
         self.name1
             .into_iter()
-            .chain(self.name2.into_iter())
+            .chain(self.name2)
             .filter(|&c| c != 0)
             .map(|c| char::from_u32(c as u32).unwrap_or(' '))
             .collect()
@@ -229,7 +229,7 @@ impl GptReader {
         }
 
         let arr_block_count: i64 = ((result_header.entry_num * result_header.entry_size / 512)
-            + ((result_header.entry_num * result_header.entry_size) % 512 != 0) as u32)
+            + !(result_header.entry_num * result_header.entry_size).is_multiple_of(512) as u32)
             .into();
 
         let arr_lba: i64 = if is_backup {
@@ -298,20 +298,20 @@ impl GptReader {
             }
 
             log!("Primary and backup GPT match (or acceptable)");
-            return Ok((*primary_header, primary_array.to_vec()));
+            Ok((*primary_header, primary_array.to_vec()))
         } else if let Ok((primary_header, primary_array)) = primary_result.as_ref()
             && let Err(e) = backup_result.as_ref()
         {
             log!("Primary ok but backup corrupted: {:?}", e);
-            return Ok((*primary_header, primary_array.to_vec()));
+            Ok((*primary_header, primary_array.to_vec()))
         } else if let Err(e) = primary_result
             && let Ok((secondary_header, secondary_array)) = backup_result
         {
             log!("Backup ok but primary corrupted: {:?}", e);
-            return Ok((secondary_header, secondary_array));
+            Ok((secondary_header, secondary_array))
         } else {
             log!("Both primary and backup GPT are corrupted");
-            return Err(GPTErr::GPTCorrupted);
+            Err(GPTErr::GPTCorrupted)
         }
     }
 }

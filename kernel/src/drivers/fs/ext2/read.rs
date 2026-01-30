@@ -36,7 +36,7 @@ impl Ext2Fs {
         let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
         if idx < INODE_IND_BLOCK_LIMIT {
             // after that we use double indirect blocks
-            idx = idx - INODE_BLOCK_LIMIT;
+            idx -= INODE_BLOCK_LIMIT;
             buf = self.read_sectors(buf, inode.i_block[12] as i64).await?;
 
             return Ok(
@@ -45,7 +45,7 @@ impl Ext2Fs {
         }
 
         if idx < INODE_DOUBLE_IND_BLOCK_LIMIT {
-            idx = idx - INODE_IND_BLOCK_LIMIT;
+            idx -= INODE_IND_BLOCK_LIMIT;
             let block_idx = idx / ADDR_PER_BLOCK;
             // triple indirect uses i_block[14]
             buf = self.read_sectors(buf, inode.i_block[14] as i64).await?;
@@ -64,7 +64,7 @@ impl Ext2Fs {
         }
 
         if idx < INODE_TRIPLE_IND_BLOCK_LIMIT {
-            idx = idx - INODE_DOUBLE_IND_BLOCK_LIMIT;
+            idx -= INODE_DOUBLE_IND_BLOCK_LIMIT;
             let double_ind_block_idx = idx / ADDR_PER_BLOCK / ADDR_PER_BLOCK;
             let ind_block_idx: u32 = (idx % (ADDR_PER_BLOCK * ADDR_PER_BLOCK)) / ADDR_PER_BLOCK;
             let block_idx: u32 = (idx % (ADDR_PER_BLOCK * ADDR_PER_BLOCK)) % ADDR_PER_BLOCK;
@@ -77,7 +77,7 @@ impl Ext2Fs {
             )?
             .0 as i64;
 
-            buf = self.read_sectors(buf, double_ind_block_addr as i64).await?;
+            buf = self.read_sectors(buf, double_ind_block_addr).await?;
 
             let ind_block_addr = u32::deserialize(
                 dvida_serialize::Endianness::Little,
@@ -85,7 +85,7 @@ impl Ext2Fs {
             )?
             .0 as i64;
 
-            buf = self.read_sectors(buf, ind_block_addr as i64).await?;
+            buf = self.read_sectors(buf, ind_block_addr).await?;
 
             return Ok(
                 self.block_idx_to_lba(*bytemuck::from_bytes(&buf[block_idx as usize * 4..])) as u32,

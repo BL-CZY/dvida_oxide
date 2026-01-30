@@ -53,7 +53,7 @@ impl Ext2Fs {
 
         let block_rel_idx = block_lba as usize % self.group_manager.blocks_per_group as usize;
 
-        buf[block_rel_idx / 8] = buf[block_rel_idx / 8] & !(1 << (block_rel_idx % 8));
+        buf[block_rel_idx / 8] &= !(1 << (block_rel_idx % 8));
         self.write_sectors(buf.clone(), bitmap_lba).await?;
 
         self.block_allocator.add_freed_block(block_lba).await;
@@ -209,8 +209,7 @@ impl Ext2Fs {
         let mut buf: Box<[u8]> = Box::new([0u8; BLOCK_SIZE as usize]);
         buf = self.read_sectors(buf, inode_bitmap_lba).await?;
 
-        buf[inode.relative_idx as usize / 8] =
-            buf[inode.relative_idx as usize / 8] & !(1 << (inode.relative_idx % 8));
+        buf[inode.relative_idx as usize / 8] &= !(1 << (inode.relative_idx % 8));
 
         self.write_sectors(buf.clone(), inode_bitmap_lba).await?;
 

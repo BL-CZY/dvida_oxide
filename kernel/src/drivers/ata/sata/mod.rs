@@ -339,17 +339,11 @@ impl AhciSata {
     pub fn is_idle(&mut self) -> bool {
         let cmd_status = self.ports.read_command_and_status();
 
-        if cmd_status
+        cmd_status
             & (Self::START
                 | Self::COMMAND_LIST_RUNNING
                 | Self::FIS_RECEIVE_ENABLE
-                | Self::FIS_RECEIVE_RUNNING)
-            != 0
-        {
-            false
-        } else {
-            true
-        }
+                | Self::FIS_RECEIVE_RUNNING) == 0
     }
 
     fn reset_cmd(&mut self) {

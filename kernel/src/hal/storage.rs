@@ -221,7 +221,7 @@ pub async fn write_sectors_by_idx(
     sender.send(HalStorageOperation::Write {
         buffer,
         lba,
-        setter: setter,
+        setter,
     });
 
     getter.get().await
@@ -245,7 +245,7 @@ pub fn identify_storage_devices(
     let mut storage_devices_list: Vec<HalStorageDevice> = Vec::new();
 
     if let Some(m) = device_tree.get(&(PciBaseClass::MassStorage as u8)) {
-        for device in m.values().flatten().map(|(_, b)| b).flatten() {
+        for device in m.values().flatten().flat_map(|(_, b)| b) {
             if device.header_partial.subclass == MassStorageControllerSubClass::Sata as u8
                 && device.header_partial.prog_if == SataProgIf::Ahci as u8
             {

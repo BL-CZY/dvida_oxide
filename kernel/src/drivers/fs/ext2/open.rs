@@ -207,7 +207,7 @@ impl Ext2Fs {
 
         let mut file_inode: Option<InodePlus> = None;
 
-        let mut it = path.normalize().components().into_iter().peekable();
+        let mut it = path.normalize().components().peekable();
         while let Some(component) = it.next() {
             log!("current component: {}", component);
             match self.find_entry_by_name(&component, &inode).await {
@@ -247,20 +247,18 @@ impl Ext2Fs {
 
         let mut file_inode = if let Some(i) = file_inode {
             Some(i)
-        } else {
-            if flags.flags & OpenFlagsValue::CreateIfNotExist as i32 != 0 {
-                let created = self
-                    .create_file(
-                        &mut directory_inode,
-                        &path.file_name().ok_or(HalFsIOErr::BadPath)?,
-                        flags.perms.ok_or(HalFsIOErr::NoPermsProvided)?,
-                    )
-                    .await?;
+        } else if flags.flags & OpenFlagsValue::CreateIfNotExist as i32 != 0 {
+            let created = self
+                .create_file(
+                    &mut directory_inode,
+                    &path.file_name().ok_or(HalFsIOErr::BadPath)?,
+                    flags.perms.ok_or(HalFsIOErr::NoPermsProvided)?,
+                )
+                .await?;
 
-                Some(created)
-            } else {
-                return Err(HalFsIOErr::NoSuchFileOrDirectory);
-            }
+            Some(created)
+        } else {
+            return Err(HalFsIOErr::NoSuchFileOrDirectory);
         };
 
         // If O_CREAT | O_EXCL and the file already existed, fail with FileExists

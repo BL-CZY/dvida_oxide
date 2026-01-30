@@ -51,9 +51,9 @@ pub fn parse_mcfg(mut ptr: VirtAddr) -> McfgTable {
         ptr += 16;
     }
 
-    let result = McfgTable { header, entries };
+    
 
-    result
+    McfgTable { header, entries }
 }
 
 const BUS_DEVICE_COUNT: u64 = 32;
@@ -128,7 +128,7 @@ pub fn iterate_pcie_entries(
         let aligned_up_phys_addr = base_phys.align_up(PAGE_SIZE_2_MIB as u64);
 
         let length =
-            pci_bus_count as u64 * BUS_DEVICE_COUNT * DEVICE_FUNCTION_COUNT * PAGE_SIZE as u64;
+            pci_bus_count * BUS_DEVICE_COUNT * DEVICE_FUNCTION_COUNT * PAGE_SIZE as u64;
 
         let end = base_phys + length;
         let aligned_down_end = end.align_down(PAGE_SIZE_2_MIB);

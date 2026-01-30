@@ -32,7 +32,7 @@ impl IoHandler {
         lba: i64,
     ) -> Result<Box<[u8]>, HalStorageOperationErr> {
         let buffer: Buffer = buf.into();
-        storage::read_sectors_by_idx(self.drive_id, buffer.clone(), self.start_lba as i64 + lba)
+        storage::read_sectors_by_idx(self.drive_id, buffer.clone(), self.start_lba + lba)
             .await?;
 
         Ok(buffer.into())
@@ -55,7 +55,7 @@ impl IoHandler {
         storage::write_sectors_by_idx(
             self.drive_id,
             buffer.into(),
-            self.start_lba as i64 + self.block_idx_to_lba(block_idx),
+            self.start_lba + self.block_idx_to_lba(block_idx),
         )
         .await
     }
@@ -66,7 +66,7 @@ impl IoHandler {
         buffer: Box<[u8]>,
         lba: i64,
     ) -> Result<(), HalStorageOperationErr> {
-        storage::write_sectors_by_idx(self.drive_id, buffer.into(), self.start_lba as i64 + lba)
+        storage::write_sectors_by_idx(self.drive_id, buffer.into(), self.start_lba + lba)
             .await
     }
 }

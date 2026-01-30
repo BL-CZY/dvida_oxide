@@ -440,7 +440,7 @@ impl SuperBlock {
 
     /// Returns the total number of block groups
     pub fn block_groups_count(&self) -> u32 {
-        (self.s_blocks_count + self.s_blocks_per_group - 1) / self.s_blocks_per_group
+        self.s_blocks_count.div_ceil(self.s_blocks_per_group)
     }
 
     /// Returns true if this is a dynamic revision filesystem

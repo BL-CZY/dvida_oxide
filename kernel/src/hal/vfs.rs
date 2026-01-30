@@ -1,14 +1,12 @@
 use crate::ejcineque::sync::{
-    mpsc::unbounded::{UnboundedSender, unbounded_channel},
+    mpsc::unbounded::UnboundedSender,
     spsc::cell::{SpscCellSetter, spsc_cells},
 };
-use crate::log;
 use alloc::collections::btree_map::BTreeMap;
 use once_cell_no_std::OnceCell;
 
 use crate::{
     arch::x86_64::err::ErrNo,
-    drivers::fs::ext2::structs::Ext2Fs,
     hal::{
         buffer::Buffer,
         fs::{FileSystem, HalIOCtx, HalInode, OpenFlags},
@@ -108,7 +106,7 @@ impl MountPointArray {
 
     pub fn get_mount_point_by_path(&mut self, path: &Path) -> Option<&mut FileSystem> {
         match self.path_to_id_map.get(path) {
-            Some(id) => self.mount_points.get_mut(&id),
+            Some(id) => self.mount_points.get_mut(id),
             None => None,
         }
     }

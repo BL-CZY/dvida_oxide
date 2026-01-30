@@ -16,8 +16,7 @@ pub fn rtc_to_posix(rtc: &RtcDateTime) -> u32 {
         365 * year + year / 4 - year / 100 + year / 400 + (153 * month - 457) / 5 + rtc.day as i32
             - 719528; // Days since Unix epoch
 
-    let seconds =
-        days as u32 * 86400 + rtc.hour as u32 * 3600 + rtc.minute as u32 * 60 + rtc.second as u32;
+    
 
-    seconds
+    days as u32 * 86400 + rtc.hour as u32 * 3600 + rtc.minute as u32 * 60 + rtc.second as u32
 }

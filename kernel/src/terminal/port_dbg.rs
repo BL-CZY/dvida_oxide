@@ -11,19 +11,19 @@ pub unsafe fn init_serial() {
     let mut modem_ctrl = Port::new(0x3FC);
 
     unsafe {
-        int_en.write(0x00 as u8); // Disable interrupts
-        line_ctrl.write(0x80 as u8); // Enable DLAB (set baud rate divisor)
-        data.write(0x03 as u8); // Set divisor to 3 (38400 baud)
-        int_en.write(0x00 as u8); // (High byte of divisor)
-        line_ctrl.write(0x03 as u8); // 8 bits, no parity, one stop bit
-        fifo_ctrl.write(0xC7 as u8); // Enable FIFO, clear them, with 14-byte threshold
-        modem_ctrl.write(0x0B as u8); // IRQs enabled, RTS/DSR Set
+        int_en.write(0x00_u8); // Disable interrupts
+        line_ctrl.write(0x80_u8); // Enable DLAB (set baud rate divisor)
+        data.write(0x03_u8); // Set divisor to 3 (38400 baud)
+        int_en.write(0x00_u8); // (High byte of divisor)
+        line_ctrl.write(0x03_u8); // 8 bits, no parity, one stop bit
+        fifo_ctrl.write(0xC7_u8); // Enable FIFO, clear them, with 14-byte threshold
+        modem_ctrl.write(0x0B_u8); // IRQs enabled, RTS/DSR Set
     }
 }
 
 fn is_transmit_empty() -> bool {
     let mut status_port: PortGeneric<u8, ReadWriteAccess> = Port::new(0x3FD);
-    unsafe { (status_port.read() as u8 & 0x20) != 0 }
+    unsafe { (status_port.read() & 0x20) != 0 }
 }
 
 pub struct SerialWriter {}

@@ -99,7 +99,7 @@ pub fn parse_rsdp() -> Vec<VirtAddr> {
         panic!("Non supported ACPI");
     }
 
-    check_rsdp(&rsdp);
+    check_rsdp(rsdp);
 
     let xsdt_pointer = (rsdp.xsdt_addr + get_hhdm_offset().as_u64()) as *const AcpiSdtHeader;
     let xsdt_header = &unsafe { *xsdt_pointer };
@@ -128,7 +128,7 @@ pub fn find_table(pointers: &[VirtAddr], signature: [u8; 4]) -> Option<VirtAddr>
 
         if header.signature == signature {
             check_acpi_sdt_header(addr.as_ptr(), header.length as usize);
-            return Some(addr.clone());
+            return Some(*addr);
         }
     }
 

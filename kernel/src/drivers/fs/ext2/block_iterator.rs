@@ -31,8 +31,7 @@ impl Ext2Fs {
             cur_double_ind_buf_block_idx: 0,
             cur_triple_ind_buf: None,
             cur_triple_ind_buf_block_idx: 0,
-            blocks_limit: ((inode.i_size + self.super_block.block_size() - 1)
-                / self.super_block.block_size()) as usize,
+            blocks_limit: inode.i_size.div_ceil(self.super_block.block_size()) as usize,
             cur_idx: 0,
             cur_block_idx: 0,
         }
@@ -110,7 +109,7 @@ impl InodeBlockIterator {
         let block_idx: u32 =
             *bytemuck::from_bytes(&ind_buf[offset_in_ind_block..offset_in_ind_block + 4]);
 
-        Ok(self.handle_block(buf, block_idx).await?)
+        self.handle_block(buf, block_idx).await
     }
 
     async fn handle_double_ind_block(
@@ -153,9 +152,9 @@ impl InodeBlockIterator {
             &double_ind_buf[offset_in_double_ind_block..offset_in_double_ind_block + 4],
         );
 
-        Ok(self
+        self
             .handle_ind_block(buf, offset_in_ind_block, ind_block_idx)
-            .await?)
+            .await
     }
 
     pub async fn next(&mut self, buf: Box<[u8]>) -> Result<BlockIterElement, HalFsIOErr> {
@@ -209,9 +208,9 @@ impl InodeBlockIterator {
                 .await?;
         } else if (self.cur_idx as u32) < INODE_DOUBLE_IND_BLOCK_LIMIT {
             let offset_in_ind_block =
-                ((self.cur_idx - INODE_IND_BLOCK_LIMIT as usize) % num_idx_per_block as usize) * 4;
+                ((self.cur_idx - INODE_IND_BLOCK_LIMIT as usize) % num_idx_per_block) * 4;
             let offset_in_double_ind_block =
-                ((self.cur_idx - INODE_IND_BLOCK_LIMIT as usize) / num_idx_per_block as usize) * 4;
+                ((self.cur_idx - INODE_IND_BLOCK_LIMIT as usize) / num_idx_per_block) * 4;
             buf = self
                 .handle_double_ind_block(
                     buf,
@@ -238,18 +237,18 @@ impl InodeBlockIterator {
 
                 let triple_ind_buf = self.cur_triple_ind_buf.as_ref().unwrap();
                 let offset_in_ind_block = ((self.cur_idx - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
-                    % num_idx_per_block as usize)
+                    % num_idx_per_block)
                     * 4;
 
                 let offset_in_double_ind_block = (((self.cur_idx
                     - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
-                    / num_idx_per_block as usize)
-                    % num_idx_per_block as usize)
+                    / num_idx_per_block)
+                    % num_idx_per_block)
                     * 4;
 
                 let offset_in_triple_ind_block = ((self.cur_idx
                     - INODE_DOUBLE_IND_BLOCK_LIMIT as usize)
-                    / (num_idx_per_block * num_idx_per_block) as usize)
+                    / (num_idx_per_block * num_idx_per_block))
                     * 4;
 
                 let double_ind_block_idx: u32 = *bytemuck::from_bytes(
@@ -274,7 +273,7 @@ impl InodeBlockIterator {
         }
 
         Ok(BlockIterElement {
-            buf: buf,
+            buf,
             is_terminated: false,
             block_idx: self.cur_block_idx,
         })

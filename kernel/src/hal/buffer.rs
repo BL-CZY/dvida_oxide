@@ -58,10 +58,10 @@ impl DerefMut for Buffer {
     }
 }
 
-impl Into<Box<[u8]>> for Buffer {
-    fn into(self) -> Box<[u8]> {
+impl From<Buffer> for Box<[u8]> {
+    fn from(val: Buffer) -> Self {
         unsafe {
-            let slice_ptr = alloc::slice::from_raw_parts_mut(self.inner, self.len);
+            let slice_ptr = alloc::slice::from_raw_parts_mut(val.inner, val.len);
             Box::from_raw(slice_ptr)
         }
     }

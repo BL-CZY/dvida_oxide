@@ -49,10 +49,10 @@ pub fn read_pit_count() -> u16 {
 
     unsafe {
         cmd_port.write(LATCH_CHANNEL_0);
-        let lo: u8;
-        lo = data_port.read();
-        let hi: u8;
-        hi = data_port.read();
+        
+        let lo: u8 = data_port.read();
+        
+        let hi: u8 = data_port.read();
 
         lo as u16 | (hi as u16) << 8
     }
@@ -125,7 +125,7 @@ impl Instant {
     pub fn as_timestamp_secs(&self) -> u64 {
         let boot_time = TIME_AT_BOOT.load(core::sync::atomic::Ordering::Relaxed);
         let ticks_per_millis =
-            TSC_TIMER_TICKS_PER_MS.load(core::sync::atomic::Ordering::Relaxed) as u64;
+            TSC_TIMER_TICKS_PER_MS.load(core::sync::atomic::Ordering::Relaxed);
         let ticks_per_seconds = ticks_per_millis * 1000;
 
         if ticks_per_seconds == 0 {
@@ -138,7 +138,7 @@ impl Instant {
     pub fn as_timestamp_millis(&self) -> u64 {
         let boot_time_ms = TIME_AT_BOOT.load(core::sync::atomic::Ordering::Relaxed) * 1000;
         let ticks_per_millis =
-            TSC_TIMER_TICKS_PER_MS.load(core::sync::atomic::Ordering::Relaxed) as u64;
+            TSC_TIMER_TICKS_PER_MS.load(core::sync::atomic::Ordering::Relaxed);
 
         if ticks_per_millis == 0 {
             panic!("Function should not be called before timer initialization")
@@ -160,7 +160,7 @@ impl Sub<Instant> for Instant {
 
     fn sub(self, rhs: Instant) -> Self::Output {
         let ticks_per_millis =
-            TSC_TIMER_TICKS_PER_MS.load(core::sync::atomic::Ordering::Relaxed) as u64;
+            TSC_TIMER_TICKS_PER_MS.load(core::sync::atomic::Ordering::Relaxed);
 
         let ticks = self.0.saturating_sub(rhs.0) as u128;
         let nanos = ticks * nanos_per_tick!(ticks_per_millis);

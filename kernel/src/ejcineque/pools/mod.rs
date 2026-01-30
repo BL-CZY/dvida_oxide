@@ -23,11 +23,17 @@ pub struct DiskIOBufferPool<const N: usize> {
     mask: AtomicU64,
 }
 
+impl<const N: usize> Default for DiskIOBufferPool<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const N: usize> DiskIOBufferPool<N> {
     const SIZE: usize = N;
 
     pub fn new() -> Self {
-        assert!(PAGE_SIZE % N == 0);
+        assert!(PAGE_SIZE.is_multiple_of(N));
         assert!(N <= PAGE_SIZE);
         assert!(N.is_power_of_two());
 
@@ -37,7 +43,7 @@ impl<const N: usize> DiskIOBufferPool<N> {
             .spin_acquire_lock();
 
         let bytes_count = Self::SIZE * 64;
-        let frame_count = (bytes_count + PAGE_SIZE - 1) / PAGE_SIZE;
+        let frame_count = bytes_count.div_ceil(PAGE_SIZE);
 
         let mut buffers = [0u64; 64];
 
@@ -89,8 +95,8 @@ impl<const N: usize> DiskIOBufferPool<N> {
                     // if the buffer pool is full allocate a new one
                     // used unsafe since the assert in new already checked
                     let layout = Layout::from_size_align_unchecked(N, N);
-                    let ptr = alloc::alloc::alloc(layout) as u64;
-                    ptr
+                    
+                    alloc::alloc::alloc(layout) as u64
                 }
             }
         };

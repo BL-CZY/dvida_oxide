@@ -21,6 +21,12 @@ pub struct HeapAllocator {
     heap: SpinMutex<Heap>,
 }
 
+impl Default for HeapAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HeapAllocator {
     pub const fn new() -> Self {
         Self {

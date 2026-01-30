@@ -123,8 +123,8 @@ impl AhciSata {
     async fn handle_interrupt(&mut self, state: &mut AhciTaskState, data: AhciSataInterruptData) {
         let cmd_issue = self.ports.read_command_issue();
         for i in 0..32 {
-            if cmd_issue & (0x1 << i) == 0 && state.operations[i].is_some() {
-                if let Some(op) = state.operations[i].take() {
+            if cmd_issue & (0x1 << i) == 0 && state.operations[i].is_some()
+                && let Some(op) = state.operations[i].take() {
                     let mut error = false;
                     let interrupt_status = data.interrupt_status;
                     if interrupt_status.interface_fatal_error()
@@ -155,7 +155,6 @@ impl AhciSata {
 
                     self.finish_operation(op, error, state);
                 }
-            }
         }
 
         self.ports.write_command_issue(cmd_issue);

@@ -364,7 +364,7 @@ pub fn init_apic(
     log!("isa irq gsi mapping : {:?}", isa_irq_gsi);
     log!("NMI sources: {:?}", nmi_sources);
 
-    return (processors, isa_irq_gsi, local_apic, io_apics);
+    (processors, isa_irq_gsi, local_apic, io_apics)
 }
 
 #[macro_export]
@@ -656,9 +656,8 @@ impl IoApic {
             let gsi = irq_to_gsi_map[i as usize];
 
             // Skip if this GSI belongs to a different I/O APIC
-            if (gsi as u32) < self.global_system_interrupt_base
-                || (gsi as u32)
-                    >= self.global_system_interrupt_base + ((self.read_version() >> 16) & 0xFF) + 1
+            if gsi < self.global_system_interrupt_base
+                || gsi > self.global_system_interrupt_base + ((self.read_version() >> 16) & 0xFF)
             {
                 continue;
             }

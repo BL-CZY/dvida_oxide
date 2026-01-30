@@ -39,7 +39,7 @@ impl BlockAllocator {
         let group_count = self.block_groups_count;
 
         // iterate over block groups
-        for group_number in 0..(group_count as i64) {
+        for group_number in 0..group_count {
             if group_number == exclude_group_idx {
                 continue;
             }
@@ -48,7 +48,7 @@ impl BlockAllocator {
                 break;
             }
 
-            let group = self.group_manager.get_group(group_number as i64).await?;
+            let group = self.group_manager.get_group(group_number).await?;
             let mut buf: Box<[u8]> = self.buffer_manager.get_buffer();
 
             // read block bitmap for the group
@@ -72,12 +72,12 @@ impl BlockAllocator {
                 let block_lba = group.get_group_lba() + (idx as i64) * group.sectors_per_block;
 
                 let global_idx =
-                    group_number as u32 * self.group_manager.blocks_per_group as u32 + idx as u32;
+                    group_number as u32 * self.group_manager.blocks_per_group + idx as u32;
 
                 let allocated_block = AllocatedBlock {
                     addr: block_lba,
                     block_relatve_idx: idx as u32,
-                    gr_number: group_number as i64,
+                    gr_number: group_number,
                     block_global_idx: global_idx,
                 };
 
@@ -137,12 +137,12 @@ impl BlockAllocator {
             let block_lba = group.get_group_lba() + (idx as i64) * group.sectors_per_block;
 
             let global_idx =
-                group_number as u32 * self.group_manager.blocks_per_group as u32 + idx as u32;
+                group_number as u32 * self.group_manager.blocks_per_group + idx as u32;
 
             let allocated_block = AllocatedBlock {
                 addr: block_lba,
                 block_relatve_idx: idx as u32,
-                gr_number: group_number as i64,
+                gr_number: group_number,
                 block_global_idx: global_idx,
             };
 
@@ -209,7 +209,7 @@ impl BlockAllocator {
             }
 
             let mut target = buf[*block_idx as usize / 8];
-            target = target | 0x1 << *block_idx as usize % 8;
+            target |= 0x1 << (*block_idx as usize % 8);
             buf[*block_idx as usize / 8] = target;
         }
 

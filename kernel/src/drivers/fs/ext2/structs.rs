@@ -30,7 +30,7 @@ pub struct Ext2BlockGroup {
 impl Ext2BlockGroup {
     pub fn get_group_lba(&self) -> i64 {
         if self.group_number == 0 {
-            0 + RESERVED_BOOT_RECORD_OFFSET
+            RESERVED_BOOT_RECORD_OFFSET
         } else {
             RESERVED_BOOT_RECORD_OFFSET
                 + ((self.blocks_per_group - 1) * self.sectors_per_block)
@@ -68,11 +68,11 @@ impl Ext2BlockGroup {
     }
 
     pub fn block_idx_to_lba(&self, block_idx: u32) -> i64 {
-        block_idx as i64 * self.block_size as i64 / SECTOR_SIZE as i64
+        block_idx as i64 * self.block_size / SECTOR_SIZE as i64
     }
 
     pub fn lba_to_block_idx(&self, lba: i64) -> u32 {
-        (lba / self.block_size as i64) as u32 * SECTOR_SIZE as u32
+        (lba / self.block_size) as u32 * SECTOR_SIZE as u32
     }
 }
 
@@ -97,7 +97,7 @@ impl Ext2Fs {
         log!("Mounted ext2");
 
         let io_handler = IoHandler {
-            drive_id: drive_id,
+            drive_id,
             start_lba: entry.start_lba as i64,
             block_size: super_block.block_size(),
         };
@@ -106,7 +106,7 @@ impl Ext2Fs {
             block_size: super_block.block_size(),
             blocks_per_group: super_block.s_blocks_per_group,
             first_data_block: super_block.s_first_data_block,
-            io_handler: io_handler,
+            io_handler,
         };
 
         let buffer_manager = BufferManager {
@@ -115,9 +115,9 @@ impl Ext2Fs {
 
         let block_allocator = BlockAllocator {
             block_groups_count: super_block.block_groups_count() as i64,
-            group_manager: group_manager,
-            io_handler: io_handler,
-            buffer_manager: buffer_manager,
+            group_manager,
+            io_handler,
+            buffer_manager,
             allocated_block_indices: Arc::new(Mutex::new(BTreeSet::new())),
             unwritten_freed_blocks: Arc::new(Mutex::new(BTreeSet::new())),
         };
@@ -181,8 +181,8 @@ impl Ext2Fs {
 
     pub fn get_block_group_table_lba(&self) -> i64 {
         let bg_table_block_idx = self.super_block.s_first_data_block + 1;
-        let lba = self.block_idx_to_lba(bg_table_block_idx);
-        lba
+        
+        self.block_idx_to_lba(bg_table_block_idx)
     }
 
     pub fn block_idx_to_lba(&self, block_idx: u32) -> i64 {
@@ -199,5 +199,5 @@ impl Ext2Fs {
 }
 
 pub fn block_group_size(blocks_per_group: i64, block_size: i64) -> i64 {
-    blocks_per_group as i64 * (block_size / SECTOR_SIZE as i64)
+    blocks_per_group * (block_size / SECTOR_SIZE as i64)
 }

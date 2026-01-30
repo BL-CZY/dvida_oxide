@@ -15,18 +15,18 @@ const SECTOR_SIZE: u16 = 512;
 
 impl PataDevice {
     fn get_lba(&self, index: i64) -> u64 {
-        let lba = if index < 0 {
+        
+
+        // log!("get_lba: index={}, resolved_lba={}", index, lba);
+        if index < 0 {
             if self.lba48_supported {
-                (self.lba28_sector_count - (index.abs() as u32)).into()
+                (self.lba28_sector_count - (index.unsigned_abs() as u32)).into()
             } else {
-                self.lba48_sector_count - (index.abs() as u64)
+                self.lba48_sector_count - index.unsigned_abs()
             }
         } else {
             index.try_into().unwrap()
-        };
-
-        // log!("get_lba: index={}, resolved_lba={}", index, lba);
-        lba
+        }
     }
 
     fn verify_lba(
@@ -49,14 +49,12 @@ impl PataDevice {
                 // );
                 return Err(Box::new(IoErr::SectorOutOfRange));
             }
-        } else {
-            if lba + count as u64 > self.lba28_sector_count as u64 {
-                // log!(
-                //     "verify_lba: FAILED - LBA28 out of range (max={})",
-                //     self.lba28_sector_count
-                // );
-                return Err(Box::new(IoErr::SectorOutOfRange));
-            }
+        } else if lba + count as u64 > self.lba28_sector_count as u64 {
+            // log!(
+            //     "verify_lba: FAILED - LBA28 out of range (max={})",
+            //     self.lba28_sector_count
+            // );
+            return Err(Box::new(IoErr::SectorOutOfRange));
         }
 
         // log!("verify_lba: OK");
@@ -105,7 +103,7 @@ impl PataDevice {
         // log!("send_lba28: count={}, lba={:#x}", count, lba);
         unsafe {
             self.drive_port
-                .write(cmd::LBA28 | ((lba >> 24) | &0xFF) as u8);
+                .write(cmd::LBA28 | ((lba >> 24) | 0xFF) as u8);
 
             self.sector_count_port.write((count & 0xFF) as u8);
             self.lba_low_port.write((lba & 0xFF) as u8);

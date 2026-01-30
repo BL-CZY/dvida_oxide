@@ -53,7 +53,7 @@ impl<T> UnboundedReceiver<T> {
     pub fn recv(&self) -> RecvFuture<'_, T> {
         // '_ will explicitly ask the compiler to infer the
         // lifetime here
-        return RecvFuture { rx: self };
+        RecvFuture { rx: self }
     }
 
     pub fn try_recv(&self) -> Option<T> {

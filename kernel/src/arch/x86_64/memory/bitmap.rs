@@ -84,7 +84,7 @@ impl BitMap {
 
         for i in 0..page_count {
             let idx = base as usize + i;
-            slice[idx / 8] = slice[idx / 8] | (0x1 << (idx % 8));
+            slice[idx / 8] |= 0x1 << (idx % 8) ;
         }
     }
 
@@ -97,7 +97,7 @@ impl BitMap {
 
         for i in 0..page_count {
             let idx = base as usize + i;
-            slice[idx / 8] = slice[idx / 8] & !(0x1 << (idx % 8));
+            slice[idx / 8] &= !(0x1 << (idx % 8));
         }
     }
 }

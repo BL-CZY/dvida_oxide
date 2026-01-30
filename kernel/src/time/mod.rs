@@ -163,7 +163,7 @@ impl Rtc {
         // Handle 12-hour format (convert to 24-hour)
         if !is_24hour {
             let pm = hour & 0x80 != 0;
-            hour = hour & 0x7F;
+            hour &= 0x7F;
             if pm && hour != 12 {
                 hour += 12;
             } else if !pm && hour == 12 {
@@ -175,12 +175,10 @@ impl Rtc {
         // If century register is 0 or invalid, assume 20xx for years < 80, else 19xx
         let full_year = if century > 0 && century < 99 {
             (century as u16) * 100 + (year as u16)
+        } else if year < 80 {
+            2000 + year as u16
         } else {
-            if year < 80 {
-                2000 + year as u16
-            } else {
-                1900 + year as u16
-            }
+            1900 + year as u16
         };
 
         log!(
@@ -275,7 +273,7 @@ impl Rtc {
 
     /// Check if a year is a leap year
     fn is_leap_year(year: u16) -> bool {
-        (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+        (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
     }
 
     /// Convert Unix timestamp to RTC datetime

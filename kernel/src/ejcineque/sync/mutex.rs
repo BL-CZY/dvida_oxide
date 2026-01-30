@@ -154,31 +154,28 @@ impl<'a, T> Future for MutexFuture<'a, T> {
                 this.node = Some(node);
 
                 // now the location of node is constant
-                match this.node {
-                    Some(ref mut node) => {
-                        // if the list is empty
-                        if node.next == null_mut() || node.prev == null_mut() {
-                            unsafe {
-                                node.next = node as *mut MutexWakerNode;
-                                node.prev = node as *mut MutexWakerNode;
+                if let Some(ref mut node) = this.node {
+                    // if the list is empty
+                    if node.next.is_null() || node.prev.is_null() {
+                        unsafe {
+                            node.next = node as *mut MutexWakerNode;
+                            node.prev = node as *mut MutexWakerNode;
 
-                                *this.mutex.wakers_list_head.get() = node as *mut MutexWakerNode;
-                                *this.mutex.wakers_list_tail.get() = node as *mut MutexWakerNode;
-                            }
-                        } else {
-                            unsafe {
-                                node.next = *this.mutex.wakers_list_head.get();
-                                *this.mutex.wakers_list_head.get() = node as *mut MutexWakerNode;
+                            *this.mutex.wakers_list_head.get() = node as *mut MutexWakerNode;
+                            *this.mutex.wakers_list_tail.get() = node as *mut MutexWakerNode;
+                        }
+                    } else {
+                        unsafe {
+                            node.next = *this.mutex.wakers_list_head.get();
+                            *this.mutex.wakers_list_head.get() = node as *mut MutexWakerNode;
 
-                                node.prev = *this.mutex.wakers_list_tail.get();
+                            node.prev = *this.mutex.wakers_list_tail.get();
 
-                                // doesnt use read because it will create a new copy
-                                (*node.next).prev = node as *mut MutexWakerNode;
-                                (*node.prev).next = node as *mut MutexWakerNode;
-                            }
+                            // doesnt use read because it will create a new copy
+                            (*node.next).prev = node as *mut MutexWakerNode;
+                            (*node.prev).next = node as *mut MutexWakerNode;
                         }
                     }
-                    None => {}
                 }
             }
 
@@ -221,12 +218,12 @@ impl<'a, T> Drop for MutexGuard<'a, T> {
                 let tail_ptr_ptr = self.mutex.wakers_list_tail.get();
                 let head_ptr_ptr = self.mutex.wakers_list_head.get();
 
-                if *tail_ptr_ptr != null_mut() && *head_ptr_ptr != null_mut() {
+                if !(*tail_ptr_ptr).is_null() && !(*head_ptr_ptr).is_null() {
                     let node = *self.mutex.wakers_list_tail.get();
 
                     if (*node).prev == node {
-                        *self.mutex.wakers_list_head.get() = null_mut::<MutexWakerNode>().into();
-                        *self.mutex.wakers_list_tail.get() = null_mut::<MutexWakerNode>().into();
+                        *self.mutex.wakers_list_head.get() = null_mut::<MutexWakerNode>();
+                        *self.mutex.wakers_list_tail.get() = null_mut::<MutexWakerNode>();
                     } else {
                         *self.mutex.wakers_list_tail.get() = (*node).prev;
                         (*(*node).prev).next = *self.mutex.wakers_list_head.get();

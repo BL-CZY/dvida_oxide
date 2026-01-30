@@ -26,8 +26,8 @@ impl DirEnt64 {
             + self.name.len()
             + 1;
 
-        let length = (length + 8) & !7;
-        length
+        
+        (length + 8) & !7
     }
 }
 
@@ -160,6 +160,12 @@ pub enum HalFsIOErr {
 #[derive(Debug)]
 pub struct HalIOCtx {
     pub head: usize,
+}
+
+impl Default for HalIOCtx {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl HalIOCtx {

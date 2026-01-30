@@ -1,7 +1,7 @@
 use core::{fmt::Debug, ops::DerefMut};
 
 use crate::ejcineque::sync::mutex::Mutex;
-use alloc::{format, vec::Vec};
+use alloc::vec::Vec;
 use once_cell_no_std::OnceCell;
 use x86_64::{
     VirtAddr,
@@ -48,10 +48,8 @@ impl KernelPageTable {
         unsafe {
             offset_table
                 .map_to(page, frame, flags, allocator.deref_mut(), context)
-                .expect(&format!(
-                    "Failed to map frame: {:?} to page {:?} with flags {:?}",
-                    frame, page, flags
-                ))
+                .unwrap_or_else(|_| panic!("Failed to map frame: {:?} to page {:?} with flags {:?}",
+                    frame, page, flags))
                 .flush();
         };
     }

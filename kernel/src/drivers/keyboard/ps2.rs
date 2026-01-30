@@ -15,12 +15,11 @@ lazy_static! {
 
 pub fn read_scancode(scancode: u8) {
     let mut keyboard = KEYBOARD.lock();
-    if let Ok(Some(key_evt)) = keyboard.add_byte(scancode) {
-        if let Some(decoded_key) = keyboard.process_keyevent(key_evt) {
+    if let Ok(Some(key_evt)) = keyboard.add_byte(scancode)
+        && let Some(decoded_key) = keyboard.process_keyevent(key_evt) {
             match decoded_key {
                 DecodedKey::Unicode(character) => iprint!("{}", character),
                 DecodedKey::RawKey(key) => iprint!("{:?}", key),
             }
         }
-    }
 }

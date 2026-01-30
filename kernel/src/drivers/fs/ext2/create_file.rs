@@ -11,7 +11,7 @@ use crate::{
 };
 
 pub const RESERVED_BOOT_RECORD_OFFSET: i64 = 2;
-pub const BLOCK_SECTOR_SIZE: i64 = (BLOCK_SIZE as i64 / SECTOR_SIZE as i64) as i64;
+pub const BLOCK_SECTOR_SIZE: i64 = BLOCK_SIZE as i64 / SECTOR_SIZE as i64 ;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
 pub struct AllocatedBlock {
@@ -49,7 +49,7 @@ impl Ext2Fs {
         log!("Preparing to allocate {num} blocks for the new inode");
 
         let blocks_allocated = self
-            .allocate_n_blocks_in_group(group_number, num as usize)
+            .allocate_n_blocks_in_group(group_number, num)
             .await?;
 
         for (idx, block) in blocks_allocated.iter().enumerate() {
@@ -126,7 +126,7 @@ impl Ext2Fs {
         name: &str,
         perms: i32,
     ) -> Result<InodePlus, HalFsIOErr> {
-        Ok(self.create_inode(inode, name, false, perms).await?)
+        self.create_inode(inode, name, false, perms).await
     }
 
     pub async fn create_inode(
@@ -198,7 +198,7 @@ impl Ext2Fs {
         if is_dir {
             let temp = allocated_inode.absolute_idx as u32;
             self.add_dir_entry(&mut allocated_inode, temp, ".").await?;
-            self.add_dir_entry(&mut allocated_inode, dir_inode.absolute_idx as u32, "..")
+            self.add_dir_entry(&mut allocated_inode, dir_inode.absolute_idx, "..")
                 .await?;
 
             dir_inode.inode.i_links_count = dir_inode.inode.i_links_count.saturating_add(1);
@@ -206,7 +206,7 @@ impl Ext2Fs {
         }
 
         self.write_changes(&allocated_inode, &blocks).await?;
-        self.write_inode(&dir_inode).await?;
+        self.write_inode(dir_inode).await?;
 
         Ok(allocated_inode)
     }

@@ -52,7 +52,7 @@ fn init() -> RandState {
         seed = F * (seed ^ (seed >> (W - 2))) + i as u32;
     }
 
-    return res;
+    res
 }
 
 fn random_u32(state: &mut RandState) -> u32 {

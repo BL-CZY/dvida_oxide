@@ -81,7 +81,7 @@ impl SchedulerCpuContext {
             let id = self.thread_queue.pop_front().expect("KERNEL TASK IS DEAD");
 
             // remove stale thread
-            if let Some(ref thread) = self.thread_map.get(&id) {
+            if let Some(thread) = self.thread_map.get(&id) {
                 if thread.state.killed {
                     self.thread_map.remove(&id);
                 } else {
