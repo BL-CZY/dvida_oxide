@@ -54,6 +54,7 @@ use crate::{
             syscall::{enable_syscalls, setup_stack_for_syscall_handler},
         },
     },
+    args::parse_args,
     crypto::random::run_random,
     hal::storage::{identify_storage_devices, run_storage_devices},
     terminal::WRITER,
@@ -94,7 +95,8 @@ async fn kernel_main(spawner: Spawner) {
     yield_now().await;
     log!("Random number task launched");
 
-    // let args = parse_args();
+    let args = parse_args();
+    log!("Parsed args: {:?}", args);
 
     // spawner.spawn(spawn_vfs_task(args.root_drive, args.root_entry));
     // yield_now().await;
@@ -103,18 +105,6 @@ async fn kernel_main(spawner: Spawner) {
     spawner.spawn(deallocator_task());
     yield_now().await;
     log!("Deallocator task launched");
-
-    // use alloc::vec;
-    // use hal::buffer::Buffer;
-    // let buffer: Buffer = vec![0u32; 128].into_boxed_slice().into();
-    // hal::storage::read_sectors_by_idx(0, buffer.clone(), 1)
-    //     .await
-    //     .unwrap();
-
-    // log!("{}", buffer);
-
-    let gpt_reader = hal::gpt::GptReader::new(0);
-    log!("{:?}", gpt_reader.read_gpt().await);
 }
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.

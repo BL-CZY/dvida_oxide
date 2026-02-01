@@ -92,8 +92,8 @@ impl<'a, T> Future for RecvFuture<'a, T> {
 pub fn unbounded_channel<T>() -> (UnboundedSender<T>, UnboundedReceiver<T>) {
     let channel: Arc<Mutex<UnboundedChannel<T>>> = Arc::new(Mutex::new(UnboundedChannel {
         sender_count: 1,
-        buffer: VecDeque::new(),
-        rx_wakers: VecDeque::new(),
+        buffer: VecDeque::with_capacity(128),
+        rx_wakers: VecDeque::with_capacity(128),
     }));
 
     let tx = UnboundedSender {

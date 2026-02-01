@@ -1,46 +1,38 @@
-use crate::log;
-use limine::{request::ExecutableCmdlineRequest, response::ExecutableCmdlineResponse};
+use crate::{crypto::guid::Guid, log};
+use limine::request::ExecutableCmdlineRequest;
 
+#[used]
+#[unsafe(link_section = ".requests")]
 pub static EXECUTABLE_CMDLINE_REQUEST: ExecutableCmdlineRequest = ExecutableCmdlineRequest::new();
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ArgsRes {
-    pub root_drive: usize,
-    pub root_entry: usize,
+    pub root_drive: Guid,
+    pub root_entry: Guid,
 }
 
 pub fn parse_args() -> ArgsRes {
-    let response: &ExecutableCmdlineResponse = EXECUTABLE_CMDLINE_REQUEST.get_response().unwrap();
-    let args = response.cmdline().to_str().unwrap_or_default();
-    log!("Received cmdline: {}", args);
+    let args = EXECUTABLE_CMDLINE_REQUEST
+        .get_response()
+        .expect("No arg passed")
+        .cmdline()
+        .to_string_lossy();
 
-    let mut root_drive = None;
-    let mut root_entry = None;
+    let args = args.split(' ').filter_map(|arg| arg.split_once('='));
 
-    for arg in args.split(' ') {
-        if let Some((var, val)) = arg.split_once('=') { match var {
-            "root_drive" => {
-                root_drive = Some(
-                    val.parse::<usize>()
-                        .expect("Failed to parse root_drive index"),
-                );
-            }
-            "root_entry" => {
-                root_entry = Some(
-                    val.parse::<usize>()
-                        .expect("Failed to parse root_entry index"),
-                );
+    let mut res = ArgsRes::default();
+
+    for (key, val) in args {
+        log!("Received arg: {:?}={:?}", key, val);
+
+        match key {
+            "root_drive_guid" => res.root_drive = Guid::from_str(val).unwrap_or(Guid::default()),
+            "root_partition_guid" => {
+                res.root_entry = Guid::from_str(val).unwrap_or(Guid::default())
             }
             _ => {}
-        } }
+        }
     }
 
-    if root_drive.is_none() || root_entry.is_none() {
-        panic!("root_drive or root_entry not provided");
-    }
-
-    ArgsRes {
-        root_drive: root_drive.unwrap(),
-        root_entry: root_entry.unwrap(),
-    }
+    res
 }
