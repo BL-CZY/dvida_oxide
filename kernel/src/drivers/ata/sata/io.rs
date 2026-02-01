@@ -24,8 +24,7 @@ impl AhciSata {
         let count = (buffer.len() / SECTOR_SIZE) as u16;
 
         let lba: u64 = if lba < 0 {
-            // TODO: correct this after fixing the infinit loop
-            self.identify_data.lba48_sectors - lba as u64
+            self.identify_data.lba48_sectors + lba as u64
         } else {
             lba as u64
         };
@@ -152,7 +151,7 @@ impl AhciSata {
         let count = (buffer.len() / SECTOR_SIZE) as u16;
 
         let lba: u64 = if lba < 0 {
-            self.identify_data.lba48_sectors - lba as u64
+            self.identify_data.lba48_sectors + lba as u64
         } else {
             lba as u64
         };
@@ -188,6 +187,7 @@ impl AhciSata {
             lba5: (lba >> 40) as u8,
             count_low: count as u8,
             count_high: (count >> 8) as u8,
+            // TODO: cache system
             device: DEVICE_LBA_MODE | FORCE_UNIT_FLUSH,
             ..Default::default()
         };
