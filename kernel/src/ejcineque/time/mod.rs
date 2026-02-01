@@ -2,14 +2,14 @@ use core::task::Poll;
 
 use super::wakers::TIMER_WAKERS;
 
-unsafe impl Send for SleepFuture {}
-unsafe impl Sync for SleepFuture {}
+unsafe impl Send for WaitFuture {}
+unsafe impl Sync for WaitFuture {}
 
-pub struct SleepFuture {
+pub struct WaitFuture {
     tick_count: u32,
 }
 
-impl Future for SleepFuture {
+impl Future for WaitFuture {
     type Output = ();
 
     fn poll(
@@ -29,8 +29,8 @@ impl Future for SleepFuture {
     }
 }
 
-fn wait_int(tick_count: u32) -> SleepFuture {
-    SleepFuture {
+fn wait_int(tick_count: u32) -> WaitFuture {
+    WaitFuture {
         tick_count: tick_count + 1,
     }
 }
