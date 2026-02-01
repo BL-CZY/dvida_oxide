@@ -25,7 +25,7 @@ pub struct GPTHeader {
     backup_loc: u64,
     first_usable_block: u64,
     last_usable_block: u64,
-    guid: u128,
+    guid: [u8; 16],
     array_start: u64,
     entry_num: u32,
     entry_size: u32,
@@ -34,15 +34,15 @@ pub struct GPTHeader {
 
 impl GPTHeader {
     pub fn guid(&self) -> Guid {
-        Guid::from_u128(self.guid)
+        Guid::from_bytes(self.guid)
     }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Copy, Pod, Zeroable, Default)]
 #[repr(C, packed)]
 pub struct GPTEntry {
-    type_guid: u128,
-    unique_guid: u128,
+    type_guid: [u8; 16],
+    unique_guid: [u8; 16],
     pub start_lba: u64,
     pub end_lba: u64,
     pub flags: u64,
@@ -56,11 +56,11 @@ impl GPTEntry {
     }
 
     pub fn type_guid(&self) -> Guid {
-        Guid::from_u128(self.type_guid)
+        Guid::from_bytes(self.type_guid)
     }
 
     pub fn unique_guid(&self) -> Guid {
-        Guid::from_u128(self.unique_guid)
+        Guid::from_bytes(self.unique_guid)
     }
 
     pub fn get_name(&self) -> String {

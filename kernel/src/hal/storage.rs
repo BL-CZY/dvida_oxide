@@ -9,12 +9,14 @@ use crate::drivers::ata::pata::PataDevice;
 use crate::drivers::ata::sata::AhciSata;
 use crate::drivers::ata::sata::ahci::AhciHba;
 use crate::drivers::ata::sata::task::CUR_AHCI_IDX;
+use crate::ejcineque::futures::yield_now;
 use crate::ejcineque::sync::mpsc::unbounded::{
     UnboundedReceiver, UnboundedSender, unbounded_channel,
 };
 use crate::ejcineque::sync::mutex::Mutex;
 use crate::ejcineque::sync::spsc::cell::{SpscCellSetter, spsc_cells};
 use crate::hal::buffer::Buffer;
+use crate::hal::gpt::GptReader;
 use crate::{SPAWNER, log};
 use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
@@ -279,11 +281,25 @@ pub fn identify_storage_devices(
 }
 
 pub async fn run_storage_devices() {
+    let mut storage_devices_by_guid_list: BTreeMap<Guid, StorageDeviceIdx> = BTreeMap::new();
+
     for device in STORAGE_DEVICES_BY_IDX.get().expect("Rust error") {
         let device_inner = device.1.device_inner.clone();
         SPAWNER
             .get()
             .expect("No spawner")
             .spawn(async move { device_inner.lock().await.run(&device.1.rx).await });
+
+        yield_now().await;
+
+        let gpt_reader = GptReader::new(device.0.0);
+        let Ok((header, _)) = gpt_reader.read_gpt().await else {
+            continue;
+        };
+
+        storage_devices_by_guid_list.insert(header.guid(), *device.0);
     }
+
+    log!("{:#?}", storage_devices_by_guid_list);
+    let _ = STORAGE_DEVICES_BY_GUID.set(Mutex::new(storage_devices_by_guid_list));
 }

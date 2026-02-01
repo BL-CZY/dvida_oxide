@@ -3,6 +3,7 @@
 #![feature(duration_from_nanos_u128)]
 #![feature(abi_x86_interrupt)]
 #![feature(custom_test_frameworks)]
+#![feature(iter_array_chunks)]
 #![test_runner(crate::terminal::test::run_tests)]
 #![reexport_test_harness_main = "test_main"]
 use core::arch::asm;
@@ -193,29 +194,9 @@ unsafe extern "C" fn _start() -> ! {
 
     setup_rsp0_stack();
 
-    // let kernel_task_stack_start = setup_stack_for_kernel_task().as_u64();
     setup_stack_for_syscall_handler();
     load_kernel_thread();
-
-    // jump_to_kernel_task(kernel_task_stack_start);
 }
-
-// pub fn jump_to_kernel_task(stack_top: u64) -> ! {
-//     unsafe {
-//         core::arch::asm!("mov rsp, {0}", "xor rbp, rbp", "call {1}", in(reg) stack_top, in(reg) kernel_thread_entry_point as u64, options(noreturn));
-//     }
-// }
-//
-// #[unsafe(no_mangle)]
-// extern "C" fn kernel_thread_entry_point() -> ! {
-//     EXECUTOR
-//         .get()
-//         .expect("Failed to get the executor")
-//         .spin_acquire_lock()
-//         .run();
-//
-//     hcf();
-// }
 
 #[panic_handler]
 fn rust_panic(_info: &core::panic::PanicInfo) -> ! {
