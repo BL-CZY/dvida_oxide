@@ -37,6 +37,7 @@ const CMD_TABLES_OFFSET: u64 = 0x500;
 const CMD_TABLE_SIZE: u64 = 0x200;
 
 bitfield! {
+    #[derive(Default, Clone, Copy)]
     pub struct PortCmdAndStatus(u32);
     impl Debug;
 
@@ -192,6 +193,15 @@ bitfield! {
 
 bitfield! {
     #[derive(Clone, Copy, Default)]
+    pub struct SataStatus(u32);
+    impl Debug;
+    pub is_busy, _: 7;
+    pub is_drq, _: 3;
+    pub is_error, _: 0;
+}
+
+bitfield! {
+    #[derive(Clone, Copy, Default)]
     pub struct SataError(u32);
     impl Debug;
     // Diagnostic fields
@@ -229,7 +239,7 @@ bitfield! {
     pub busy, _: 7;
     pub data_transfer_requested, _: 3;
     pub error_occurred, _: 0;
-    pub status_byte, _: 7, 0;
+    pub status_byte, set_status_byte: 7, 0;
 }
 
 bitfield! {
@@ -343,7 +353,12 @@ impl AhciSata {
             & (Self::START
                 | Self::COMMAND_LIST_RUNNING
                 | Self::FIS_RECEIVE_ENABLE
-                | Self::FIS_RECEIVE_RUNNING) == 0
+                | Self::FIS_RECEIVE_RUNNING)
+            == 0
+    }
+
+    pub async fn com_reset(&mut self) {
+        todo!()
     }
 
     fn reset_cmd(&mut self) {

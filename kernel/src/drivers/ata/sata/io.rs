@@ -24,6 +24,7 @@ impl AhciSata {
         let count = (buffer.len() / SECTOR_SIZE) as u16;
 
         let lba: u64 = if lba < 0 {
+            // TODO: correct this after fixing the infinit loop
             self.identify_data.lba48_sectors - lba as u64
         } else {
             lba as u64
