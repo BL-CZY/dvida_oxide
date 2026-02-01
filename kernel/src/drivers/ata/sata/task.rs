@@ -187,6 +187,20 @@ impl AhciSata {
                 );
             }
 
+            // restart
+            let mut cmd_and_status = PortCmdAndStatus(self.ports.read_command_and_status());
+            cmd_and_status.set_start(true);
+            self.ports.write_command_and_status(cmd_and_status.0);
+
+            loop {
+                let cmd_and_status = PortCmdAndStatus(self.ports.read_command_and_status());
+                if !cmd_and_status.cmd_list_running() {
+                    core::hint::spin_loop();
+                } else {
+                    break;
+                }
+            }
+
             // recover the rest of the commands
             let cmd_issue = data.command_issue & !(0x1 << cur_cmd_slot);
             self.ports.write_command_issue(cmd_issue);
