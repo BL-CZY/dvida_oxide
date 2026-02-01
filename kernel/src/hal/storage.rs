@@ -4,6 +4,7 @@ use core::pin::Pin;
 use crate::arch::x86_64::pcie::{
     MassStorageControllerSubClass, PciBaseClass, PciDevice, SataProgIf,
 };
+use crate::args::ArgsRes;
 use crate::crypto::guid::Guid;
 use crate::drivers::ata::pata::PataDevice;
 use crate::drivers::ata::sata::AhciSata;
@@ -17,6 +18,7 @@ use crate::ejcineque::sync::mutex::Mutex;
 use crate::ejcineque::sync::spsc::cell::{SpscCellSetter, spsc_cells};
 use crate::hal::buffer::Buffer;
 use crate::hal::gpt::GptReader;
+use crate::hal::vfs::spawn_vfs_task;
 use crate::{SPAWNER, log};
 use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
@@ -112,13 +114,13 @@ static STORAGE_DEVICES_BY_IDX: OnceCell<BTreeMap<StorageDeviceIdx, HalStorageDev
     OnceCell::new();
 static STORAGE_DEVICES_BY_GUID: OnceCell<Mutex<BTreeMap<Guid, StorageDeviceIdx>>> = OnceCell::new();
 
-fn get_storage_devices() -> &'static BTreeMap<StorageDeviceIdx, HalStorageDevice> {
+pub fn get_storage_devices() -> &'static BTreeMap<StorageDeviceIdx, HalStorageDevice> {
     STORAGE_DEVICES_BY_IDX
         .get()
         .expect("Can't get storage array")
 }
 
-fn get_storage_devices_by_guid() -> &'static Mutex<BTreeMap<Guid, StorageDeviceIdx>> {
+pub fn get_storage_devices_by_guid() -> &'static Mutex<BTreeMap<Guid, StorageDeviceIdx>> {
     STORAGE_DEVICES_BY_GUID
         .get()
         .expect("Can't get storage array")
@@ -280,7 +282,7 @@ pub fn identify_storage_devices(
     log!("Initialized the storage drives");
 }
 
-pub async fn run_storage_devices() {
+pub async fn run_storage_devices(args: ArgsRes) {
     let mut storage_devices_by_guid_list: BTreeMap<Guid, StorageDeviceIdx> = BTreeMap::new();
 
     for device in STORAGE_DEVICES_BY_IDX.get().expect("Rust error") {
@@ -302,4 +304,8 @@ pub async fn run_storage_devices() {
 
     log!("{:#?}", storage_devices_by_guid_list);
     let _ = STORAGE_DEVICES_BY_GUID.set(Mutex::new(storage_devices_by_guid_list));
+
+    crate::spawn(spawn_vfs_task(args.root_drive, args.root_entry));
+    yield_now().await;
+    log!("VFS task launched");
 }

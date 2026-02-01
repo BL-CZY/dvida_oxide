@@ -1,12 +1,13 @@
-use crate::{hal::buffer::Buffer, log};
+use crate::{
+    crypto::guid::Guid,
+    hal::{buffer::Buffer, storage::read_sectors_by_guid},
+    log,
+};
 use alloc::boxed::Box;
 
-use crate::{
-    drivers::fs::ext2::SuperBlock,
-    hal::{gpt::GPTEntry, storage::read_sectors_by_idx},
-};
+use crate::{drivers::fs::ext2::SuperBlock, hal::gpt::GPTEntry};
 
-pub async fn identify_ext2(drive_id: usize, entry: &GPTEntry) -> Option<SuperBlock> {
+pub async fn identify_ext2(drive_id: Guid, entry: &GPTEntry) -> Option<SuperBlock> {
     let buf: Box<[u8]> = Box::new([0u8; 1024]);
     let buffer: Buffer = buf.into();
 
@@ -15,7 +16,7 @@ pub async fn identify_ext2(drive_id: usize, entry: &GPTEntry) -> Option<SuperBlo
         return None;
     }
 
-    match read_sectors_by_idx(drive_id, buffer.clone(), (entry.start_lba + 2) as i64).await {
+    match read_sectors_by_guid(drive_id, buffer.clone(), (entry.start_lba + 2) as i64).await {
         Ok(_) => {}
         Err(err) => {
             log!("Failed to identify ext2 because of read error: {}", err);

@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 
 use crate::{
+    crypto::guid::Guid,
     drivers::fs::ext2::{BLOCK_GROUP_DESCRIPTOR_SIZE, GroupDescriptor, structs::Ext2BlockGroup},
     hal::{
         buffer::Buffer,
@@ -12,7 +13,7 @@ use alloc::vec;
 
 #[derive(Debug, Clone, Copy)]
 pub struct IoHandler {
-    pub drive_id: usize,
+    pub drive_id: Guid,
     pub start_lba: i64,
     pub block_size: u32,
 }
@@ -32,8 +33,7 @@ impl IoHandler {
         lba: i64,
     ) -> Result<Box<[u8]>, HalStorageOperationErr> {
         let buffer: Buffer = buf.into();
-        storage::read_sectors_by_idx(self.drive_id, buffer.clone(), self.start_lba + lba)
-            .await?;
+        storage::read_sectors_by_guid(self.drive_id, buffer.clone(), self.start_lba + lba).await?;
 
         Ok(buffer.into())
     }
@@ -52,7 +52,7 @@ impl IoHandler {
         buffer: Box<[u8]>,
         block_idx: u32,
     ) -> Result<(), HalStorageOperationErr> {
-        storage::write_sectors_by_idx(
+        storage::write_sectors_by_guid(
             self.drive_id,
             buffer.into(),
             self.start_lba + self.block_idx_to_lba(block_idx),
@@ -66,8 +66,7 @@ impl IoHandler {
         buffer: Box<[u8]>,
         lba: i64,
     ) -> Result<(), HalStorageOperationErr> {
-        storage::write_sectors_by_idx(self.drive_id, buffer.into(), self.start_lba + lba)
-            .await
+        storage::write_sectors_by_guid(self.drive_id, buffer.into(), self.start_lba + lba).await
     }
 }
 

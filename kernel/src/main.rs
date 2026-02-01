@@ -79,6 +79,10 @@ pub static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_s
 pub static EXECUTOR: OnceCell<Arc<Mutex<Executor>>> = OnceCell::new();
 pub static SPAWNER: OnceCell<Spawner> = OnceCell::new();
 
+pub fn spawn(future: impl Future<Output = ()> + 'static + Send) {
+    SPAWNER.get().expect("Failed to get spawner").spawn(future);
+}
+
 // this is the kernel entry point
 async fn kernel_main(spawner: Spawner) {
     #[cfg(test)]
@@ -86,7 +90,10 @@ async fn kernel_main(spawner: Spawner) {
 
     log!("Kernel main launched");
 
-    spawner.spawn(run_storage_devices());
+    let args = parse_args();
+    log!("Parsed args: {:?}", args);
+
+    spawner.spawn(run_storage_devices(args));
     // we yield now to let the tasks actually initialize
     yield_now().await;
 
@@ -95,13 +102,6 @@ async fn kernel_main(spawner: Spawner) {
     spawner.spawn(run_random());
     yield_now().await;
     log!("Random number task launched");
-
-    let args = parse_args();
-    log!("Parsed args: {:?}", args);
-
-    // spawner.spawn(spawn_vfs_task(args.root_drive, args.root_entry));
-    // yield_now().await;
-    // log!("VFS task launched");
 
     spawner.spawn(deallocator_task());
     yield_now().await;

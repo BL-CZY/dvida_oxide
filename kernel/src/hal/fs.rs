@@ -4,6 +4,7 @@ use alloc::{collections::btree_set::BTreeSet, string::String};
 use dvida_serialize::{DvDeErr, DvSerErr, DvSerialize};
 
 use crate::{
+    crypto::guid::Guid,
     drivers::fs::ext2::{self, structs::Ext2Fs},
     hal::{gpt::GPTEntry, path::Path, storage::HalStorageOperationErr},
 };
@@ -26,7 +27,6 @@ impl DirEnt64 {
             + self.name.len()
             + 1;
 
-        
         (length + 8) & !7
     }
 }
@@ -67,8 +67,7 @@ impl DvSerialize for DirEnt64 {
 
 #[derive(Debug, Default)]
 pub struct FileSystem {
-    pub drive_id: usize,
-    pub entry_idx: usize,
+    pub drive_id: Guid,
     pub entry: GPTEntry,
     pub opened_inodes: BTreeSet<i64>,
 

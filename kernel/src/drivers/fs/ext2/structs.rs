@@ -1,5 +1,5 @@
-use crate::ejcineque::sync::mutex::Mutex;
 use crate::log;
+use crate::{crypto::guid::Guid, ejcineque::sync::mutex::Mutex};
 use alloc::{boxed::Box, collections::btree_set::BTreeSet, sync::Arc};
 
 use crate::{
@@ -78,7 +78,7 @@ impl Ext2BlockGroup {
 
 #[derive(Debug, Clone)]
 pub struct Ext2Fs {
-    pub drive_id: usize,
+    pub drive_id: Guid,
     pub entry: GPTEntry,
     pub io_handler: IoHandler,
     pub block_allocator: BlockAllocator,
@@ -89,7 +89,7 @@ pub struct Ext2Fs {
 }
 
 impl Ext2Fs {
-    pub async fn new(drive_id: usize, entry: GPTEntry) -> Self {
+    pub async fn new(drive_id: Guid, entry: GPTEntry) -> Self {
         let super_block = identify_ext2(drive_id, &entry)
             .await
             .expect("Failed to mount ext2");
@@ -181,7 +181,7 @@ impl Ext2Fs {
 
     pub fn get_block_group_table_lba(&self) -> i64 {
         let bg_table_block_idx = self.super_block.s_first_data_block + 1;
-        
+
         self.block_idx_to_lba(bg_table_block_idx)
     }
 
