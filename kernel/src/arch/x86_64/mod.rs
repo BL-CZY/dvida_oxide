@@ -4,6 +4,7 @@ pub mod gdt;
 pub mod handlers;
 pub mod idt;
 pub mod memory;
+pub mod mp;
 pub mod msi;
 pub mod pcie;
 pub mod pic;

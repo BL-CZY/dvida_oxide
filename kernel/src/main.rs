@@ -49,6 +49,7 @@ use crate::{
             frame_allocator::{BitmapAllocator, FRAME_ALLOCATOR, deallocator_task},
             page_table::initialize_page_table,
         },
+        mp::initialize_mp,
         pic::disable_pic,
         scheduler::{
             load_kernel_thread,
@@ -180,22 +181,28 @@ unsafe extern "C" fn _start() -> ! {
 
     identify_storage_devices(&mut device_tree);
 
+    initialize_mp();
+
     enable_syscalls();
 
-    let executor: Executor = Executor::new();
-    let spawner = executor.spawner();
-    executor.spawn(kernel_main(spawner.clone()));
+    loop {
+        unsafe { asm!("hlt") };
+    }
 
-    let _ = EXECUTOR
-        .set(Arc::new(Mutex::new(executor.clone())))
-        .expect("Failed to set executor");
-
-    let _ = SPAWNER.set(spawner).expect("Failed to set spawner");
-
-    setup_rsp0_stack();
-
-    setup_stack_for_syscall_handler();
-    load_kernel_thread();
+    // let executor: Executor = Executor::new();
+    // let spawner = executor.spawner();
+    // executor.spawn(kernel_main(spawner.clone()));
+    //
+    // let _ = EXECUTOR
+    //     .set(Arc::new(Mutex::new(executor.clone())))
+    //     .expect("Failed to set executor");
+    //
+    // let _ = SPAWNER.set(spawner).expect("Failed to set spawner");
+    //
+    // setup_rsp0_stack();
+    //
+    // setup_stack_for_syscall_handler();
+    // load_kernel_thread();
 }
 
 #[panic_handler]

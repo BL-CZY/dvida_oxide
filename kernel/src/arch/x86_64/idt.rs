@@ -16,6 +16,12 @@ pub const AHCI_INTERRUPT_HANDLER_IDX: u8 = 0x30;
 
 static IDT: OnceCell<InterruptDescriptorTable> = OnceCell::new();
 
+pub static GSI_TO_IRQ_MAPPING: OnceCell<[u32; 16]> = OnceCell::new();
+
+pub fn load_idt() {
+    IDT.get().expect("Rust error").load();
+}
+
 pub fn minimal_idt() -> InterruptDescriptorTable {
     let mut idt = InterruptDescriptorTable::new();
     idt.breakpoint.set_handler_fn(isr::breakpoint_handler);
@@ -55,6 +61,8 @@ pub fn init_idt(gsi_to_irq_mapping: [u32; 16]) {
     let _ = IDT.set(idt);
 
     IDT.get().expect("Rust error").load();
+
+    let _ = GSI_TO_IRQ_MAPPING.set(gsi_to_irq_mapping);
 
     log!("IDT initialization finished");
 }
