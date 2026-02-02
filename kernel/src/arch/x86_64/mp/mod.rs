@@ -5,7 +5,11 @@ use limine::{
 };
 
 use crate::{
-    arch::x86_64::{acpi::apic::get_local_apic, gdt::init_gdt, idt::load_idt},
+    arch::x86_64::{
+        acpi::apic::{LocalApic, get_local_apic},
+        gdt::init_gdt,
+        idt::load_idt,
+    },
     log,
 };
 
@@ -30,6 +34,8 @@ static MP_REQUEST: MpRequest = MpRequest::new().with_flags(RequestFlags::empty()
 pub fn initialize_mp() {
     let response = MP_REQUEST.get_response().expect("No MP response");
 
+    LocalApic::initialize_timer_array(response.cpus());
+
     for cpu in response.cpus() {
         if cpu.id != response.bsp_lapic_id() {
             cpu.goto_address.write(ap_init);
@@ -39,14 +45,14 @@ pub fn initialize_mp() {
 
 extern "C" fn ap_init(cpu: &Cpu) -> ! {
     log!("Initializing core: {:?}", cpu.id);
-    init_gdt();
-    load_idt();
-
-    let mut local_apic = get_local_apic();
-    local_apic.calibrate_timer(0);
-
-    x86_64::instructions::interrupts::enable();
-    log!("Interrupts enabled on core: {:?}!", cpu.id);
+    // init_gdt();
+    // load_idt();
+    //
+    // let mut local_apic = get_local_apic();
+    // local_apic.calibrate_timer();
+    //
+    // x86_64::instructions::interrupts::enable();
+    // log!("Interrupts enabled on core: {:?}!", cpu.id);
 
     loop {
         unsafe { core::arch::asm!("hlt") }

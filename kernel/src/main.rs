@@ -55,6 +55,7 @@ use crate::{
             load_kernel_thread,
             syscall::{enable_syscalls, setup_stack_for_syscall_handler},
         },
+        timer::calibrate_tsc,
     },
     args::parse_args,
     crypto::random::run_random,
@@ -171,7 +172,10 @@ unsafe extern "C" fn _start() -> ! {
     x86_64::instructions::interrupts::enable();
     log!("Interrupts enabled!");
 
-    local_apic.calibrate_timer(mappings[0]);
+    initialize_mp();
+
+    local_apic.calibrate_timer();
+    calibrate_tsc();
 
     let mcfg = find_mcfg(&table_ptrs).expect("No mcfg found");
     let mcfg = parse_mcfg(mcfg);
@@ -180,8 +184,6 @@ unsafe extern "C" fn _start() -> ! {
     let mut device_tree = iterate_pcie_entries(&mcfg.entries);
 
     identify_storage_devices(&mut device_tree);
-
-    initialize_mp();
 
     enable_syscalls();
 

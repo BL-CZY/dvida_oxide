@@ -54,9 +54,6 @@ pub struct Selectors {
 }
 
 pub fn init_gdt() {
-    log!("{:?}", GDT.0);
-    log!("{:?}", &TSS.get().unwrap().0 as *const TaskStateSegment);
-
     GDT.0.load();
 
     // reload segment registers
