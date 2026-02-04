@@ -15,6 +15,7 @@ use crate::arch::x86_64::{
         frame_allocator::{FRAME_ALLOCATOR, setup_stack},
         get_hhdm_offset,
     },
+    scheduler::SchedulerCpuContext,
 };
 
 pub static PER_CPU_DATA_PTRS: OnceCell<BTreeMap<u32, u64>> = OnceCell::new();
@@ -37,6 +38,8 @@ pub struct PerCPUData {
     pub selectors: MaybeUninit<Selectors>,
 
     pub tsc_offset: i64,
+    pub scheduler_context: SchedulerCpuContext,
+    pub apic_timer_ticks_per_ms: u32,
 }
 
 #[macro_export]
@@ -128,6 +131,8 @@ pub fn setup_per_cpu_data(cpus: &[&Cpu]) {
                 selectors: MaybeUninit::uninit(),
                 tss,
                 tsc_offset: 0,
+                scheduler_context: SchedulerCpuContext::default(),
+                apic_timer_ticks_per_ms: 0,
             });
         }
 

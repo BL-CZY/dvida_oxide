@@ -1,8 +1,11 @@
 use core::arch::global_asm;
 
 use crate::{
-    arch::x86_64::{acpi::apic::get_local_apic, memory::per_cpu::PER_CPU_DATA_PTRS},
-    log,
+    arch::x86_64::{
+        acpi::apic::get_local_apic, memory::per_cpu::PER_CPU_DATA_PTRS,
+        scheduler::DEFAULT_TICKS_PER_THREAD,
+    },
+    get_per_cpu_data_mut, log,
 };
 use x86_64::{
     VirtAddr,
@@ -16,9 +19,7 @@ use x86_64::{
 use crate::arch::x86_64::{
     err::ErrNo,
     gdt::GDT,
-    scheduler::{
-        CURRENT_THREAD, PrivilageLevel, State, THREADS, Thread, WAITING_QUEUE, WAITING_QUEUE_IDX,
-    },
+    scheduler::{PrivilageLevel, State, Thread},
 };
 
 pub const WRITE_SYSCALL: u64 = 1;
@@ -145,53 +146,69 @@ macro_rules! set_registers {
 
 #[unsafe(no_mangle)]
 extern "C" fn syscall_handler(stack_frame: SyscallFrame) {
-    let mut current_thread = CURRENT_THREAD.spin_acquire_lock();
-    let mut current_thread = current_thread.take().expect("Corrupted thread context");
+    let per_cpu_data = get_per_cpu_data_mut!();
 
-    // saves the current thread's registers
-    current_thread.state.state = State::Waiting;
-    let registers = &mut current_thread.state.registers;
+    let current_thread = &mut per_cpu_data.scheduler_context.current_thread;
+    let current_thread = current_thread.take().expect("Corrupted thread context");
 
-    // save state
-    set_registers!(registers, stack_frame);
-    current_thread.state.stack_pointer = VirtAddr::new(stack_frame.rsp);
+    if let Some(ref mut thread) = per_cpu_data
+        .scheduler_context
+        .thread_map
+        .get_mut(&current_thread)
+    {
+        // saves the current thread's registers
+        thread.state.state = State::Waiting;
+        let registers = &mut thread.state.registers;
 
-    match stack_frame.rax {
-        WRITE_SYSCALL => {
-            let idx = WAITING_QUEUE_IDX.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
+        // save state
+        set_registers!(registers, stack_frame);
+        thread.state.stack_pointer = VirtAddr::new(stack_frame.rsp);
 
-            // interrupt will be disabled during the handler so this spin will not take too long
-            WAITING_QUEUE
-                .spin_acquire_lock()
-                .insert(idx, current_thread);
+        match stack_frame.rax {
+            WRITE_SYSCALL => {
+                let idx = per_cpu_data.scheduler_context.waiting_queue_idx;
+                per_cpu_data.scheduler_context.waiting_queue_idx += 1;
 
-            todo!();
-        }
+                // interrupt will be disabled during the handler so this spin will not take too long
+                per_cpu_data
+                    .scheduler_context
+                    .waiting_threads
+                    .insert(idx, current_thread);
 
-        KILL_SYSCALL => {
-            log!("Terminating thread: {:?}", current_thread);
-        }
+                todo!();
+            }
 
-        _ => {
-            current_thread.state.state = State::Ready;
-            registers.rax = ErrNo::OperationNotSupported as u64;
+            KILL_SYSCALL => {
+                log!("Terminating thread: {:?}", current_thread);
+            }
 
-            THREADS.spin_acquire_lock().push_back(current_thread);
+            _ => {
+                thread.state.state = State::Ready;
+                registers.rax = ErrNo::OperationNotSupported as u64;
+
+                per_cpu_data
+                    .scheduler_context
+                    .thread_queue
+                    .push_back(current_thread);
+            }
         }
     }
 
-    // interrupt will be disabled during the handler so this spin will not take too long
-    let thread = THREADS.spin_acquire_lock().pop_front();
-
-    if let Some(mut t) = thread {
-        t.ticks_left = 1000;
-        resume_thread(t);
-    } else {
-        panic!("KERNEL THREAD IS DEAD")
+    while let Some(thread_id) = per_cpu_data.scheduler_context.thread_queue.pop_front() {
+        if let Some(thread) = per_cpu_data
+            .scheduler_context
+            .thread_map
+            .get_mut(&thread_id)
+        {
+            thread.time_left = DEFAULT_TICKS_PER_THREAD;
+            resume_thread(thread);
+        }
     }
+
+    panic!("KERNEL THREAD IS DEAD")
 }
 
-pub fn resume_thread(thread: Thread) -> ! {
+pub fn resume_thread(thread: &Thread) -> ! {
     const IA32_FS_BASE: u32 = 0xC000_0100;
 
     match thread.state.state {
@@ -234,7 +251,8 @@ pub fn resume_thread(thread: Thread) -> ! {
                 Msr::new(IA32_FS_BASE).write(thread.state.thread_local_segment.as_u64());
             }
 
-            *CURRENT_THREAD.spin_acquire_lock() = Some(thread);
+            let per_cpu_data = get_per_cpu_data_mut!();
+            per_cpu_data.scheduler_context.current_thread = Some(thread.id);
 
             get_local_apic().write_eoi(0);
 
@@ -260,7 +278,8 @@ pub fn resume_thread(thread: Thread) -> ! {
                 Msr::new(IA32_FS_BASE).write(thread.state.thread_local_segment.as_u64());
             }
 
-            *CURRENT_THREAD.spin_acquire_lock() = Some(thread);
+            let per_cpu_data = get_per_cpu_data_mut!();
+            per_cpu_data.scheduler_context.current_thread = Some(thread.id);
 
             unsafe {
                 resume_thread_from_syscall(

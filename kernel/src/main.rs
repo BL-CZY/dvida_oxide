@@ -6,7 +6,7 @@
 #![feature(iter_array_chunks)]
 #![test_runner(crate::terminal::test::run_tests)]
 #![reexport_test_harness_main = "test_main"]
-use core::arch::asm;
+use core::{arch::asm, sync::atomic::AtomicBool};
 
 use alloc::sync::Arc;
 use once_cell_no_std::OnceCell;
@@ -52,7 +52,10 @@ use crate::{
         },
         mp::initialize_mp,
         pic::disable_pic,
-        scheduler::syscall::{enable_syscalls, set_per_cpu_data_for_core},
+        scheduler::{
+            load_kernel_thread,
+            syscall::{enable_syscalls, set_per_cpu_data_for_core},
+        },
         timer::{calibrate_tsc, sync_tsc_lead},
     },
     args::parse_args,
@@ -77,6 +80,7 @@ pub static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_s
 
 // will be locked all the time
 pub static EXECUTOR: OnceCell<Arc<Mutex<Executor>>> = OnceCell::new();
+pub static IS_EXECUTOR_READY: AtomicBool = AtomicBool::new(false);
 pub static SPAWNER: OnceCell<Spawner> = OnceCell::new();
 
 pub fn spawn(future: impl Future<Output = ()> + 'static + Send) {
@@ -204,20 +208,17 @@ unsafe extern "C" fn _start() -> ! {
 
     enable_syscalls();
 
-    // let executor: Executor = Executor::new();
-    // let spawner = executor.spawner();
-    // executor.spawn(kernel_main(spawner.clone()));
-    //
-    // let _ = EXECUTOR
-    //     .set(Arc::new(Mutex::new(executor.clone())))
-    //     .expect("Failed to set executor");
-    //
-    // let _ = SPAWNER.set(spawner).expect("Failed to set spawner");
-    //
-    // setup_rsp0_stack();
-    //
-    // setup_stack_for_syscall_handler();
-    // load_kernel_thread();
+    let executor: Executor = Executor::new(&mp_response.cpus());
+    let spawner = executor.spawner();
+    spawner.spawn(kernel_main(spawner.clone()));
+
+    let _ = EXECUTOR
+        .set(Arc::new(Mutex::new(executor.clone())))
+        .expect("Failed to set executor");
+
+    let _ = SPAWNER.set(spawner).expect("Failed to set spawner");
+
+    load_kernel_thread();
 }
 
 #[panic_handler]

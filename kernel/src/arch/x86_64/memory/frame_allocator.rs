@@ -165,13 +165,6 @@ pub fn setup_stack(guard_page_loc: u64, len_in_bytes_including_guard: u64) -> Vi
     VirtAddr::new(guard_page_loc + len_in_bytes_including_guard)
 }
 
-pub fn setup_stack_for_kernel_task() -> VirtAddr {
-    const KERNEL_TASK_STACK_GUARD_PAGE: u64 = 0xFFFF_FF80_0000_0000;
-    const KERNEL_TASK_STACK_LEN: u64 = 16 * PAGE_SIZE as u64;
-
-    setup_stack(KERNEL_TASK_STACK_GUARD_PAGE, KERNEL_TASK_STACK_LEN)
-}
-
 pub static DEALLOCATOR_SENDER: OnceCell<UnboundedSender<Vec<PhysFrame>>> = OnceCell::new();
 
 /// intended to be used by interrupt handlers

@@ -3,14 +3,12 @@ pub mod loader;
 pub mod syscall;
 
 use alloc::vec;
-use core::sync::atomic::AtomicUsize;
+use core::{sync::atomic::AtomicUsize, time::Duration};
 
-use crate::ejcineque::sync::mutex::Mutex;
 use alloc::{
     collections::{btree_map::BTreeMap, vec_deque::VecDeque},
     vec::Vec,
 };
-use lazy_static::lazy_static;
 use x86_64::{
     PhysAddr, VirtAddr,
     registers::rflags::{self, RFlags},
@@ -21,21 +19,12 @@ use crate::{
     EXECUTOR,
     arch::x86_64::{
         memory::{
-            frame_allocator::{DEALLOCATOR_SENDER, setup_stack_for_kernel_task},
-            get_hhdm_offset,
-            page_table::KERNEL_PAGE_TABLE,
+            frame_allocator::DEALLOCATOR_SENDER, get_hhdm_offset, page_table::KERNEL_PAGE_TABLE,
         },
         scheduler::syscall::resume_thread,
     },
-    hcf,
+    get_per_cpu_data_mut, hcf,
 };
-
-lazy_static! {
-    pub static ref CURRENT_THREAD: Mutex<Option<Thread>> = Mutex::new(None);
-    pub static ref THREADS: Mutex<VecDeque<Thread>> = Mutex::new(VecDeque::new());
-    pub static ref WAITING_QUEUE: Mutex<BTreeMap<usize, Thread>> = Mutex::new(BTreeMap::new());
-    pub static ref WAITING_QUEUE_IDX: AtomicUsize = AtomicUsize::new(0);
-}
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct ThreadId(usize);
@@ -44,31 +33,32 @@ pub struct ThreadId(usize);
 pub struct ProcessId(usize);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct CpuCoreId(usize);
+pub struct CpuCoreId(u32);
 
 pub struct SchedulerContext {
     pub processes: BTreeMap<ProcessId, Vec<(CpuCoreId, ThreadId)>>,
     pub cpu_contexts: Vec<SchedulerCpuContext>,
 }
 
-#[derive(Debug)]
+pub static THREAD_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug, Default)]
 pub struct SchedulerCpuContext {
     pub thread_map: BTreeMap<ThreadId, Thread>,
-    thread_id_counter: usize,
     pub thread_queue: VecDeque<ThreadId>,
     pub current_thread: Option<ThreadId>,
+    pub waiting_threads: BTreeMap<usize, ThreadId>,
+    pub waiting_queue_idx: usize,
 }
 
 impl SchedulerCpuContext {
     // the thread will start with paused status
     pub fn spawn_thread(&mut self, mut thread: Thread) {
-        thread.id = ThreadId(self.thread_id_counter);
-        self.thread_map
-            .insert(ThreadId(self.thread_id_counter), thread);
-        self.thread_queue
-            .push_back(ThreadId(self.thread_id_counter));
+        let id = THREAD_ID_COUNTER.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
 
-        self.thread_id_counter += 1;
+        thread.id = ThreadId(id);
+        self.thread_map.insert(ThreadId(id), thread);
+        self.thread_queue.push_back(ThreadId(id));
     }
 
     pub fn get_current_thread_ref(&mut self) -> &mut Thread {
@@ -157,7 +147,7 @@ pub struct Thread {
     pub id: ThreadId,
     pub state: ThreadState,
     pub privilage_level: PrivilageLevel,
-    pub ticks_left: u64,
+    pub time_left: Duration,
 }
 
 impl Drop for Thread {
@@ -171,10 +161,11 @@ impl Drop for Thread {
     }
 }
 
-pub const DEFAULT_TICKS_PER_THREAD: u64 = 50;
+pub const DEFAULT_TICKS_PER_THREAD: Duration = Duration::from_millis(5);
 
 pub fn load_kernel_thread() -> ! {
-    let kernel_task_stack_start = setup_stack_for_kernel_task().as_u64();
+    let per_cpu_data = get_per_cpu_data_mut!();
+    let kernel_task_stack_start = per_cpu_data.kernel_task_stack_ptr;
 
     let thread = Thread {
         id: ThreadId(0),
@@ -203,10 +194,10 @@ pub fn load_kernel_thread() -> ! {
             frames: vec![],
         },
         privilage_level: PrivilageLevel::Kernel,
-        ticks_left: DEFAULT_TICKS_PER_THREAD,
+        time_left: DEFAULT_TICKS_PER_THREAD,
     };
 
-    resume_thread(thread);
+    resume_thread(&thread);
 }
 
 #[unsafe(no_mangle)]

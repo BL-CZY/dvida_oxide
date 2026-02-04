@@ -9,11 +9,13 @@ use crate::{
     get_per_cpu_data_mut, log,
 };
 use alloc::collections::btree_map::BTreeMap;
-use limine::{mp::Cpu, request::DateAtBootRequest};
+use limine::request::DateAtBootRequest;
 use once_cell_no_std::OnceCell;
 use x86_64::instructions::port::{Port, PortWriteOnly};
 
 use crate::arch::x86_64::{acpi::apic::LocalApic, pic::PRIMARY_ISA_PIC_OFFSET};
+
+pub const MILLISECOND_TO_NANO_SECOND: u128 = 1_000_000;
 
 pub const PIT_DATA_PORT: u16 = 0x40;
 pub const PIT_CMD_REGISTER: u16 = 0x43;
@@ -68,38 +70,17 @@ pub fn read_pit_count() -> u16 {
     }
 }
 
-macro_rules! get_apic_timer_ticks_per_ms {
-    ($cpu_id:ident) => {
-        APIC_TIMER_TICKS_PER_MS
-            .get()
-            .expect("No array found")
-            .get(&$cpu_id)
-            .expect("Corrupted data")
-    };
-}
-
 pub const TIMER_PERIODIC_MODE: u32 = 0x20000;
 
 impl LocalApic {
-    pub fn initialize_timer_array(cpus: &[&Cpu]) {
-        let mut res = BTreeMap::new();
-
-        for cpu in cpus.iter() {
-            res.insert(cpu.id, AtomicU32::new(0));
-        }
-
-        let _ = APIC_TIMER_TICKS_PER_MS.set(res);
-    }
-
-    pub fn load_timer(&mut self, cpu_id: u32, frequency: u32) {
-        let freq = get_apic_timer_ticks_per_ms!(cpu_id);
-        freq.store(frequency, core::sync::atomic::Ordering::Relaxed);
+    pub fn load_timer(&mut self, frequency: u32) {
+        let per_cpu_data = get_per_cpu_data_mut!();
+        per_cpu_data.apic_timer_ticks_per_ms = frequency;
 
         let vector = GSI_TO_IRQ_MAPPING.get().expect("No mappings found")[0];
 
         log!(
-            "{frequency} ticks have elapsed in 1 ms for APIC on core: {:?}! Enabling the timer to vector: {:?}",
-            cpu_id,
+            "{frequency} ticks have elapsed in 1 ms for APIC ! Enabling the timer to vector: {:?}",
             vector + PRIMARY_ISA_PIC_OFFSET as u32
         );
 
@@ -132,8 +113,7 @@ impl LocalApic {
             }
         }
 
-        let cpu_id = self.read_id() >> 24 & 0xFF;
-        self.load_timer(cpu_id, ticks_elapsed / 10);
+        self.load_timer(ticks_elapsed / 10);
     }
 }
 
