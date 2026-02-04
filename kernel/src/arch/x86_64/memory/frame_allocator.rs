@@ -120,7 +120,7 @@ unsafe impl FrameAllocator<Size4KiB, Option<&mut Vec<PhysFrame<Size4KiB>>>> for 
 /// should NEVER be used by an interrupt
 pub static FRAME_ALLOCATOR: OnceCell<Mutex<BitmapAllocator>> = OnceCell::new();
 
-pub fn setup_stack(guard_page_loc: u64, len: u64) -> VirtAddr {
+pub fn setup_stack(guard_page_loc: u64, len_in_bytes_including_guard: u64) -> VirtAddr {
     let stack_start: u64 = guard_page_loc + PAGE_SIZE as u64;
 
     let mut allocator = FRAME_ALLOCATOR
@@ -131,7 +131,7 @@ pub fn setup_stack(guard_page_loc: u64, len: u64) -> VirtAddr {
 
     let mut frames: heapless::Vec<PhysFrame<Size4KiB>, 16> = heapless::Vec::new();
 
-    for _ in 0..15 {
+    for _ in 0..((len_in_bytes_including_guard - 1) / PAGE_SIZE as u64) {
         let frame = allocator
             .allocate_frame(&mut None)
             .expect("Failed to get physical frame");
@@ -162,7 +162,7 @@ pub fn setup_stack(guard_page_loc: u64, len: u64) -> VirtAddr {
         );
     }
 
-    VirtAddr::new(guard_page_loc + len)
+    VirtAddr::new(guard_page_loc + len_in_bytes_including_guard)
 }
 
 pub fn setup_stack_for_kernel_task() -> VirtAddr {

@@ -1,11 +1,8 @@
 use bitfield::bitfield;
-use limine::{
-    mp::{Cpu, RequestFlags},
-    request::MpRequest,
-    response::MpResponse,
-};
+use limine::mp::Cpu;
 
 use crate::{
+    MP_REQUEST,
     arch::x86_64::{
         acpi::apic::{LocalApic, get_local_apic},
         gdt::init_gdt,
@@ -28,12 +25,11 @@ bitfield! {
     pub destination, set_destination: 63, 56;
 }
 
-#[used]
-#[unsafe(link_section = ".requests")]
-static MP_REQUEST: MpRequest = MpRequest::new().with_flags(RequestFlags::empty());
-
-pub fn read_mp() -> &'static MpResponse {
-    MP_REQUEST.get_response().expect("No MP response")
+#[macro_export]
+macro_rules! read_mp {
+    () => {
+        MP_REQUEST.get_response().expect("No MP response")
+    };
 }
 
 pub fn initialize_mp() {

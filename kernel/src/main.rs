@@ -27,7 +27,8 @@ use ejcineque::{
 };
 use limine::{
     BaseRevision,
-    request::{RequestsEndMarker, RequestsStartMarker},
+    mp::RequestFlags,
+    request::{MpRequest, RequestsEndMarker, RequestsStartMarker},
 };
 
 use limine::request::StackSizeRequest;
@@ -48,8 +49,9 @@ use crate::{
             MemoryMappings,
             frame_allocator::{BitmapAllocator, FRAME_ALLOCATOR, deallocator_task},
             page_table::initialize_page_table,
+            per_cpu::setup_per_cpu_data,
         },
-        mp::{initialize_mp, read_mp},
+        mp::initialize_mp,
         pic::disable_pic,
         scheduler::{
             load_kernel_thread,
@@ -117,6 +119,10 @@ async fn kernel_main(spawner: Spawner) {
 #[unsafe(link_section = ".requests")]
 static BASE_REVISION: BaseRevision = BaseRevision::with_revision(4);
 
+#[used]
+#[unsafe(link_section = ".requests")]
+pub static MP_REQUEST: MpRequest = MpRequest::new().with_flags(RequestFlags::empty());
+
 /// Define the stand and end markers for Limine requests.
 #[used]
 #[unsafe(link_section = ".requests_start_marker")]
@@ -144,9 +150,9 @@ unsafe extern "C" fn _start() -> ! {
 
     log_memmap();
 
-    let mp_response = read_mp();
+    let mp_response = read_mp!();
 
-    let MemoryMappings { kheap, bit_map } = memory::init(mp_response.cpus());
+    let MemoryMappings { kheap, bit_map } = memory::init();
     let _ = FRAME_ALLOCATOR
         .set(Mutex::new(BitmapAllocator {
             bitmap: bit_map,
@@ -160,6 +166,8 @@ unsafe extern "C" fn _start() -> ! {
     );
 
     unsafe { initialize_page_table() };
+
+    setup_per_cpu_data(mp_response.cpus());
 
     init_gdt();
     disable_pic();

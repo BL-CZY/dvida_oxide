@@ -49,7 +49,7 @@ pub fn get_hhdm_offset() -> VirtAddr {
     )
 }
 
-pub fn init(cores: &[&Cpu]) -> MemoryMappings {
+pub fn init() -> MemoryMappings {
     let frame_count = bitmap::get_highest_physical_memory_usable() / PAGE_SIZE as u64;
     let bitmap_length = frame_count.div_ceil(BYTE_SIZE as u64);
     let bitmap_page_length = bitmap_length.div_ceil(PAGE_SIZE as u64);
@@ -87,34 +87,29 @@ pub fn init(cores: &[&Cpu]) -> MemoryMappings {
         kheap_start: kheap_start as *mut u8,
     };
 
-    let page_fault_stack_start: u64 = kheap_start
-        + KHEAP_PAGE_COUNT * PAGE_SIZE as u64
-        + STACK_PAGE_SIZE as u64 * PAGE_SIZE as u64;
-
     log!(
-        "Bitmap at 0x{:x}, Kernel Heap at 0x{:x}, Page Fault Stack at 0x{:x}",
+        "Bitmap at 0x{:x}, Kernel Heap at 0x{:x}",
         bitmap_start,
         kheap_start,
-        page_fault_stack_start
     );
 
     bit_map.fill();
     bit_map.set_used_by_address(
         PhysAddr::new(bitmap_start - hhdm_offset),
-        (bitmap_page_length + KHEAP_PAGE_COUNT + STACK_PAGE_SIZE as u64) as usize,
+        (bitmap_page_length + KHEAP_PAGE_COUNT) as usize,
     );
 
-    let tss = {
-        let mut tss = TaskStateSegment::new();
-        // tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] =
-        //     VirtAddr::from_ptr(double_fault_stack_start as *mut u8);
-        tss.interrupt_stack_table[gdt::PAGE_FAULT_IST_INDEX as usize] =
-            VirtAddr::from_ptr(page_fault_stack_start as *mut u8);
-        tss.privilege_stack_table[0] = VirtAddr::new(RSP0_STACK_GUARD_PAGE + RSP0_STACK_LENGTH);
-        tss
-    };
-
-    let _ = TSS.set(AlignedTSS(tss)).expect("Failed to set tss");
+    // let tss = {
+    //     let mut tss = TaskStateSegment::new();
+    //     // tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] =
+    //     //     VirtAddr::from_ptr(double_fault_stack_start as *mut u8);
+    //     tss.interrupt_stack_table[gdt::PAGE_FAULT_IST_INDEX as usize] =
+    //         VirtAddr::from_ptr(page_fault_stack_start as *mut u8);
+    //     tss.privilege_stack_table[0] = VirtAddr::new(RSP0_STACK_GUARD_PAGE + RSP0_STACK_LENGTH);
+    //     tss
+    // };
+    //
+    // let _ = TSS.set(AlignedTSS(tss)).expect("Failed to set tss");
 
     MemoryMappings { bit_map, kheap }
 }
