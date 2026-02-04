@@ -2,6 +2,7 @@ use bitfield::bitfield;
 use limine::{
     mp::{Cpu, RequestFlags},
     request::MpRequest,
+    response::MpResponse,
 };
 
 use crate::{
@@ -30,6 +31,10 @@ bitfield! {
 #[used]
 #[unsafe(link_section = ".requests")]
 static MP_REQUEST: MpRequest = MpRequest::new().with_flags(RequestFlags::empty());
+
+pub fn read_mp() -> &'static MpResponse {
+    MP_REQUEST.get_response().expect("No MP response")
+}
 
 pub fn initialize_mp() {
     let response = MP_REQUEST.get_response().expect("No MP response");

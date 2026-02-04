@@ -3,10 +3,10 @@
 
 syscall_handler_wrapper:
     swapgs                        ; swap out gs
-    mov gs:[0x8], rsp             ; temporarily save rsp
-    mov rsp, gs:[0x0]             ; pivot stack
+    mov gs:[0x10], rsp             ; temporarily save rsp
+    mov rsp, gs:[0x8]             ; pivot stack
 
-    push qword ptr gs:[0x10]          ; user rsp
+    push qword ptr gs:[0x10]      ; user rsp
     push rbp
     push rax
     push rbx

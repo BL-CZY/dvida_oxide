@@ -25,18 +25,16 @@ pub const KILL_SYSCALL: u64 = 0x3c;
 //TODO: multicore
 #[repr(C, packed)]
 pub struct PerCPUData {
+    self_ptr: u64,
+    /// used to track the kernel stack pointer
     stack_ptr: u64,
+    /// used to temporarily save the rsp
     thread_rsp: u64,
 }
 
 const SYSCALL_STACK_GUARD_PAGE: u64 = 0xFFFF_FF81_0000_0000;
 const SYSCALL_STACK_LEN: u64 = 4 * PAGE_SIZE as u64;
 const KERNEL_GS_BASE_MSR: u32 = 0xC0000102;
-
-pub static mut PER_CPU_DATA: PerCPUData = PerCPUData {
-    stack_ptr: SYSCALL_STACK_GUARD_PAGE + SYSCALL_STACK_LEN,
-    thread_rsp: 0,
-};
 
 pub fn setup_stack_for_syscall_handler() {
     setup_stack(SYSCALL_STACK_GUARD_PAGE, SYSCALL_STACK_LEN);

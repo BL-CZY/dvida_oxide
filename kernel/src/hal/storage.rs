@@ -114,16 +114,22 @@ static STORAGE_DEVICES_BY_IDX: OnceCell<BTreeMap<StorageDeviceIdx, HalStorageDev
     OnceCell::new();
 static STORAGE_DEVICES_BY_GUID: OnceCell<Mutex<BTreeMap<Guid, StorageDeviceIdx>>> = OnceCell::new();
 
-pub fn get_storage_devices() -> &'static BTreeMap<StorageDeviceIdx, HalStorageDevice> {
-    STORAGE_DEVICES_BY_IDX
-        .get()
-        .expect("Can't get storage array")
+#[macro_export]
+macro_rules! get_storage_devices {
+    () => {
+        STORAGE_DEVICES_BY_IDX
+            .get()
+            .expect("Can't get storage array")
+    };
 }
 
-pub fn get_storage_devices_by_guid() -> &'static Mutex<BTreeMap<Guid, StorageDeviceIdx>> {
-    STORAGE_DEVICES_BY_GUID
-        .get()
-        .expect("Can't get storage array")
+#[macro_export]
+macro_rules! get_storage_devices_by_guid {
+    () => {
+        STORAGE_DEVICES_BY_GUID
+            .get()
+            .expect("Can't get storage array")
+    };
 }
 
 impl HalStorageDevice {
@@ -138,7 +144,7 @@ impl HalStorageDevice {
 }
 
 pub async fn get_identify_data(idx: usize) -> Result<HalIdentifyData, HalStorageOperationErr> {
-    let sender = get_storage_devices()
+    let sender = get_storage_devices!()
         .get(&StorageDeviceIdx(idx))
         .ok_or(HalStorageOperationErr::DriveDidntRespond)?
         .tx
@@ -157,7 +163,7 @@ pub async fn read_sectors_by_guid(
     lba: i64,
 ) -> Result<(), HalStorageOperationErr> {
     read_sectors_by_idx(
-        get_storage_devices_by_guid()
+        get_storage_devices_by_guid!()
             .lock()
             .await
             .get(&guid)
@@ -174,7 +180,7 @@ pub async fn read_sectors_by_idx(
     buffer: Buffer,
     lba: i64,
 ) -> Result<(), HalStorageOperationErr> {
-    let sender = get_storage_devices()
+    let sender = get_storage_devices!()
         .get(&StorageDeviceIdx(index))
         .ok_or(HalStorageOperationErr::DriveDidntRespond)?
         .tx
@@ -197,7 +203,7 @@ pub async fn write_sectors_by_guid(
     lba: i64,
 ) -> Result<(), HalStorageOperationErr> {
     write_sectors_by_idx(
-        get_storage_devices_by_guid()
+        get_storage_devices_by_guid!()
             .lock()
             .await
             .get(&guid)
@@ -214,7 +220,7 @@ pub async fn write_sectors_by_idx(
     buffer: Buffer,
     lba: i64,
 ) -> Result<(), HalStorageOperationErr> {
-    let sender = get_storage_devices()
+    let sender = get_storage_devices!()
         .get(&StorageDeviceIdx(index))
         .ok_or(HalStorageOperationErr::DriveDidntRespond)?
         .tx

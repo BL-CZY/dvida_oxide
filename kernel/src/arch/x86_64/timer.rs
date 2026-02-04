@@ -60,12 +60,14 @@ pub fn read_pit_count() -> u16 {
     }
 }
 
-pub fn get_apic_timer_ticks_per_ms(cpu_id: u32) -> &'static AtomicU32 {
-    APIC_TIMER_TICKS_PER_MS
-        .get()
-        .expect("No array found")
-        .get(&cpu_id)
-        .expect("Corrupted data")
+macro_rules! get_apic_timer_ticks_per_ms {
+    ($cpu_id:ident) => {
+        APIC_TIMER_TICKS_PER_MS
+            .get()
+            .expect("No array found")
+            .get(&$cpu_id)
+            .expect("Corrupted data")
+    };
 }
 
 pub const TIMER_PERIODIC_MODE: u32 = 0x20000;
@@ -82,7 +84,7 @@ impl LocalApic {
     }
 
     pub fn load_timer(&mut self, cpu_id: u32, frequency: u32) {
-        let freq = get_apic_timer_ticks_per_ms(cpu_id);
+        let freq = get_apic_timer_ticks_per_ms!(cpu_id);
         freq.store(frequency, core::sync::atomic::Ordering::Relaxed);
 
         let vector = GSI_TO_IRQ_MAPPING.get().expect("No mappings found")[0];

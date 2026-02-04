@@ -49,7 +49,7 @@ use crate::{
             frame_allocator::{BitmapAllocator, FRAME_ALLOCATOR, deallocator_task},
             page_table::initialize_page_table,
         },
-        mp::initialize_mp,
+        mp::{initialize_mp, read_mp},
         pic::disable_pic,
         scheduler::{
             load_kernel_thread,
@@ -143,7 +143,10 @@ unsafe extern "C" fn _start() -> ! {
     WRITER.lock().init_debug_terminal();
 
     log_memmap();
-    let MemoryMappings { kheap, bit_map } = memory::init();
+
+    let mp_response = read_mp();
+
+    let MemoryMappings { kheap, bit_map } = memory::init(mp_response.cpus());
     let _ = FRAME_ALLOCATOR
         .set(Mutex::new(BitmapAllocator {
             bitmap: bit_map,
@@ -171,8 +174,6 @@ unsafe extern "C" fn _start() -> ! {
 
     x86_64::instructions::interrupts::enable();
     log!("Interrupts enabled!");
-
-    initialize_mp();
 
     local_apic.calibrate_timer();
     calibrate_tsc();
