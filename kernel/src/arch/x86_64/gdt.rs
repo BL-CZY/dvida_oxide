@@ -86,10 +86,6 @@ impl PerCPUData {
         unsafe {
             segmentation::CS::set_reg(selectors.kernel_code_selector);
             segmentation::SS::set_reg(selectors.kernel_data_selector);
-            segmentation::DS::set_reg(selectors.kernel_data_selector);
-            segmentation::ES::set_reg(selectors.kernel_data_selector);
-            segmentation::FS::set_reg(selectors.kernel_data_selector);
-            segmentation::GS::set_reg(selectors.kernel_data_selector);
             load_tss(selectors.tss_selector);
         }
     }

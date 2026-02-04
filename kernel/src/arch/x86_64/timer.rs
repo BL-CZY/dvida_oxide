@@ -167,6 +167,8 @@ pub fn sync_tsc_follow() {
     let base = TSC_SYNC_BASE.load(core::sync::atomic::Ordering::Acquire);
 
     get_per_cpu_data_mut!().tsc_offset = base as i64 - tick_count as i64;
+
+    log!("Set tsc offset: {:?}", get_per_cpu_data!().tsc_offset);
 }
 
 const TEN_MS_DIVISOR: u16 = 11932;

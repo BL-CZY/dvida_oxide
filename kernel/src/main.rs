@@ -173,6 +173,7 @@ unsafe extern "C" fn _start() -> ! {
 
     setup_per_cpu_data(mp_response.cpus());
     set_per_cpu_data_for_core();
+
     init_gdt();
 
     disable_pic();
