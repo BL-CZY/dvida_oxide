@@ -8,16 +8,13 @@ use x86_64::{
     structures::{gdt::GlobalDescriptorTable, tss::TaskStateSegment},
 };
 
-use crate::{
-    arch::x86_64::{
-        gdt::{self, Selectors, create_gdt},
-        memory::{
-            PAGE_SIZE,
-            frame_allocator::{FRAME_ALLOCATOR, setup_stack},
-            get_hhdm_offset,
-        },
+use crate::arch::x86_64::{
+    gdt::{self, Selectors, create_gdt},
+    memory::{
+        PAGE_SIZE,
+        frame_allocator::{FRAME_ALLOCATOR, setup_stack},
+        get_hhdm_offset,
     },
-    log,
 };
 
 pub static PER_CPU_DATA_PTRS: OnceCell<BTreeMap<u32, u64>> = OnceCell::new();
@@ -38,6 +35,8 @@ pub struct PerCPUData {
     pub gdt: MaybeUninit<GlobalDescriptorTable>,
     pub tss: TaskStateSegment,
     pub selectors: MaybeUninit<Selectors>,
+
+    pub tsc_offset: i64,
 }
 
 #[macro_export]
@@ -128,6 +127,7 @@ pub fn setup_per_cpu_data(cpus: &[&Cpu]) {
                 gdt: MaybeUninit::uninit(),
                 selectors: MaybeUninit::uninit(),
                 tss,
+                tsc_offset: 0,
             });
         }
 

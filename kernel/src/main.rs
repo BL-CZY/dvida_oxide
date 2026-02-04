@@ -50,9 +50,10 @@ use crate::{
             page_table::initialize_page_table,
             per_cpu::setup_per_cpu_data,
         },
+        mp::initialize_mp,
         pic::disable_pic,
         scheduler::syscall::{enable_syscalls, set_per_cpu_data_for_core},
-        timer::calibrate_tsc,
+        timer::{calibrate_tsc, sync_tsc_lead},
     },
     args::parse_args,
     crypto::random::run_random,
@@ -174,10 +175,6 @@ unsafe extern "C" fn _start() -> ! {
     set_per_cpu_data_for_core();
     init_gdt();
 
-    loop {
-        unsafe { asm!("hlt") };
-    }
-
     disable_pic();
 
     init_idt(mappings);
@@ -185,8 +182,16 @@ unsafe extern "C" fn _start() -> ! {
     x86_64::instructions::interrupts::enable();
     log!("Interrupts enabled!");
 
+    initialize_mp();
+
     local_apic.calibrate_timer();
     calibrate_tsc();
+
+    sync_tsc_lead(mp_response.cpus().len() as u32);
+
+    loop {
+        unsafe { asm!("hlt") };
+    }
 
     let mcfg = find_mcfg(&table_ptrs).expect("No mcfg found");
     let mcfg = parse_mcfg(mcfg);

@@ -7,6 +7,8 @@ use crate::{
         acpi::apic::{LocalApic, get_local_apic},
         gdt::init_gdt,
         idt::load_idt,
+        scheduler::syscall::set_per_cpu_data_for_core,
+        timer::{calibrate_tsc, sync_tsc_follow},
     },
     log,
 };
@@ -46,14 +48,19 @@ pub fn initialize_mp() {
 
 extern "C" fn ap_init(cpu: &Cpu) -> ! {
     log!("Initializing core: {:?}", cpu.id);
-    // init_gdt();
-    // load_idt();
-    //
-    // let mut local_apic = get_local_apic();
-    // local_apic.calibrate_timer();
-    //
-    // x86_64::instructions::interrupts::enable();
-    // log!("Interrupts enabled on core: {:?}!", cpu.id);
+
+    set_per_cpu_data_for_core();
+    init_gdt();
+
+    load_idt();
+
+    x86_64::instructions::interrupts::enable();
+    log!("Interrupts enabled on core: {:?}!", cpu.id);
+
+    let mut local_apic = get_local_apic();
+    local_apic.calibrate_timer();
+
+    sync_tsc_follow();
 
     loop {
         unsafe { core::arch::asm!("hlt") }

@@ -27,7 +27,8 @@ pub const KILL_SYSCALL: u64 = 0x3c;
 const KERNEL_GS_BASE_MSR: u32 = 0xC0000102;
 
 pub fn set_per_cpu_data_for_core() {
-    let id = get_local_apic().read_id();
+    let id = (get_local_apic().read_id() >> 24) as u32 & 0xFF;
+    log!("{:?} {:?}", PER_CPU_DATA_PTRS, id);
 
     let ptr = PER_CPU_DATA_PTRS
         .get()

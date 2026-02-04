@@ -1,10 +1,13 @@
 use core::{
     ops::Sub,
-    sync::atomic::{AtomicU32, AtomicU64},
+    sync::atomic::{AtomicBool, AtomicU32, AtomicU64},
     time::Duration,
 };
 
-use crate::{arch::x86_64::idt::GSI_TO_IRQ_MAPPING, log};
+use crate::{
+    arch::x86_64::idt::GSI_TO_IRQ_MAPPING, ejcineque::sync::spin::SpinMutex, get_per_cpu_data,
+    get_per_cpu_data_mut, log,
+};
 use alloc::collections::btree_map::BTreeMap;
 use limine::{mp::Cpu, request::DateAtBootRequest};
 use once_cell_no_std::OnceCell;
@@ -22,6 +25,11 @@ pub static TIME_AT_BOOT: AtomicU64 = AtomicU64::new(0);
 #[used]
 #[unsafe(link_section = ".requests")]
 pub static DATE_AT_BOOT_REQUEST: DateAtBootRequest = DateAtBootRequest::new();
+
+pub static PIT_LOCK: SpinMutex<()> = SpinMutex::new(());
+pub static TSC_SYNC_IS_ALL_CORE_READY: AtomicBool = AtomicBool::new(false);
+pub static TSC_CORE_SYNC_COUNT: AtomicU32 = AtomicU32::new(0);
+pub static TSC_SYNC_BASE: AtomicU64 = AtomicU64::new(0);
 
 pub fn configure_pit() {
     const CHANNEL_3_OSCILATOR: u8 = 0x36;
@@ -90,7 +98,8 @@ impl LocalApic {
         let vector = GSI_TO_IRQ_MAPPING.get().expect("No mappings found")[0];
 
         log!(
-            "{frequency} ticks have elapsed in 1 ms for APIC! Enabling the timer to vector: {:?}",
+            "{frequency} ticks have elapsed in 1 ms for APIC on core: {:?}! Enabling the timer to vector: {:?}",
+            cpu_id,
             vector + PRIMARY_ISA_PIC_OFFSET as u32
         );
 
@@ -100,6 +109,8 @@ impl LocalApic {
     }
 
     pub fn calibrate_timer(&mut self) {
+        let _guard = PIT_LOCK.lock();
+
         const DIVIDE_BY_16_CONF: u32 = 0x3;
 
         self.write_timer_divide_config(DIVIDE_BY_16_CONF);
@@ -121,15 +132,48 @@ impl LocalApic {
             }
         }
 
-        let cpu_id = self.read_id();
+        let cpu_id = self.read_id() >> 24 & 0xFF;
         self.load_timer(cpu_id, ticks_elapsed / 10);
     }
+}
+
+pub fn sync_tsc_lead(cpu_count: u32) {
+    while TSC_CORE_SYNC_COUNT.load(core::sync::atomic::Ordering::Acquire) != cpu_count - 1 {
+        core::hint::spin_loop();
+    }
+
+    TSC_SYNC_IS_ALL_CORE_READY.store(true, core::sync::atomic::Ordering::Release);
+
+    let tick_count = unsafe { core::arch::x86_64::_rdtsc() };
+    log!("tick count from lead: {:?}", tick_count);
+
+    TSC_SYNC_BASE.store(tick_count, core::sync::atomic::Ordering::Release);
+}
+
+pub fn sync_tsc_follow() {
+    TSC_CORE_SYNC_COUNT.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
+
+    while !TSC_SYNC_IS_ALL_CORE_READY.load(core::sync::atomic::Ordering::Acquire) {
+        core::hint::spin_loop();
+    }
+
+    let tick_count = unsafe { core::arch::x86_64::_rdtsc() };
+    log!("tick count from follow: {:?}", tick_count);
+
+    while TSC_SYNC_BASE.load(core::sync::atomic::Ordering::Acquire) == 0 {
+        core::hint::spin_loop();
+    }
+
+    let base = TSC_SYNC_BASE.load(core::sync::atomic::Ordering::Acquire);
+
+    get_per_cpu_data_mut!().tsc_offset = base as i64 - tick_count as i64;
 }
 
 const TEN_MS_DIVISOR: u16 = 11932;
 const CHANNEL_1_COUNT_DOWN: u8 = 0x30;
 
 pub fn calibrate_tsc() {
+    let _guard = PIT_LOCK.lock();
     // unixtimestamp at boot
     let date_at_boot = DATE_AT_BOOT_REQUEST
         .get_response()
@@ -163,7 +207,8 @@ pub struct Instant(u64);
 
 impl Instant {
     pub fn now() -> Self {
-        let ticks = unsafe { core::arch::x86_64::_rdtsc() };
+        let ticks = (unsafe { core::arch::x86_64::_rdtsc() } as i64
+            + get_per_cpu_data!().tsc_offset as i64) as u64;
 
         Self(ticks)
     }

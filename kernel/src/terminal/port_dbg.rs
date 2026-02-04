@@ -3,6 +3,8 @@ use core::fmt;
 use spin::Mutex;
 use x86_64::instructions::port::{Port, PortGeneric, ReadWriteAccess};
 
+use crate::arch::x86_64::acpi::apic::{LOCAL_APIC_ADDR, get_local_apic};
+
 pub unsafe fn init_serial() {
     let mut data = Port::new(0x3F8);
     let mut int_en = Port::new(0x3F9);
@@ -57,6 +59,16 @@ pub fn _serial_print(args: fmt::Arguments) {
     }
 }
 
+pub fn _get_core() -> u32 {
+    if LOCAL_APIC_ADDR.load(core::sync::atomic::Ordering::Acquire) == 0 {
+        return 0;
+    }
+
+    get_local_apic().read_id() >> 24 & 0xFF
+}
+
+#[doc(hidden)]
+#[allow(unused_unsafe, unused)]
 #[macro_export]
 macro_rules! serial_iprint {
     ($($arg:tt)*) => ($crate::terminal::port_dbg::_serial_print(format_args!($($arg)*)));
@@ -64,5 +76,5 @@ macro_rules! serial_iprint {
 
 #[macro_export]
 macro_rules! log {
-    ($($arg:tt)*) => ($crate::serial_iprint!("{} - line {}, {}\n", file!(), line!(),  format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::serial_iprint!("Core {}: {} - line {}, {}\n", $crate::terminal::port_dbg::_get_core(), file!(), line!(),  format_args!($($arg)*)));
 }
