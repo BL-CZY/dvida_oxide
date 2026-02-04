@@ -79,7 +79,7 @@ pub const STACK_SIZE: u64 = 0x100000;
 pub static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_size(STACK_SIZE);
 
 // will be locked all the time
-pub static EXECUTOR: OnceCell<Arc<Mutex<Executor>>> = OnceCell::new();
+pub static EXECUTOR: OnceCell<Arc<Executor>> = OnceCell::new();
 pub static IS_EXECUTOR_READY: AtomicBool = AtomicBool::new(false);
 pub static SPAWNER: OnceCell<Spawner> = OnceCell::new();
 
@@ -194,10 +194,6 @@ unsafe extern "C" fn _start() -> ! {
 
     sync_tsc_lead(mp_response.cpus().len() as u32);
 
-    loop {
-        unsafe { asm!("hlt") };
-    }
-
     let mcfg = find_mcfg(&table_ptrs).expect("No mcfg found");
     let mcfg = parse_mcfg(mcfg);
     log!("mcfg table: {:?}", mcfg);
@@ -213,10 +209,12 @@ unsafe extern "C" fn _start() -> ! {
     spawner.spawn(kernel_main(spawner.clone()));
 
     let _ = EXECUTOR
-        .set(Arc::new(Mutex::new(executor.clone())))
+        .set(Arc::new(executor.clone()))
         .expect("Failed to set executor");
 
     let _ = SPAWNER.set(spawner).expect("Failed to set spawner");
+
+    IS_EXECUTOR_READY.store(true, core::sync::atomic::Ordering::Release);
 
     load_kernel_thread();
 }

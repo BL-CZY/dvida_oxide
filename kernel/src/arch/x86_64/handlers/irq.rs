@@ -59,11 +59,11 @@ extern "C" fn timer_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
                 .thread_map
                 .get_mut(&current_thread_idx)
             {
-                thread.time_left.saturating_sub(Duration::from_nanos_u128(
+                let time_left = thread.time_left.saturating_sub(Duration::from_nanos_u128(
                     MILLISECOND_TO_NANO_SECOND / per_cpu_data.apic_timer_ticks_per_ms as u128,
                 ));
 
-                if thread.time_left.is_zero() {
+                if time_left.is_zero() {
                     let registers = &mut thread.state.registers;
 
                     set_registers!(registers, stack_frame);

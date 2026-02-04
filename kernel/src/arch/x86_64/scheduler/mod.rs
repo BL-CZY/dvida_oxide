@@ -23,7 +23,7 @@ use crate::{
         },
         scheduler::syscall::resume_thread,
     },
-    get_per_cpu_data_mut, hcf,
+    get_per_cpu_data, get_per_cpu_data_mut, hcf,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -202,11 +202,16 @@ pub fn load_kernel_thread() -> ! {
 
 #[unsafe(no_mangle)]
 extern "C" fn kernel_thread_entry_point() -> ! {
-    EXECUTOR
+    let id = get_per_cpu_data!().id as u32;
+
+    if let Some(ctx) = EXECUTOR
         .get()
         .expect("Failed to get the executor")
-        .spin_acquire_lock()
-        .run();
+        .contexts
+        .get(&id)
+    {
+        ctx.run();
+    }
 
     hcf();
 }

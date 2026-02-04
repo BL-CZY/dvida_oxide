@@ -4,11 +4,11 @@ use limine::mp::Cpu;
 use crate::{
     MP_REQUEST,
     arch::x86_64::{
-        acpi::apic::{LocalApic, get_local_apic},
+        acpi::apic::get_local_apic,
         gdt::init_gdt,
         idt::load_idt,
-        scheduler::syscall::set_per_cpu_data_for_core,
-        timer::{calibrate_tsc, sync_tsc_follow},
+        scheduler::syscall::{enable_syscalls, set_per_cpu_data_for_core},
+        timer::sync_tsc_follow,
     },
     log,
 };
@@ -37,8 +37,6 @@ macro_rules! read_mp {
 pub fn initialize_mp() {
     let response = MP_REQUEST.get_response().expect("No MP response");
 
-    LocalApic::initialize_timer_array(response.cpus());
-
     for cpu in response.cpus() {
         if cpu.id != response.bsp_lapic_id() {
             cpu.goto_address.write(ap_init);
@@ -61,6 +59,8 @@ extern "C" fn ap_init(cpu: &Cpu) -> ! {
     local_apic.calibrate_timer();
 
     sync_tsc_follow();
+
+    enable_syscalls();
 
     loop {
         unsafe { core::arch::asm!("hlt") }
