@@ -1,6 +1,9 @@
 use core::arch::global_asm;
 
-use crate::{arch::x86_64::acpi::apic::get_local_apic, log};
+use crate::{
+    arch::x86_64::{acpi::apic::get_local_apic, memory::per_cpu::PER_CPU_DATA_PTRS},
+    log,
+};
 use x86_64::{
     VirtAddr,
     registers::{
@@ -13,7 +16,6 @@ use x86_64::{
 use crate::arch::x86_64::{
     err::ErrNo,
     gdt::GDT,
-    memory::{PAGE_SIZE, frame_allocator::setup_stack},
     scheduler::{
         CURRENT_THREAD, PrivilageLevel, State, THREADS, Thread, WAITING_QUEUE, WAITING_QUEUE_IDX,
     },
@@ -22,26 +24,26 @@ use crate::arch::x86_64::{
 pub const WRITE_SYSCALL: u64 = 1;
 pub const KILL_SYSCALL: u64 = 0x3c;
 
-//TODO: multicore
-#[repr(C, packed)]
-pub struct PerCPUData {
-    self_ptr: u64,
-    /// used to track the kernel stack pointer
-    stack_ptr: u64,
-    /// used to temporarily save the rsp
-    thread_rsp: u64,
-}
-
-const SYSCALL_STACK_GUARD_PAGE: u64 = 0xFFFF_FF81_0000_0000;
-const SYSCALL_STACK_LEN: u64 = 4 * PAGE_SIZE as u64;
 const KERNEL_GS_BASE_MSR: u32 = 0xC0000102;
 
-pub fn setup_stack_for_syscall_handler() {
-    setup_stack(SYSCALL_STACK_GUARD_PAGE, SYSCALL_STACK_LEN);
+pub fn set_per_cpu_data_for_core() {
+    let id = get_local_apic().read_id();
+
+    let ptr = PER_CPU_DATA_PTRS
+        .get()
+        .expect("Failed to get per cpu data pointers")
+        .get(&id)
+        .expect("Unexpected cpu core");
 
     let mut msr = Msr::new(KERNEL_GS_BASE_MSR);
     unsafe {
-        msr.write((&raw mut PER_CPU_DATA as *mut PerCPUData) as u64);
+        msr.write(*ptr);
+    }
+
+    core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+
+    unsafe {
+        core::arch::asm!("swapgs");
     }
 }
 

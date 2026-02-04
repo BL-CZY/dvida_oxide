@@ -5,7 +5,8 @@ use crate::{
         mpsc::unbounded::{UnboundedSender, unbounded_channel},
         spsc::cell::{SpscCellSetter, spsc_cells},
     },
-    hal::{gpt::GptReader, storage::get_storage_devices_by_guid},
+    get_storage_devices_by_guid,
+    hal::gpt::GptReader,
     log,
 };
 use alloc::collections::btree_map::BTreeMap;
@@ -168,7 +169,7 @@ pub async fn spawn_vfs_task(drive_id: Guid, entry_id: Guid) {
     let mut mount_points = MountPointArray::new();
 
     let gpt_reader = GptReader::new(
-        get_storage_devices_by_guid()
+        get_storage_devices_by_guid!()
             .lock()
             .await
             .get(&drive_id)

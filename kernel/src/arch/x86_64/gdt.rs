@@ -1,4 +1,5 @@
-use crate::log;
+use crate::arch::x86_64::memory::per_cpu::PerCPUData;
+use crate::{get_per_cpu_data, log};
 use lazy_static::lazy_static;
 use once_cell_no_std::OnceCell;
 use x86_64::instructions::segmentation;
@@ -6,9 +7,6 @@ use x86_64::instructions::tables::load_tss;
 use x86_64::registers::segmentation::{Segment, SegmentSelector};
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable};
 use x86_64::structures::tss::TaskStateSegment;
-
-/// the stack doesn't work, it's just here. in the future ill allocate the stack rather than
-/// hardcoding it, and hopefully it would work
 
 pub const KERNEL_CODE_SEGMENT_IDX: u16 = 1;
 pub const USER_CODE_SEGMENT_IDX: u16 = 3;
@@ -53,19 +51,46 @@ pub struct Selectors {
     pub tss_selector: SegmentSelector,
 }
 
-pub fn init_gdt() {
-    GDT.0.load();
+pub fn create_gdt(tss: &'static TaskStateSegment) -> (GlobalDescriptorTable, Selectors) {
+    let mut gdt = GlobalDescriptorTable::new();
+    let kernel_code_selector = gdt.append(Descriptor::kernel_code_segment());
+    let kernel_data_selector = gdt.append(Descriptor::kernel_data_segment());
+    let user_code_selector = gdt.append(Descriptor::user_code_segment());
+    let user_data_selector = gdt.append(Descriptor::user_data_segment());
+    let tss_selector = gdt.append(Descriptor::tss_segment(tss));
+    (
+        gdt,
+        Selectors {
+            kernel_code_selector,
+            kernel_data_selector,
+            user_code_selector,
+            user_data_selector,
+            tss_selector,
+        },
+    )
+}
 
-    // reload segment registers
-    unsafe {
-        segmentation::CS::set_reg(GDT.1.kernel_code_selector);
-        segmentation::SS::set_reg(GDT.1.kernel_data_selector);
-        segmentation::DS::set_reg(GDT.1.kernel_data_selector);
-        segmentation::ES::set_reg(GDT.1.kernel_data_selector);
-        segmentation::FS::set_reg(GDT.1.kernel_data_selector);
-        segmentation::GS::set_reg(GDT.1.kernel_data_selector);
-        load_tss(GDT.1.tss_selector);
-    }
+pub fn init_gdt() {
+    let per_cpu_data = get_per_cpu_data!();
+    per_cpu_data.load_gdt();
 
     log!("GDT initialization finished")
+}
+
+impl PerCPUData {
+    pub fn load_gdt(&self) {
+        let gdt_ref: &'static GlobalDescriptorTable = unsafe { &*(self.gdt.as_ptr()) };
+        let selectors: &Selectors = unsafe { &*(self.selectors.as_ptr()) };
+        gdt_ref.load();
+
+        unsafe {
+            segmentation::CS::set_reg(selectors.kernel_code_selector);
+            segmentation::SS::set_reg(selectors.kernel_data_selector);
+            segmentation::DS::set_reg(selectors.kernel_data_selector);
+            segmentation::ES::set_reg(selectors.kernel_data_selector);
+            segmentation::FS::set_reg(selectors.kernel_data_selector);
+            segmentation::GS::set_reg(selectors.kernel_data_selector);
+            load_tss(selectors.tss_selector);
+        }
+    }
 }

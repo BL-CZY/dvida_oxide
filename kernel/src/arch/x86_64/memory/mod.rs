@@ -6,18 +6,15 @@ pub mod page_table;
 pub mod per_cpu;
 pub mod pmm;
 
-use crate::arch::x86_64::gdt::{self, AlignedTSS, STACK_PAGE_SIZE, TSS};
-use crate::arch::x86_64::handlers::{RSP0_STACK_GUARD_PAGE, RSP0_STACK_LENGTH};
+use crate::arch::x86_64::gdt::STACK_PAGE_SIZE;
 use crate::arch::x86_64::memory::bitmap::BitMap;
 use crate::arch::x86_64::memory::heap::KHeap;
 use crate::arch::x86_64::memory::memmap::get_memmap;
 use crate::dyn_mem::KHEAP_PAGE_COUNT;
 use crate::{iprintln, log};
 use limine::memory_map::EntryType;
-use limine::mp::Cpu;
 use limine::request::HhdmRequest;
 use once_cell_no_std::OnceCell;
-use x86_64::structures::tss::TaskStateSegment;
 use x86_64::{PhysAddr, VirtAddr};
 
 #[used]
@@ -98,18 +95,6 @@ pub fn init() -> MemoryMappings {
         PhysAddr::new(bitmap_start - hhdm_offset),
         (bitmap_page_length + KHEAP_PAGE_COUNT) as usize,
     );
-
-    // let tss = {
-    //     let mut tss = TaskStateSegment::new();
-    //     // tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] =
-    //     //     VirtAddr::from_ptr(double_fault_stack_start as *mut u8);
-    //     tss.interrupt_stack_table[gdt::PAGE_FAULT_IST_INDEX as usize] =
-    //         VirtAddr::from_ptr(page_fault_stack_start as *mut u8);
-    //     tss.privilege_stack_table[0] = VirtAddr::new(RSP0_STACK_GUARD_PAGE + RSP0_STACK_LENGTH);
-    //     tss
-    // };
-    //
-    // let _ = TSS.set(AlignedTSS(tss)).expect("Failed to set tss");
 
     MemoryMappings { bit_map, kheap }
 }

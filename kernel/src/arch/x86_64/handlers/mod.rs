@@ -1,14 +1,5 @@
-use crate::arch::x86_64::memory::frame_allocator::setup_stack;
-
 pub mod irq;
 pub mod isr;
-
-pub const RSP0_STACK_GUARD_PAGE: u64 = 0xFFFF_FF82_0000_0000;
-pub const RSP0_STACK_LENGTH: u64 = 16;
-
-pub fn setup_rsp0_stack() {
-    setup_stack(RSP0_STACK_GUARD_PAGE, RSP0_STACK_LENGTH);
-}
 
 #[derive(Debug, Clone)]
 #[repr(C, packed)]

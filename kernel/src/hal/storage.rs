@@ -112,7 +112,8 @@ pub struct StorageDeviceIdx(pub usize);
 
 static STORAGE_DEVICES_BY_IDX: OnceCell<BTreeMap<StorageDeviceIdx, HalStorageDevice>> =
     OnceCell::new();
-static STORAGE_DEVICES_BY_GUID: OnceCell<Mutex<BTreeMap<Guid, StorageDeviceIdx>>> = OnceCell::new();
+pub static STORAGE_DEVICES_BY_GUID: OnceCell<Mutex<BTreeMap<Guid, StorageDeviceIdx>>> =
+    OnceCell::new();
 
 #[macro_export]
 macro_rules! get_storage_devices {
@@ -126,7 +127,7 @@ macro_rules! get_storage_devices {
 #[macro_export]
 macro_rules! get_storage_devices_by_guid {
     () => {
-        STORAGE_DEVICES_BY_GUID
+        $crate::hal::storage::STORAGE_DEVICES_BY_GUID
             .get()
             .expect("Can't get storage array")
     };

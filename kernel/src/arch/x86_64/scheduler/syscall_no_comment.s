@@ -2,9 +2,9 @@
 .global resume_thread_from_syscall
 syscall_handler_wrapper:
     swapgs                        
-    mov gs:[0x8], rsp             
-    mov rsp, gs:[0x0]             
-    push qword ptr gs:[0x10]          
+    mov gs:[0x10], rsp             
+    mov rsp, gs:[0x8]             
+    push qword ptr gs:[0x10]      
     push rbp
     push rax
     push rbx

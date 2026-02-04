@@ -44,19 +44,14 @@ use crate::{
             mcfg::{iterate_pcie_entries, parse_mcfg},
             parse_rsdp,
         },
-        handlers::setup_rsp0_stack,
         memory::{
             MemoryMappings,
             frame_allocator::{BitmapAllocator, FRAME_ALLOCATOR, deallocator_task},
             page_table::initialize_page_table,
             per_cpu::setup_per_cpu_data,
         },
-        mp::initialize_mp,
         pic::disable_pic,
-        scheduler::{
-            load_kernel_thread,
-            syscall::{enable_syscalls, setup_stack_for_syscall_handler},
-        },
+        scheduler::syscall::{enable_syscalls, set_per_cpu_data_for_core},
         timer::calibrate_tsc,
     },
     args::parse_args,
@@ -167,16 +162,23 @@ unsafe extern "C" fn _start() -> ! {
 
     unsafe { initialize_page_table() };
 
-    setup_per_cpu_data(mp_response.cpus());
-
-    init_gdt();
-    disable_pic();
+    log!("Page table initialized");
 
     let table_ptrs = parse_rsdp();
 
     let madt = find_madt(&table_ptrs).expect("No apic found");
     log!("madt ptr: {:?}", madt);
     let (_processors, mappings, mut local_apic, _io_apics) = init_apic(madt);
+
+    setup_per_cpu_data(mp_response.cpus());
+    set_per_cpu_data_for_core();
+    init_gdt();
+
+    loop {
+        unsafe { asm!("hlt") };
+    }
+
+    disable_pic();
 
     init_idt(mappings);
 
@@ -195,10 +197,6 @@ unsafe extern "C" fn _start() -> ! {
     identify_storage_devices(&mut device_tree);
 
     enable_syscalls();
-
-    loop {
-        unsafe { asm!("hlt") };
-    }
 
     // let executor: Executor = Executor::new();
     // let spawner = executor.spawner();
