@@ -310,8 +310,6 @@ fn port_interrupt_handler(hba_idx: usize, port_idx: usize, hba_base: VirtAddr) {
         cmd_and_status: PortCmdAndStatus(ports.read_command_and_status()),
     };
 
-    log!("{:#?}", info);
-
     // stops the dma engine at task file error
     if info.interrupt_status.task_file_error() {
         let mut cmd_and_status = PortCmdAndStatus(ports.read_command_and_status());

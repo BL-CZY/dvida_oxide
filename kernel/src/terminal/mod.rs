@@ -95,14 +95,14 @@ impl DebugWriter {
             if self.cursor_blink_interval == 0 {
                 self.update_debug_cursor(true);
                 self.is_cursor_on = false;
-                self.cursor_blink_interval = 255;
+                self.cursor_blink_interval = 250;
             } else {
                 self.cursor_blink_interval -= 1;
             }
         } else if self.cursor_blink_interval == 0 {
             self.update_debug_cursor(false);
             self.is_cursor_on = true;
-            self.cursor_blink_interval = 255;
+            self.cursor_blink_interval = 250;
         } else {
             self.cursor_blink_interval -= 1;
         }

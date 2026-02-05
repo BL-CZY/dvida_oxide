@@ -85,6 +85,7 @@ extern "C" fn timer_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
                             .get_mut(&thread_id)
                         {
                             thread.time_left = DEFAULT_TICKS_PER_THREAD;
+
                             resume_thread(thread);
                         }
                     }

@@ -3,6 +3,7 @@ use alloc::collections::{BTreeMap, vec_deque::VecDeque};
 use alloc::sync::Arc;
 use alloc::task::Wake;
 use limine::mp::Cpu;
+use x86_64::instructions::interrupts::without_interrupts;
 
 use super::sync::spin::SpinMutex as Mutex;
 use core::arch::asm;
@@ -111,7 +112,11 @@ impl ExecutorContext {
         loop {
             // halt when nothing happens
             loop {
-                let is_empty = self.tasks.lock().is_empty();
+                let is_empty = without_interrupts(|| {
+                    let is_empty = self.tasks.lock().is_empty();
+                    is_empty
+                });
+
                 if !is_empty {
                     break;
                 }
@@ -120,27 +125,38 @@ impl ExecutorContext {
                 }
             }
 
-            let id = match self.tasks.lock().pop_front() {
+            let id = match without_interrupts(|| self.tasks.lock().pop_front()) {
                 Some(i) => i,
                 None => continue,
             };
 
-            let task = match self.tasks_map.lock().get_mut(&id) {
-                Some(t) => t.clone(),
+            let mut task = None;
+
+            without_interrupts(|| {
+                task = self
+                    .tasks_map
+                    .lock()
+                    .get_mut(&id)
+                    .map_or(None, |v| Some(v.clone()));
+            });
+
+            let task = match task {
+                Some(t) => t,
                 None => continue,
             };
 
-            let waker = self
-                .wakers
-                .lock()
-                .entry(id)
-                .or_insert_with(|| {
-                    Arc::new(TaskWaker {
-                        id,
-                        tasks: self.tasks.clone(),
+            let waker = without_interrupts(|| {
+                self.wakers
+                    .lock()
+                    .entry(id)
+                    .or_insert_with(|| {
+                        Arc::new(TaskWaker {
+                            id,
+                            tasks: self.tasks.clone(),
+                        })
                     })
-                })
-                .clone();
+                    .clone()
+            });
 
             let waker = Waker::from(waker);
 
@@ -187,9 +203,5 @@ impl Executor {
             counter: Arc::new(0.into()),
             contexts: contexts.into(),
         }
-    }
-
-    pub fn run(&self) {
-        // TODO: spawn threads
     }
 }

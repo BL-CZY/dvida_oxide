@@ -2,12 +2,15 @@ use bitfield::bitfield;
 use limine::mp::Cpu;
 
 use crate::{
-    MP_REQUEST,
+    IS_EXECUTOR_READY, MP_REQUEST,
     arch::x86_64::{
         acpi::apic::get_local_apic,
         gdt::init_gdt,
         idt::load_idt,
-        scheduler::syscall::{enable_syscalls, set_per_cpu_data_for_core},
+        scheduler::{
+            load_kernel_thread,
+            syscall::{enable_syscalls, set_per_cpu_data_for_core},
+        },
         timer::sync_tsc_follow,
     },
     log,
@@ -62,7 +65,11 @@ extern "C" fn ap_init(cpu: &Cpu) -> ! {
 
     enable_syscalls();
 
-    loop {
-        unsafe { core::arch::asm!("hlt") }
+    while !IS_EXECUTOR_READY.load(core::sync::atomic::Ordering::Acquire) {
+        core::hint::spin_loop();
     }
+
+    log!("Load kernel thread");
+
+    load_kernel_thread();
 }

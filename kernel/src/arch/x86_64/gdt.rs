@@ -1,6 +1,5 @@
 use crate::arch::x86_64::memory::per_cpu::PerCPUData;
 use crate::{get_per_cpu_data, log};
-use lazy_static::lazy_static;
 use once_cell_no_std::OnceCell;
 use x86_64::instructions::segmentation;
 use x86_64::instructions::tables::load_tss;
@@ -21,27 +20,6 @@ pub static TSS: OnceCell<AlignedTSS> = OnceCell::new();
 #[derive(Debug)]
 #[repr(C, align(16))]
 pub struct AlignedTSS(pub TaskStateSegment);
-
-lazy_static! {
-    pub static ref GDT: (GlobalDescriptorTable, Selectors) = {
-        let mut gdt = GlobalDescriptorTable::new();
-        let kernel_code_selector = gdt.append(Descriptor::kernel_code_segment());
-        let kernel_data_selector = gdt.append(Descriptor::kernel_data_segment());
-        let user_code_selector = gdt.append(Descriptor::user_code_segment());
-        let user_data_selector = gdt.append(Descriptor::user_data_segment());
-        let tss_selector = gdt.append(Descriptor::tss_segment(&TSS.get().expect("No TSS found").0));
-        (
-            gdt,
-            Selectors {
-                kernel_code_selector,
-                kernel_data_selector,
-                user_code_selector,
-                user_data_selector,
-                tss_selector,
-            },
-        )
-    };
-}
 
 pub struct Selectors {
     pub kernel_code_selector: SegmentSelector,

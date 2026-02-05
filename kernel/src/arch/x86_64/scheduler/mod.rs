@@ -23,7 +23,7 @@ use crate::{
         },
         scheduler::syscall::resume_thread,
     },
-    get_per_cpu_data, get_per_cpu_data_mut, hcf,
+    get_per_cpu_data, get_per_cpu_data_mut, hcf, log,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]

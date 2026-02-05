@@ -5,7 +5,7 @@ use crate::{
         acpi::apic::get_local_apic, memory::per_cpu::PER_CPU_DATA_PTRS,
         scheduler::DEFAULT_TICKS_PER_THREAD,
     },
-    get_per_cpu_data_mut, log,
+    get_per_cpu_data, get_per_cpu_data_mut, log,
 };
 use x86_64::{
     VirtAddr,
@@ -18,7 +18,6 @@ use x86_64::{
 
 use crate::arch::x86_64::{
     err::ErrNo,
-    gdt::GDT,
     scheduler::{PrivilageLevel, State, Thread},
 };
 
@@ -90,8 +89,11 @@ const FMASK_MSR: u32 = 0xC0000084;
 // section 5.8.8
 
 pub fn enable_syscalls() {
-    let syscall_target_code_segment = GDT.1.kernel_code_selector.0;
-    let sysret_target_code_segment = GDT.1.user_code_selector.0;
+    let selectors = get_per_cpu_data!().selectors.as_ptr();
+    let selectors = unsafe { &*selectors };
+
+    let syscall_target_code_segment = selectors.kernel_code_selector.0;
+    let sysret_target_code_segment = selectors.user_code_selector.0;
 
     let mask = RFlags::INTERRUPT_FLAG
         | RFlags::DIRECTION_FLAG
@@ -216,6 +218,9 @@ pub fn resume_thread(thread: &Thread) -> ! {
             instruction_pointer,
             rflags,
         } => {
+            let selectors = get_per_cpu_data!().selectors.as_ptr();
+            let selectors = unsafe { &*selectors };
+
             let mut syscall_frame = SyscallFrame::default();
             let registers = &thread.state.registers;
             set_registers!(syscall_frame, registers);
@@ -223,17 +228,17 @@ pub fn resume_thread(thread: &Thread) -> ! {
 
             let long_return_frame = match thread.privilage_level {
                 super::PrivilageLevel::User => LongReturnFrame {
-                    ss: GDT.1.user_data_selector.0 as u64,
+                    ss: selectors.user_data_selector.0 as u64,
                     rsp: thread.state.stack_pointer.as_u64(),
                     rflags: rflags.bits(),
-                    cs: GDT.1.user_code_selector.0 as u64,
+                    cs: selectors.user_code_selector.0 as u64,
                     rip: instruction_pointer,
                 },
                 super::PrivilageLevel::Kernel => LongReturnFrame {
-                    ss: GDT.1.kernel_data_selector.0 as u64,
+                    ss: selectors.kernel_data_selector.0 as u64,
                     rsp: thread.state.stack_pointer.as_u64(),
                     rflags: rflags.bits(),
-                    cs: GDT.1.kernel_code_selector.0 as u64,
+                    cs: selectors.kernel_code_selector.0 as u64,
                     rip: instruction_pointer,
                 },
             };
