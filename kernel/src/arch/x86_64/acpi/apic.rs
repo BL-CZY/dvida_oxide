@@ -3,7 +3,7 @@
 use core::sync::atomic::AtomicU64;
 
 use crate::log;
-use alloc::{collections::btree_map::BTreeMap, vec::Vec};
+use alloc::{collections::btree_map::BTreeMap, format, string::String, vec::Vec};
 use bytemuck::{Pod, Zeroable};
 use x86_64::{
     PhysAddr, VirtAddr,
@@ -428,6 +428,61 @@ macro_rules! pcie_offset_impl {
 }
 
 impl LocalApic {
+    pub fn dump(&self) -> String {
+        let mut s = String::new();
+        s.push_str("--- Local APIC Dump ---\n");
+
+        // Basic Info
+        s.push_str(&format!(
+            "ID:            {:#010x} (Shifted: {})\n",
+            self.read_id(),
+            self.read_id() >> 24
+        ));
+        s.push_str(&format!("Version:       {:#010x}\n", self.read_version()));
+        s.push_str(&format!(
+            "Spurious Vec:  {:#010x}\n",
+            self.read_spurious_interrupt_vector()
+        ));
+
+        // Priorities
+        s.push_str(&format!(
+            "Task Priority: {:#010x}\n",
+            self.read_task_priority()
+        ));
+        s.push_str(&format!(
+            "Proc Priority: {:#010x}\n",
+            self.read_processor_priority()
+        ));
+
+        // Timer
+        s.push_str(&format!("Timer LVT:     {:#010x}\n", self.read_lvt_timer()));
+        s.push_str(&format!(
+            "Timer Init:    {:#010x}\n",
+            self.read_timer_initial_count()
+        ));
+        s.push_str(&format!(
+            "Timer Current: {:#010x}\n",
+            self.read_timer_current_count()
+        ));
+        s.push_str(&format!(
+            "Timer Divide:  {:#010x}\n",
+            self.read_timer_divide_config()
+        ));
+
+        // ICR
+        s.push_str(&format!("ICR (High):    {:#010x}\n", self.read_icr_high()));
+        s.push_str(&format!("ICR (Low):     {:#010x}\n", self.read_icr_low()));
+
+        // Error
+        s.push_str(&format!(
+            "Error Status:  {:#010x}\n",
+            self.read_error_status()
+        ));
+
+        s.push_str("-----------------------\n");
+        s
+    }
+
     pcie_offset_impl!(
         <id, 0x20, "r">,
         <version, 0x30, "r">,

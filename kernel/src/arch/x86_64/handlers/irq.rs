@@ -1,10 +1,11 @@
 use core::{arch::naked_asm, time::Duration};
 
 use crate::{
+    BSP_IDX,
     arch::x86_64::timer::MILLISECOND_TO_NANO_SECOND,
     drivers::ata::sata::task::ahci_interrupt_handler_by_idx,
     ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS, TIMER_WAKERS},
-    get_per_cpu_data_mut, log,
+    get_per_cpu_data, get_per_cpu_data_mut,
 };
 use macros::ahci_interrupt_handler_template;
 use x86_64::{
@@ -46,11 +47,13 @@ pub enum IrqIndex {
 
 extern "C" fn timer_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
     x86_64::instructions::interrupts::without_interrupts(|| {
-        // log!("a");
         for w in TIMER_WAKERS.lock().drain(..) {
             w.wake();
         }
-        WRITER.lock().blink_debug_cursor();
+
+        if get_per_cpu_data!().id as u32 == *BSP_IDX.get().unwrap_or(&0) {
+            WRITER.lock().blink_debug_cursor();
+        }
 
         let per_cpu_data = get_per_cpu_data_mut!();
 

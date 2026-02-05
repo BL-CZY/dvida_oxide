@@ -61,8 +61,13 @@ extern "C" fn ap_init(cpu: &Cpu) -> ! {
     let mut local_apic = get_local_apic();
     local_apic.calibrate_timer();
     local_apic.write_task_priority(0);
+    // this enables lapic
+    local_apic
+        .write_spurious_interrupt_vector(local_apic.read_spurious_interrupt_vector() | (0x1 << 8));
 
     sync_tsc_follow();
+
+    log!("{}", local_apic.dump());
 
     enable_syscalls();
 

@@ -111,6 +111,9 @@ async fn kernel_main(spawner: Spawner) {
     yield_now().await;
     log!("Deallocator task launched");
 }
+
+pub static BSP_IDX: OnceCell<u32> = OnceCell::new();
+
 /// Sets the base revision to the latest revision supported by the crate.
 /// See specification for further info.
 // Be sure to mark all limine requests with #[used], otherwise they may be removed by the compiler.
@@ -151,6 +154,8 @@ unsafe extern "C" fn _start() -> ! {
     log_memmap();
 
     let mp_response = read_mp!();
+
+    let _ = BSP_IDX.set(mp_response.bsp_lapic_id());
 
     let MemoryMappings { kheap, bit_map } = memory::init();
     let _ = FRAME_ALLOCATOR
@@ -203,6 +208,8 @@ unsafe extern "C" fn _start() -> ! {
     identify_storage_devices(&mut device_tree);
 
     enable_syscalls();
+
+    log!("{}", local_apic.dump());
 
     let executor: Executor = Executor::new(&mp_response.cpus());
     let spawner = executor.spawner();
