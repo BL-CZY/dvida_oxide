@@ -4,7 +4,7 @@ use crate::{
     arch::x86_64::timer::MILLISECOND_TO_NANO_SECOND,
     drivers::ata::sata::task::ahci_interrupt_handler_by_idx,
     ejcineque::wakers::{PRIMARY_IDE_WAKERS, SECONDARY_IDE_WAKERS, TIMER_WAKERS},
-    get_per_cpu_data_mut,
+    get_per_cpu_data_mut, log,
 };
 use macros::ahci_interrupt_handler_template;
 use x86_64::{
@@ -46,6 +46,7 @@ pub enum IrqIndex {
 
 extern "C" fn timer_handler_inner(stack_frame: InterruptNoErrcodeFrame) {
     x86_64::instructions::interrupts::without_interrupts(|| {
+        // log!("a");
         for w in TIMER_WAKERS.lock().drain(..) {
             w.wake();
         }

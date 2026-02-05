@@ -60,6 +60,7 @@ extern "C" fn ap_init(cpu: &Cpu) -> ! {
 
     let mut local_apic = get_local_apic();
     local_apic.calibrate_timer();
+    local_apic.write_task_priority(0);
 
     sync_tsc_follow();
 
