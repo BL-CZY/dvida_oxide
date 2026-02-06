@@ -2,11 +2,12 @@ use bitfield::bitfield;
 use limine::mp::Cpu;
 
 use crate::{
-    IS_EXECUTOR_READY, MP_REQUEST,
+    IS_EXECUTOR_READY,
     arch::x86_64::{
         acpi::apic::get_local_apic,
         gdt::init_gdt,
         idt::load_idt,
+        init::MP_REQUEST,
         scheduler::{
             load_kernel_thread,
             syscall::{enable_syscalls, set_per_cpu_data_for_core},

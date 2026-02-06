@@ -3,6 +3,7 @@ pub mod err;
 pub mod gdt;
 pub mod handlers;
 pub mod idt;
+pub mod init;
 pub mod memory;
 pub mod mp;
 pub mod msi;
