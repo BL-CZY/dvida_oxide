@@ -1,0 +1,37 @@
+override MAKEFLAGS += -rR
+
+override IMAGE_NAME := os
+
+KARCH := aarch64
+
+.PHONY: run
+run: clean-img kernel $(IMAGE_NAME).iso ovmf
+	qemu-system-x86_64 -m 4G \
+	-boot d -cdrom $(IMAGE_NAME).iso \
+	-drive if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-$(KARCH).fd,readonly=on \		
+	-drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-vars-$(KARCH).fd \
+	-drive file=storage.img,format=raw,media=disk \
+	-s \
+	-serial stdio \
+	-machine q35 \
+	-smp 4 \
+	-bios ovmf/OVMF.fd 
+
+.PHONY: kernel
+kernel:
+	$(MAKE) -C kernel all
+
+ovmf:
+	mkdir -p ovmf
+	cd ovmf && \
+	curl -Lo ovmf-code-$(KARCH).fd https://retrage.github.io/edk2-nightly/bin/RELEASEX64_OVMF_CODE.fd && \
+	curl -Lo ovmf-code-$(KARCH).fd https://retrage.github.io/edk2-nightly/bin/RELEASEX64_OVMF_VAR.fd
+
+.PHONY: clean-img
+clean-img:	
+	rm -rf iso_root $(IMAGE_NAME).iso $(IMAGE_NAME).hdd
+
+.PHONY: distclean
+distclean: clean
+	rm -rf limine ovmf
+	$(MAKE) -C kernel distclean

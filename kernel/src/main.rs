@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(duration_from_nanos_u128)]
 #![feature(abi_x86_interrupt)]
 #![feature(custom_test_frameworks)]
 #![feature(iter_array_chunks)]
@@ -64,12 +63,19 @@ use crate::{
     terminal::WRITER,
 };
 
+#[cfg(target_arch = "x86_64")]
 pub mod arch;
+#[cfg(target_arch = "x86_64")]
 pub mod crypto;
+#[cfg(target_arch = "x86_64")]
 pub mod drivers;
+#[cfg(target_arch = "x86_64")]
 pub mod dyn_mem;
+#[cfg(target_arch = "x86_64")]
 pub mod ejcineque;
+#[cfg(target_arch = "x86_64")]
 pub mod hal;
+#[cfg(target_arch = "x86_64")]
 pub mod terminal;
 
 pub const STACK_SIZE: u64 = 0x100000;
