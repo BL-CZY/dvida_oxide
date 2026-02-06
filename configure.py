@@ -7,8 +7,8 @@ parser.add_argument("--arch")
 
 args = parser.parse_args()
 
-subprocess.Popen(["cp", f"makefiles/Makefile_{args.arch}","GNUMakefile"])
+subprocess.Popen(["cp", "-f", f"makefiles/Makefile_{args.arch}","GNUmakefile"])
 
 os.chdir("./kernel/")
 
-subprocess.Popen(["cp", f"makefiles/Makefile_{args.arch}","GNUMakefile"])
+subprocess.Popen(["cp", "-f", f"arch_specific_configs/config.{args.arch}.toml", ".cargo/config.toml"])

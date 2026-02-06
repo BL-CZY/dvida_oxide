@@ -19,7 +19,7 @@ run: clean-img kernel $(IMAGE_NAME).iso ovmf
 
 .PHONY: kernel
 kernel:
-	$(MAKE) -C kernel all
+	$(MAKE) -C kernel all KARCH=aarch64
 
 ovmf:
 	mkdir -p ovmf

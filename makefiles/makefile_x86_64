@@ -73,7 +73,7 @@ limine/limine:
 
 .PHONY: kernel
 kernel:
-	$(MAKE) -C kernel all
+	$(MAKE) -C kernel all KARCH=x86_64
 
 .PHONY: kernel-test
 kernel-test:
