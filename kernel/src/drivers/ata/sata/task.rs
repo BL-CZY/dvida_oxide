@@ -320,6 +320,7 @@ fn port_interrupt_handler(hba_idx: usize, port_idx: usize, hba_base: VirtAddr) {
     without_interrupts(|| {
         let mut guard = AHCI_WAKERS_MAP[hba_idx][port_idx].lock();
         let (inf, waker) = guard.deref_mut();
+        log!("{}", waker.is_some());
         if let Some(w) = waker.take() {
             *inf = info;
             w.wake();
@@ -346,6 +347,8 @@ pub fn ahci_interrupt_handler_by_idx(idx: usize) {
     }
 
     ports.write_interrupt_status(ports.read_interrupt_status());
+
+    log!("is: {}", interrupt_status);
 }
 
 #[derive(Debug, Default, Clone, Copy)]

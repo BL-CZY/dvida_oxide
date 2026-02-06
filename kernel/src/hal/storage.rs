@@ -298,6 +298,7 @@ pub async fn run_storage_devices(args: ArgsRes) {
             .get()
             .expect("No spawner")
             .spawn(async move { device_inner.lock().await.run(&device.1.rx).await });
+        log!("Spawned device");
 
         yield_now().await;
 
@@ -309,7 +310,10 @@ pub async fn run_storage_devices(args: ArgsRes) {
         storage_devices_by_guid_list.insert(header.guid(), *device.0);
     }
 
-    log!("{:#?}", storage_devices_by_guid_list);
+    log!(
+        "Storage devices by GUID: {:#?}",
+        storage_devices_by_guid_list
+    );
     let _ = STORAGE_DEVICES_BY_GUID.set(Mutex::new(storage_devices_by_guid_list));
 
     crate::spawn(spawn_vfs_task(args.root_drive, args.root_entry));
