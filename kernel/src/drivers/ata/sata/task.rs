@@ -15,7 +15,10 @@ use crate::{
     ejcineque::{
         self,
         futures::race::Either,
-        sync::{mpsc::unbounded::UnboundedReceiver, spin::SpinMutex},
+        sync::{
+            mpsc::unbounded::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+            spin::SpinMutex,
+        },
     },
     hal::storage::{HalIdentifyData, HalStorageOperation},
     log,
@@ -25,7 +28,7 @@ pub static CUR_AHCI_IDX: AtomicU8 = AtomicU8::new(0x0);
 
 lazy_static! {
     /// max support 8 ahci's
-    pub static ref AHCI_WAKERS_MAP: [[SpinMutex<(AhciSataInterruptData, Option<Waker>)>; 32]; 8] = Default::default();
+    pub static ref AHCI_SENDERS_MAP: [[SpinMutex<Option<UnboundedSender<AhciSataInterruptData>>>; 32]; 8] = Default::default();
 
     // ghc bases
     pub static ref AHCI_PORTS_MAP: [OnceCell<VirtAddr>; 8] = Default::default();
@@ -35,41 +38,6 @@ lazy_static! {
 pub struct AhciTaskState {
     pub operations: [Option<HalStorageOperation>; 32],
     pub remaining_operations: u64,
-}
-
-pub struct AhciSataPortFuture {
-    pub hba_idx: usize,
-    pub port_idx: usize,
-    pub awaken: bool,
-}
-
-impl AhciSataPortFuture {
-    pub fn new(hba_idx: usize, port_idx: usize) -> Self {
-        AhciSataPortFuture {
-            hba_idx,
-            port_idx,
-            awaken: false,
-        }
-    }
-}
-
-impl Future for AhciSataPortFuture {
-    type Output = AhciSataInterruptData;
-
-    fn poll(
-        mut self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        if self.awaken {
-            core::task::Poll::Ready(AHCI_WAKERS_MAP[self.hba_idx][self.port_idx].lock().0)
-        } else {
-            self.as_mut().awaken = true;
-            without_interrupts(|| {
-                AHCI_WAKERS_MAP[self.hba_idx][self.port_idx].lock().1 = Some(cx.waker().clone());
-            });
-            core::task::Poll::Pending
-        }
-    }
 }
 
 #[derive(Error, Debug)]
@@ -274,8 +242,12 @@ impl AhciSata {
             remaining_operations,
         };
 
+        // TODO: implement a sized channel
+        let (ahci_tx, ahci_rx) = unbounded_channel::<AhciSataInterruptData>();
+        *AHCI_SENDERS_MAP[self.hba_idx][self.ports_idx].lock() = Some(ahci_tx);
+
         loop {
-            let sata_future = AhciSataPortFuture::new(self.hba_idx, self.ports_idx);
+            let sata_future = ahci_rx.recv();
 
             if remaining_operations > 0 {
                 let combined_future = ejcineque::futures::race::race(rx.recv(), sata_future);
@@ -284,14 +256,15 @@ impl AhciSata {
                     Either::Left(Some(op)) => {
                         self.start_operation(op, &mut state).await;
                     }
-                    Either::Right(data) => {
+                    Either::Right(Some(data)) => {
                         self.handle_interrupt(&mut state, data).await;
                     }
                     _ => {}
                 }
             } else {
-                let data = sata_future.await;
-                self.handle_interrupt(&mut state, data).await;
+                if let Some(data) = sata_future.await {
+                    self.handle_interrupt(&mut state, data).await;
+                }
             }
         }
     }
@@ -318,12 +291,10 @@ fn port_interrupt_handler(hba_idx: usize, port_idx: usize, hba_base: VirtAddr) {
     }
 
     without_interrupts(|| {
-        let mut guard = AHCI_WAKERS_MAP[hba_idx][port_idx].lock();
-        let (inf, waker) = guard.deref_mut();
-        log!("{}", waker.is_some());
-        if let Some(w) = waker.take() {
-            *inf = info;
-            w.wake();
+        let mut guard = AHCI_SENDERS_MAP[hba_idx][port_idx].lock();
+        let sender = guard.deref_mut();
+        if let Some(tx) = sender {
+            tx.send(info);
         }
     });
 
@@ -347,8 +318,6 @@ pub fn ahci_interrupt_handler_by_idx(idx: usize) {
     }
 
     ports.write_interrupt_status(ports.read_interrupt_status());
-
-    log!("is: {}", interrupt_status);
 }
 
 #[derive(Debug, Default, Clone, Copy)]
