@@ -5,8 +5,6 @@ use alloc::task::Wake;
 use limine::mp::Cpu;
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::log;
-
 use super::sync::spin::SpinMutex as Mutex;
 use core::arch::asm;
 use core::future::Future;
@@ -126,13 +124,6 @@ impl ExecutorContext {
                     asm!("hlt");
                 }
             }
-
-            use x86_64::registers::rflags::RFlags;
-
-            let flags = x86_64::registers::rflags::read();
-            let enabled = flags.contains(RFlags::INTERRUPT_FLAG);
-
-            log!("is enabled: {enabled}");
 
             let id = match without_interrupts(|| self.tasks.lock().pop_front()) {
                 Some(i) => i,

@@ -186,7 +186,7 @@ pub fn load_kernel_thread() -> ! {
             fpu_registers: None,
             simd_registers: None,
             state: State::Paused {
-                instruction_pointer: kernel_thread_entry_point as u64,
+                instruction_pointer: kernel_thread_entry_point as *const () as u64,
                 rflags: rflags::read(),
             },
 
@@ -210,8 +210,11 @@ extern "C" fn kernel_thread_entry_point() -> ! {
         .contexts
         .get(&id)
     {
+        log!("Starting kernel task");
         ctx.run();
     }
+
+    log!("Didn't find context for core");
 
     hcf();
 }
