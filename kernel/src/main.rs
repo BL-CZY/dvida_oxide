@@ -7,9 +7,9 @@
 #![reexport_test_harness_main = "test_main"]
 use core::{arch::asm, sync::atomic::AtomicBool};
 
-use alloc::sync::Arc;
 use once_cell_no_std::OnceCell;
 
+#[cfg(target_arch = "x86_64")]
 extern crate alloc;
 use limine::{
     BaseRevision,
@@ -18,10 +18,11 @@ use limine::{
 
 use limine::request::StackSizeRequest;
 
+#[cfg(target_arch = "x86_64")]
 use crate::ejcineque::executor::{Executor, Spawner};
 
-#[cfg(target_arch = "x86_64")]
 pub mod arch;
+#[cfg(target_arch = "x86_64")]
 pub mod args;
 #[cfg(target_arch = "x86_64")]
 pub mod crypto;
@@ -33,8 +34,8 @@ pub mod dyn_mem;
 pub mod ejcineque;
 #[cfg(target_arch = "x86_64")]
 pub mod hal;
-#[cfg(target_arch = "x86_64")]
 pub mod terminal;
+#[cfg(target_arch = "x86_64")]
 pub mod time;
 
 pub const STACK_SIZE: u64 = 0x100000;
@@ -44,10 +45,13 @@ pub const STACK_SIZE: u64 = 0x100000;
 pub static STACK_SIZE_REQUEST: StackSizeRequest = StackSizeRequest::new().with_size(STACK_SIZE);
 
 // will be locked all the time
+#[cfg(target_arch = "x86_64")]
 pub static EXECUTOR: OnceCell<Arc<Executor>> = OnceCell::new();
 pub static IS_EXECUTOR_READY: AtomicBool = AtomicBool::new(false);
+#[cfg(target_arch = "x86_64")]
 pub static SPAWNER: OnceCell<Spawner> = OnceCell::new();
 
+#[cfg(target_arch = "x86_64")]
 pub fn spawn(future: impl Future<Output = ()> + 'static + Send) {
     SPAWNER.get().expect("Failed to get spawner").spawn(future);
 }
@@ -91,15 +95,17 @@ unsafe extern "C" fn _start() -> ! {
 #[panic_handler]
 fn rust_panic(_info: &core::panic::PanicInfo) -> ! {
     iprintln!("{}", _info);
+    #[cfg(target_arch = "x86_64")]
     log!("{}", _info);
     hcf();
 }
 
 pub fn hcf() -> ! {
     unsafe {
+        #[cfg(target_arch = "x86_64")]
         asm!("cli");
         loop {
-            asm!("hlt");
+            core::hint::spin_loop();
         }
     }
 }

@@ -1,4 +1,5 @@
 extern crate alloc;
+#[cfg(target_arch = "x86_64")]
 extern crate x86_64;
 
 pub mod executor;

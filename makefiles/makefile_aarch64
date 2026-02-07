@@ -6,16 +6,14 @@ KARCH := aarch64
 
 .PHONY: run
 run: clean-img kernel $(IMAGE_NAME).iso ovmf
-	qemu-system-x86_64 -m 4G \
-	-boot d -cdrom $(IMAGE_NAME).iso \
-	-drive if=pflash,unit=0,format=raw,file=ovmf/ovmf-code-$(KARCH).fd,readonly=on \		
-	-drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-vars-$(KARCH).fd \
-	-drive file=storage.img,format=raw,media=disk \
-	-s \
-	-serial stdio \
-	-machine q35 \
-	-smp 4 \
-	-bios ovmf/OVMF.fd 
+	qemu-system-aarch64 -m 4G \
+    -M virt \
+    -cpu max \
+    -bios ovmf/ovmf-code-$(KARCH).fd \
+    -cdrom $(IMAGE_NAME).iso \
+    -serial stdio \
+    -smp 4 \
+    -s
 
 .PHONY: kernel
 kernel:

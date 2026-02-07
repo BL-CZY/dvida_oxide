@@ -6,3 +6,4 @@
 *.img
 
 GNUMakefile
+linker.ld

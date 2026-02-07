@@ -5,6 +5,7 @@ use limine::request::FramebufferRequest;
 use spin::Mutex;
 
 pub mod font;
+#[cfg(target_arch = "x86_64")]
 pub mod port_dbg;
 pub mod test;
 use font::BUILTIN_FONT;
@@ -273,12 +274,21 @@ impl fmt::Write for DebugWriter {
 
 #[doc(hidden)]
 #[allow(unused_unsafe, unused)]
+#[cfg(target_arch = "x86_64")]
 pub fn _print(args: fmt::Arguments) {
+    use crate::arch::interrupts;
     use core::fmt::Write;
-    use x86_64::instructions::interrupts;
     unsafe {
         interrupts::without_interrupts(|| WRITER.lock().write_fmt(args).unwrap());
     }
+}
+
+#[doc(hidden)]
+#[allow(unused_unsafe, unused)]
+#[cfg(target_arch = "aarch64")]
+pub fn _print(args: fmt::Arguments) {
+    use core::fmt::Write;
+    WRITER.lock().write_fmt(args).unwrap();
 }
 
 #[macro_export]
