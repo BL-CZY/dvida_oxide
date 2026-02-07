@@ -6,14 +6,20 @@ KARCH := aarch64
 
 .PHONY: run
 run: clean-img kernel $(IMAGE_NAME).iso ovmf
-	qemu-system-aarch64 -m 4G \
-    -M virt \
-    -cpu max \
-    -bios ovmf/ovmf-code-$(KARCH).fd \
-    -cdrom $(IMAGE_NAME).iso \
-    -serial stdio \
-    -smp 4 \
-    -s
+	qemu-system-aarch64 \
+		-M virt \
+		-cpu host \
+		-accel hvf \
+		-serial stdio \
+		-device ramfb \
+		-device qemu-xhci \
+		-device usb-kbd \
+		-device usb-mouse \
+		-drive if=pflash,unit=0,format=raw,file=ovmf/ovmf-efi-aarch64.fd,readonly=on \
+		-drive if=pflash,unit=1,format=raw,file=ovmf/ovmf-var-aarch64.fd \
+		-cdrom $(IMAGE_NAME).iso \
+		-s \
+		$(QEMUFLAGS)
 
 .PHONY: kernel
 kernel:
@@ -21,9 +27,40 @@ kernel:
 
 ovmf:
 	mkdir -p ovmf
-	cd ovmf && \
-	curl -Lo ovmf-code-$(KARCH).fd https://retrage.github.io/edk2-nightly/bin/RELEASEX64_OVMF_CODE.fd && \
-	curl -Lo ovmf-code-$(KARCH).fd https://retrage.github.io/edk2-nightly/bin/RELEASEX64_OVMF_VAR.fd
+	curl -Lo ovmf/ovmf-efi-aarch64.fd https://retrage.github.io/edk2-nightly/bin/RELEASEAARCH64_QEMU_EFI.fd && \
+	truncate -s 64M ovmf/ovmf-efi-aarch64.fd && \
+	curl -Lo ovmf/ovmf-var-aarch64.fd https://retrage.github.io/edk2-nightly/bin/RELEASEAARCH64_QEMU_VARS.fd && \
+	truncate -s 64M ovmf/ovmf-var-aarch64.fd
+
+limine/limine:
+	rm -rf limine
+	git clone https://github.com/limine-bootloader/limine.git --branch=v10.x-binary --depth=1
+	$(MAKE) -C limine
+
+
+$(IMAGE_NAME).iso: limine/limine kernel
+	rm -rf iso_root
+	mkdir -p iso_root/boot
+	cp -v kernel/kernel iso_root/boot/
+	mkdir -p iso_root/boot/limine
+	cp -v limine.conf iso_root/boot/limine/
+	mkdir -p iso_root/EFI/BOOT
+	cp -v limine/limine-uefi-cd.bin iso_root/boot/limine/
+	cp -v limine/BOOTAA64.EFI iso_root/EFI/BOOT/
+	xorriso -as mkisofs \
+		--efi-boot boot/limine/limine-uefi-cd.bin \
+		-efi-boot-part --efi-boot-image --protective-msdos-label \
+		iso_root -o $(IMAGE_NAME).iso
+
+$(IMAGE_NAME).hdd: limine/limine kernel
+	rm -f $(IMAGE_NAME).hdd
+	dd if=/dev/zero bs=1M count=0 seek=64 of=$(IMAGE_NAME).hdd
+	sgdisk $(IMAGE_NAME).hdd -n 1:2048 -t 1:ef00
+	mformat -i $(IMAGE_NAME).hdd@@1M
+	mmd -i $(IMAGE_NAME).hdd@@1M ::/EFI ::/EFI/BOOT ::/boot ::/boot/limine
+	mcopy -i $(IMAGE_NAME).hdd@@1M kernel/bin-$(KARCH)/kernel ::/boot
+	mcopy -i $(IMAGE_NAME).hdd@@1M limine/BOOTAA64.EFI ::/EFI/BOOT
+
 
 .PHONY: clean-img
 clean-img:	
